@@ -1,0 +1,76 @@
+You are a senior AI engineer and full-stack developer.
+
+I want to build a modern, production-ready AI project based on this idea:
+
+"Skin Disease Detection using Image Processing and Machine Learning"
+
+Transform the traditional MATLAB-based pipeline into a scalable web-based AI application.
+
+-----------------------------------
+🎯 PROJECT GOAL:
+Build an AI system where users upload a skin image and the system predicts the disease (e.g., acne, melanoma, eczema, psoriasis, etc.).
+
+-----------------------------------
+🧩 REQUIREMENTS:
+
+1. MODEL DEVELOPMENT:
+- Replace traditional feature extraction (DWT, GLCM) with Deep Learning
+- Use CNN architectures (ResNet, EfficientNet, or MobileNet)
+- Use transfer learning for better accuracy
+- Train on publicly available datasets (e.g., HAM10000, ISIC dataset)
+- Output: disease class + confidence score
+
+2. IMAGE PROCESSING (optional but advanced):
+- Include preprocessing:
+  - resizing
+  - normalization
+  - noise reduction
+- Add optional segmentation (U-Net or simple masking)
+
+3. BACKEND:
+- Use Python (FastAPI or Flask)
+- Create API:
+  - POST /predict → takes image → returns prediction
+- Include model loading and inference pipeline
+
+4. FRONTEND:
+- Use Next.js or React
+- Features:
+  - Upload image
+  - Preview image
+  - Show prediction + confidence
+  - Clean UI (medical style dashboard)
+
+5. DATABASE (optional):
+- Store user history
+- Store uploaded images and predictions
+
+6. DEPLOYMENT:
+- Use Docker
+- Deploy on AWS / Vercel / Railway
+- Optional: GPU inference support
+
+7. EXTRA FEATURES (to make it SaaS-level):
+- Authentication (login/signup)
+- Dashboard with history
+- Doctor recommendation (future scope)
+- API monetization
+
+-----------------------------------
+📊 OUTPUT EXPECTED:
+
+- Folder structure (frontend + backend)
+- Model training code
+- API code
+- Frontend UI code
+- Deployment steps
+
+-----------------------------------
+⚡ BONUS:
+- Compare classical ML (SVM + GLCM) vs Deep Learning
+- Explain accuracy improvements
+- Suggest future improvements
+
+-----------------------------------
+
+Build this step-by-step like a real production project.

@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "Smooth page transitions and medical scanning animations"
+  "react-dropzone": "Robust drag-and-drop file upload for images"
+  "date-fns": "Human-readable date formatting for prediction history"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge Tailwind CSS classes without style conflicts"
+
+images:
+  - path: "artifacts/skin-ai/public/images/medical-bg.png"
+    description: "Abstract modern medical background with clean white and soft teal geometric waves, highly professional, clinical, 8k resolution"
+    aspect_ratio: "16:9"
+  - path: "artifacts/skin-ai/public/images/logo-icon.png"
+    description: "Minimalist app icon for a skin health AI app, featuring a stylized glowing teal cross or skin layer, clean white background"
+    aspect_ratio: "1:1"
+
+notes:
+  - Using generated hooks from @workspace/api-client-react
+  - Routing via wouter
+  - Image upload expects base64 conversion on frontend before hitting API

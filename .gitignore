@@ -1,0 +1,107 @@
+# ============================================================
+# MedFusion AI - .gitignore
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# ---------- Node / Frontend ----------
+node_modules/
+frontend/dist/
+frontend/build/
+*.tsbuildinfo
+.vite/
+
+# ---------- IDE ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---------- Environment / Secrets ----------
+.env
+.env.local
+.env.production
+!.env.example
+
+# ---------- Data & Models (large files) ----------
+data/raw/
+data/processed/
+data/splits/
+models/**/*.pt
+models/**/*.pth
+models/**/*.onnx
+models/**/*.joblib
+models/**/*.pkl
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.joblib
+models/*.pkl
+!models/.gitkeep
+!models/registry/.gitkeep
+!models/registry/**/metadata.json
+!models/registry/registry_manifest.json
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/splits/.gitkeep
+
+# ---------- ML Artifacts ----------
+mlruns/
+mlartifacts/
+wandb/
+outputs/
+lightning_logs/
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ---------- Docker ----------
+docker/volumes/
+
+# ---------- Testing ----------
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- Uploads / Generated ----------
+uploads/
+generated_reports/
+static/explanations/
+
+# ---------- Database ----------
+*.db
+*.sqlite3

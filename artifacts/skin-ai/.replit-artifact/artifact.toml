@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Skin Disease Detection AI"
+version = "1.0.0"
+id = "artifacts/skin-ai"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 19881
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/skin-ai run dev"
+
+[services.env]
+PORT = "19881"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/skin-ai", "run", "build"]
+publicDir = "artifacts/skin-ai/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
