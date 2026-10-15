@@ -28,7 +28,10 @@ export async function generateImageBuffer(
     prompt,
     size,
   });
-  const base64 = response.data[0]?.b64_json ?? "";
+  if (!response.data || response.data.length === 0 || !response.data[0]?.b64_json) {
+    throw new Error("Failed to generate image: no data returned");
+  }
+  const base64 = response.data[0].b64_json;
   return Buffer.from(base64, "base64");
 }
 
@@ -51,7 +54,11 @@ export async function editImages(
     prompt,
   });
 
-  const imageBase64 = response.data[0]?.b64_json ?? "";
+  if (!response.data || response.data.length === 0 || !response.data[0]?.b64_json) {
+    throw new Error("Failed to edit image: no data returned");
+  }
+
+  const imageBase64 = response.data[0].b64_json;
   const imageBytes = Buffer.from(imageBase64, "base64");
 
   if (outputPath) {

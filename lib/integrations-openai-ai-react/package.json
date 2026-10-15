@@ -7,7 +7,15 @@
     ".": "./src/index.ts",
     "./audio": "./src/audio/index.ts"
   },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:"
   }
 }

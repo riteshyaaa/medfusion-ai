@@ -1,7 +1,7 @@
 packages:
-  - artifacts/**
-  - lib/**
-  - scripts
+  - "artifacts/**"
+  - "lib/**"
+  - "scripts"
 
 catalog:
   '@hookform/resolvers': ^3.10.0
@@ -78,4 +78,4 @@ catalog:
   vaul: ^1.1.2
   vite: ^5.4.0
   wouter: ^3.3.5
-  zod: ^3.23.0
+  zod: ^3.25.0

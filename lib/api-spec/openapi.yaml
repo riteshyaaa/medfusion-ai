@@ -1,16 +1,30 @@
 openapi: 3.1.0
 info:
-  title: Api
+  title: MedScope AI API
   version: 0.1.0
-  description: Skin Disease Detection AI API
+  description: Intelligent Health Assessment Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: uploads
+    description: File upload operations
   - name: predictions
     description: Skin disease prediction operations
+  - name: patients
+    description: Patient management operations
+  - name: cases
+    description: Case management operations
+  - name: symptom-assessments
+    description: Symptom assessment operations
+  - name: reviews
+    description: Clinical review operations
+  - name: reports
+    description: Report operations
 paths:
   /healthz:
     get:
@@ -25,13 +39,165 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
-
+  /readyz:
+    get:
+      operationId: readinessCheck
+      tags: [health]
+      summary: Readiness check
+      description: Returns server readiness including database connectivity
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessStatus"
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current authenticated user
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /uploads:
+    post:
+      operationId: uploadFile
+      tags: [uploads]
+      summary: Upload a file
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+      responses:
+        "201":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /predict:
     post:
       operationId: predictSkinDisease
       tags: [predictions]
       summary: Predict skin disease from image
       description: Analyzes uploaded skin image and returns disease prediction with confidence score
+      security:
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -51,19 +217,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: Internal server error
+        "503":
+          description: Model unavailable
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-
   /predictions:
     get:
       operationId: getPredictionHistory
       tags: [predictions]
       summary: Get prediction history
       description: Returns list of past skin disease predictions
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
         "200":
           description: List of past predictions
@@ -71,13 +252,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PredictionHistoryResponse"
-
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /predictions/{id}:
     get:
       operationId: getPredictionById
       tags: [predictions]
       summary: Get prediction by ID
       description: Returns a specific prediction by its ID
+      security:
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -91,14 +279,677 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PredictionRecord"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Prediction not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /patients:
+    get:
+      operationId: listPatients
+      tags: [patients]
+      summary: List patients
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of patients
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createPatient
+      tags: [patients]
+      summary: Create a patient
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePatientRequest"
+      responses:
+        "201":
+          description: Patient created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /patients/{id}:
+    get:
+      operationId: getPatient
+      tags: [patients]
+      summary: Get patient by ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Patient details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Patient not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updatePatient
+      tags: [patients]
+      summary: Update patient
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePatientRequest"
+      responses:
+        "200":
+          description: Patient updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Patient not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deletePatient
+      tags: [patients]
+      summary: Delete patient
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Patient deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Patient not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cases:
+    get:
+      operationId: listCases
+      tags: [cases]
+      summary: List cases
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, in_review, closed, on_hold]
+        - name: patientId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of cases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createCase
+      tags: [cases]
+      summary: Create a case
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCaseRequest"
+      responses:
+        "201":
+          description: Case created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cases/{id}:
+    get:
+      operationId: getCase
+      tags: [cases]
+      summary: Get case by ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Case details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Case not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCase
+      tags: [cases]
+      summary: Update case
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCaseRequest"
+      responses:
+        "200":
+          description: Case updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Case not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /symptom-assessments:
+    post:
+      operationId: createSymptomAssessment
+      tags: [symptom-assessments]
+      summary: Create a symptom assessment
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSymptomAssessmentRequest"
+      responses:
+        "201":
+          description: Symptom assessment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAssessmentResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /symptom-assessments/{id}:
+    get:
+      operationId: getSymptomAssessment
+      tags: [symptom-assessments]
+      summary: Get symptom assessment by ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Symptom assessment details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAssessmentResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Symptom assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /reviews:
+    post:
+      operationId: createReview
+      tags: [reviews]
+      summary: Create a clinical review
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReviewRequest"
+      responses:
+        "201":
+          description: Review created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - clinician role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /reviews/{id}:
+    get:
+      operationId: getReview
+      tags: [reviews]
+      summary: Get review by ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Review details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateReview
+      tags: [reviews]
+      summary: Update a clinical review
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReviewRequest"
+      responses:
+        "200":
+          description: Review updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden - clinician role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /reports:
+    get:
+      operationId: listReports
+      tags: [reports]
+      summary: List reports
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, finalized, archived, amended]
+        - name: caseId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createReport
+      tags: [reports]
+      summary: Create a report
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReportRequest"
+      responses:
+        "201":
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /reports/{id}:
+    get:
+      operationId: getReport
+      tags: [reports]
+      summary: Get report by ID
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Report details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateReport
+      tags: [reports]
+      summary: Update a report
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReportRequest"
+      responses:
+        "200":
+          description: Report updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
   schemas:
     HealthStatus:
       type: object
@@ -107,7 +958,136 @@ components:
           type: string
       required:
         - status
-
+    ReadinessStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        checks:
+          type: object
+          properties:
+            database:
+              type: boolean
+            model:
+              type: boolean
+      required:
+        - status
+        - checks
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        fullName:
+          type: string
+      required:
+        - email
+        - password
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        sessionId:
+          type: string
+      required:
+        - user
+        - sessionId
+    LogoutResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [user, clinician, admin]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - role
+        - isActive
+        - createdAt
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - user
+    UploadRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+        caseId:
+          type: integer
+      required:
+        - file
+    UploadResponse:
+      type: object
+      properties:
+        upload:
+          $ref: "#/components/schemas/Upload"
+      required:
+        - upload
+    Upload:
+      type: object
+      properties:
+        id:
+          type: integer
+        storageKey:
+          type: string
+        originalFileName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - storageKey
+        - originalFileName
+        - mimeType
+        - sizeBytes
+        - createdAt
     PredictRequest:
       type: object
       properties:
@@ -122,7 +1102,6 @@ components:
           description: Original filename of the uploaded image
       required:
         - imageBase64
-
     PredictionResult:
       type: object
       properties:
@@ -130,35 +1109,34 @@ components:
           type: integer
         disease:
           type: string
-          description: Predicted skin disease name
         confidence:
           type: number
-          description: Confidence score between 0 and 1
         description:
           type: string
-          description: Brief description of the predicted condition
         severity:
           type: string
           enum: [mild, moderate, severe, normal]
-          description: Severity level of the predicted condition
         recommendations:
           type: array
           items:
             type: string
-          description: List of treatment/care recommendations
         differentialDiagnoses:
           type: array
           items:
             $ref: "#/components/schemas/DifferentialDiagnosis"
-          description: Other possible diagnoses with lower confidence
         preprocessingSteps:
           type: array
           items:
             type: string
-          description: Image preprocessing steps applied
+        modelId:
+          type: string
+        modelVersion:
+          type: string
+        status:
+          type: string
+          enum: [completed, model_unavailable, invalid_input, abstained, failed]
         createdAt:
           type: string
-          description: ISO timestamp of prediction
       required:
         - id
         - disease
@@ -168,8 +1146,10 @@ components:
         - recommendations
         - differentialDiagnoses
         - preprocessingSteps
+        - modelId
+        - modelVersion
+        - status
         - createdAt
-
     DifferentialDiagnosis:
       type: object
       properties:
@@ -180,7 +1160,6 @@ components:
       required:
         - disease
         - confidence
-
     PredictionRecord:
       type: object
       properties:
@@ -210,6 +1189,12 @@ components:
           type: string
         fileName:
           type: string
+        modelId:
+          type: string
+        modelVersion:
+          type: string
+        status:
+          type: string
         createdAt:
           type: string
       required:
@@ -222,7 +1207,6 @@ components:
         - differentialDiagnoses
         - preprocessingSteps
         - createdAt
-
     PredictionHistoryResponse:
       type: object
       properties:
@@ -232,10 +1216,528 @@ components:
             $ref: "#/components/schemas/PredictionRecord"
         total:
           type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
       required:
         - predictions
         - total
-
+        - page
+        - limit
+    Patient:
+      type: object
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        sex:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        address:
+          type: object
+        medicalHistory:
+          type: array
+          items:
+            type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        medications:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - firstName
+        - lastName
+        - createdAt
+        - updatedAt
+    PatientResponse:
+      type: object
+      properties:
+        patient:
+          $ref: "#/components/schemas/Patient"
+      required:
+        - patient
+    PatientListResponse:
+      type: object
+      properties:
+        patients:
+          type: array
+          items:
+            $ref: "#/components/schemas/Patient"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - patients
+        - total
+        - page
+        - limit
+    CreatePatientRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        sex:
+          type: string
+          enum: [male, female, other]
+        phone:
+          type: string
+        email:
+          type: string
+        address:
+          type: object
+        medicalHistory:
+          type: array
+          items:
+            type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        medications:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+      required:
+        - firstName
+        - lastName
+    UpdatePatientRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        sex:
+          type: string
+          enum: [male, female, other]
+        phone:
+          type: string
+        email:
+          type: string
+        address:
+          type: object
+        medicalHistory:
+          type: array
+          items:
+            type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        medications:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+    Case:
+      type: object
+      properties:
+        id:
+          type: integer
+        caseNumber:
+          type: string
+        patientId:
+          type: integer
+        createdById:
+          type: integer
+        assignedToId:
+          type: integer
+        type:
+          type: string
+          enum: [skin_analysis, symptom_assessment, follow_up, consultation]
+        status:
+          type: string
+          enum: [open, in_review, closed, on_hold]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        chiefComplaint:
+          type: string
+        clinicalNotes:
+          type: array
+          items:
+            type: object
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        closedAt:
+          type: string
+      required:
+        - id
+        - caseNumber
+        - patientId
+        - createdById
+        - type
+        - status
+        - priority
+        - createdAt
+        - updatedAt
+    CaseResponse:
+      type: object
+      properties:
+        case:
+          $ref: "#/components/schemas/Case"
+      required:
+        - case
+    CaseListResponse:
+      type: object
+      properties:
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/Case"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - cases
+        - total
+        - page
+        - limit
+    CreateCaseRequest:
+      type: object
+      properties:
+        patientId:
+          type: integer
+        type:
+          type: string
+          enum: [skin_analysis, symptom_assessment, follow_up, consultation]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        chiefComplaint:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - patientId
+        - type
+    UpdateCaseRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, in_review, closed, on_hold]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        assignedToId:
+          type: integer
+        chiefComplaint:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    SymptomAssessment:
+      type: object
+      properties:
+        id:
+          type: integer
+        primarySymptom:
+          type: string
+        symptomCategory:
+          type: string
+        onset:
+          type: string
+        duration:
+          type: string
+        severity:
+          type: string
+        progression:
+          type: string
+        associatedSymptoms:
+          type: array
+          items:
+            type: string
+        medicalHistory:
+          type: array
+          items:
+            type: string
+        medications:
+          type: array
+          items:
+            type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        redFlagsTriggered:
+          type: array
+          items:
+            type: string
+        urgencyLevel:
+          type: string
+          enum: [emergency, urgent, routine, self_care]
+        guidance:
+          type: object
+        status:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - primarySymptom
+        - symptomCategory
+        - urgencyLevel
+        - guidance
+        - status
+        - createdAt
+        - updatedAt
+    SymptomAssessmentResponse:
+      type: object
+      properties:
+        assessment:
+          $ref: "#/components/schemas/SymptomAssessment"
+      required:
+        - assessment
+    CreateSymptomAssessmentRequest:
+      type: object
+      properties:
+        caseId:
+          type: integer
+        primarySymptom:
+          type: string
+        symptomCategory:
+          type: string
+        onset:
+          type: string
+        duration:
+          type: string
+        severity:
+          type: string
+        progression:
+          type: string
+        associatedSymptoms:
+          type: array
+          items:
+            type: string
+        medicalHistory:
+          type: array
+          items:
+            type: string
+        medications:
+          type: array
+          items:
+            type: string
+        allergies:
+          type: array
+          items:
+            type: string
+      required:
+        - primarySymptom
+        - symptomCategory
+    Review:
+      type: object
+      properties:
+        id:
+          type: integer
+        predictionId:
+          type: integer
+        reviewerId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, reviewed, accepted, modified, rejected, needs_more_information]
+        originalOutput:
+          type: object
+        reviewedOutput:
+          type: object
+        rationale:
+          type: string
+        reviewedAt:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - predictionId
+        - reviewerId
+        - status
+        - originalOutput
+        - createdAt
+    ReviewResponse:
+      type: object
+      properties:
+        review:
+          $ref: "#/components/schemas/Review"
+      required:
+        - review
+    CreateReviewRequest:
+      type: object
+      properties:
+        predictionId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, reviewed, accepted, modified, rejected, needs_more_information]
+        reviewedOutput:
+          type: object
+        rationale:
+          type: string
+      required:
+        - predictionId
+        - status
+    UpdateReviewRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, reviewed, accepted, modified, rejected, needs_more_information]
+        reviewedOutput:
+          type: object
+        rationale:
+          type: string
+    Report:
+      type: object
+      properties:
+        id:
+          type: integer
+        reportNumber:
+          type: string
+        caseId:
+          type: integer
+        authorId:
+          type: integer
+        reviewerId:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          enum: [skin_analysis, symptom_assessment, comprehensive, follow_up]
+        status:
+          type: string
+          enum: [draft, finalized, archived, amended]
+        content:
+          type: object
+        predictionIds:
+          type: array
+          items:
+            type: integer
+        reviewedAt:
+          type: string
+        finalizedAt:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - reportNumber
+        - caseId
+        - authorId
+        - title
+        - type
+        - status
+        - content
+        - createdAt
+        - updatedAt
+    ReportResponse:
+      type: object
+      properties:
+        report:
+          $ref: "#/components/schemas/Report"
+      required:
+        - report
+    ReportListResponse:
+      type: object
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Report"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - reports
+        - total
+        - page
+        - limit
+    CreateReportRequest:
+      type: object
+      properties:
+        caseId:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          enum: [skin_analysis, symptom_assessment, comprehensive, follow_up]
+        content:
+          type: object
+        predictionIds:
+          type: array
+          items:
+            type: integer
+      required:
+        - caseId
+        - title
+        - type
+        - content
+    UpdateReportRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [draft, finalized, archived, amended]
+        content:
+          type: object
+        predictionIds:
+          type: array
+          items:
+            type: integer
     ErrorResponse:
       type: object
       properties:
