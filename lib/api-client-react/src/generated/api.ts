@@ -28,10 +28,13 @@ import type {
   AIExplanationRequest,
   AIExplanationResponse,
   AuthResponse,
+  CardiacAssessmentListResponse,
+  CardiacAssessmentResponse,
   CardiacModelStatus,
   CaseListResponse,
   CaseResponse,
   CaseWorkspaceResponse,
+  CreateCardiacAssessmentRequest,
   CreateCaseRequest,
   CreatePatientRequest,
   CreateReportRequest,
@@ -46,6 +49,7 @@ import type {
   GetPredictionHistoryParams,
   HealthStatus,
   InterpretDocumentRequest,
+  ListCardiacAssessmentsParams,
   ListCasesParams,
   ListDocumentsParams,
   ListPatientsParams,
@@ -64,8 +68,10 @@ import type {
   ReportListResponse,
   ReportResponse,
   ReviewResponse,
+  SkinInferenceStatus,
   SymptomAssessmentListResponse,
   SymptomAssessmentResponse,
+  SymptomClassifierStatus,
   UpdateCaseRequest,
   UpdateDocumentFindingRequest,
   UpdatePatientRequest,
@@ -3818,6 +3824,508 @@ export function useGetCardiacModelStatus<TData = Awaited<ReturnType<typeof getCa
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetCardiacModelStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListCardiacAssessmentsUrl = (params?: ListCardiacAssessmentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/cardiac/assessments?${stringifiedParams}` : `/api/cardiac/assessments`
+}
+
+/**
+ * @summary List persisted cardiac assessments (owner-scoped)
+ */
+export const listCardiacAssessments = async (params?: ListCardiacAssessmentsParams, options?: Parameters<typeof customFetch>[1]): Promise<CardiacAssessmentListResponse> => {
+
+  return customFetch<CardiacAssessmentListResponse>(getListCardiacAssessmentsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCardiacAssessmentsQueryKey = (params?: ListCardiacAssessmentsParams,) => {
+    return [
+    `/api/cardiac/assessments`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListCardiacAssessmentsQueryOptions = <TData = Awaited<ReturnType<typeof listCardiacAssessments>>, TError = ErrorType<ErrorResponse>>(params?: ListCardiacAssessmentsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCardiacAssessmentsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCardiacAssessments>>> = ({ signal }) => listCardiacAssessments(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListCardiacAssessmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listCardiacAssessments>>>
+export type ListCardiacAssessmentsQueryError = ErrorType<ErrorResponse>
+
+
+export function useListCardiacAssessments<TData = Awaited<ReturnType<typeof listCardiacAssessments>>, TError = ErrorType<ErrorResponse>>(
+ params: undefined |  ListCardiacAssessmentsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCardiacAssessments>>,
+          TError,
+          Awaited<ReturnType<typeof listCardiacAssessments>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCardiacAssessments<TData = Awaited<ReturnType<typeof listCardiacAssessments>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListCardiacAssessmentsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCardiacAssessments>>,
+          TError,
+          Awaited<ReturnType<typeof listCardiacAssessments>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCardiacAssessments<TData = Awaited<ReturnType<typeof listCardiacAssessments>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListCardiacAssessmentsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List persisted cardiac assessments (owner-scoped)
+ */
+
+export function useListCardiacAssessments<TData = Awaited<ReturnType<typeof listCardiacAssessments>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListCardiacAssessmentsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAssessments>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListCardiacAssessmentsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateCardiacAssessmentUrl = () => {
+
+
+
+
+  return `/api/cardiac/assessments`
+}
+
+/**
+ * Scores must come from the checksum-verified research bundle. Scores are uncalibrated logistic outputs, never clinical probabilities. Reuse of contract feature names and categories is required.
+ * @summary Run the research-only cardiac baseline and persist the assessment
+ */
+export const createCardiacAssessment = async (createCardiacAssessmentRequest: CreateCardiacAssessmentRequest, options?: Parameters<typeof customFetch>[1]): Promise<CardiacAssessmentResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<CardiacAssessmentResponse>(getCreateCardiacAssessmentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createCardiacAssessmentRequest)
+  }
+);}
+
+
+
+
+
+export const getCreateCardiacAssessmentMutationKey = () => ['createCardiacAssessment'] as const;
+
+export const getCreateCardiacAssessmentMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCardiacAssessment>>, TError,CreateCardiacAssessmentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCardiacAssessment>>, TError,CreateCardiacAssessmentMutationVariables, TContext> => {
+
+const mutationKey = getCreateCardiacAssessmentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCardiacAssessment>>, CreateCardiacAssessmentMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createCardiacAssessment(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCardiacAssessmentMutationResult = NonNullable<Awaited<ReturnType<typeof createCardiacAssessment>>>
+    export type CreateCardiacAssessmentMutationBody = BodyType<CreateCardiacAssessmentRequest>
+    export type CreateCardiacAssessmentMutationError = ErrorType<ErrorResponse>
+    export type CreateCardiacAssessmentMutationVariables = {data: BodyType<CreateCardiacAssessmentRequest>}
+
+    /**
+ * @summary Run the research-only cardiac baseline and persist the assessment
+ */
+export const useCreateCardiacAssessment = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCardiacAssessment>>, TError,CreateCardiacAssessmentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createCardiacAssessment>>,
+        TError,
+        CreateCardiacAssessmentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateCardiacAssessmentMutationOptions(options), queryClient);
+    }
+
+export const getGetCardiacAssessmentUrl = (id: number,) => {
+
+
+
+
+  return `/api/cardiac/assessments/${id}`
+}
+
+/**
+ * @summary Get one persisted cardiac assessment
+ */
+export const getCardiacAssessment = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<CardiacAssessmentResponse> => {
+
+  return customFetch<CardiacAssessmentResponse>(getGetCardiacAssessmentUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCardiacAssessmentQueryKey = (id: number,) => {
+    return [
+    `/api/cardiac/assessments/${id}`
+    ] as const;
+    }
+
+
+export const getGetCardiacAssessmentQueryOptions = <TData = Awaited<ReturnType<typeof getCardiacAssessment>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCardiacAssessmentQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCardiacAssessment>>> = ({ signal }) => getCardiacAssessment(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetCardiacAssessmentQueryResult = NonNullable<Awaited<ReturnType<typeof getCardiacAssessment>>>
+export type GetCardiacAssessmentQueryError = ErrorType<ErrorResponse>
+
+
+export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCardiacAssessment>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCardiacAssessment>>,
+          TError,
+          Awaited<ReturnType<typeof getCardiacAssessment>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCardiacAssessment>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getCardiacAssessment>>,
+          TError,
+          Awaited<ReturnType<typeof getCardiacAssessment>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCardiacAssessment>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get one persisted cardiac assessment
+ */
+
+export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCardiacAssessment>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCardiacAssessment>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetCardiacAssessmentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSymptomClassifierStatusUrl = () => {
+
+
+
+
+  return `/api/symptoms/classifier-status`
+}
+
+/**
+ * Reports whether the checksum-verified research-only symptom classifier is installed and returns the curated symptom vocabulary for building the multi-select interface. Scores from this classifier are uncalibrated posteriors and must never be presented as diagnoses.
+ * @summary Symptom classifier availability, catalogue, and provenance
+ */
+export const getSymptomClassifierStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<SymptomClassifierStatus> => {
+
+  return customFetch<SymptomClassifierStatus>(getGetSymptomClassifierStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSymptomClassifierStatusQueryKey = () => {
+    return [
+    `/api/symptoms/classifier-status`
+    ] as const;
+    }
+
+
+export const getGetSymptomClassifierStatusQueryOptions = <TData = Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSymptomClassifierStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSymptomClassifierStatus>>> = ({ signal }) => getSymptomClassifierStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSymptomClassifierStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getSymptomClassifierStatus>>>
+export type GetSymptomClassifierStatusQueryError = ErrorType<unknown>
+
+
+export function useGetSymptomClassifierStatus<TData = Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSymptomClassifierStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getSymptomClassifierStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSymptomClassifierStatus<TData = Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSymptomClassifierStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getSymptomClassifierStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSymptomClassifierStatus<TData = Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Symptom classifier availability, catalogue, and provenance
+ */
+
+export function useGetSymptomClassifierStatus<TData = Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSymptomClassifierStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSymptomClassifierStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSkinModelStatusUrl = () => {
+
+
+
+
+  return `/api/skin/model-status`
+}
+
+/**
+ * Reports whether a checksum-verified skin model artifact is installed and which serving mode applies. Research-only artifacts stay clearly labelled: their scores are raw model outputs, not clinically validated results.
+ * @summary Skin model availability and mode
+ */
+export const getSkinModelStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<SkinInferenceStatus> => {
+
+  return customFetch<SkinInferenceStatus>(getGetSkinModelStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSkinModelStatusQueryKey = () => {
+    return [
+    `/api/skin/model-status`
+    ] as const;
+    }
+
+
+export const getGetSkinModelStatusQueryOptions = <TData = Awaited<ReturnType<typeof getSkinModelStatus>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSkinModelStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSkinModelStatus>>> = ({ signal }) => getSkinModelStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSkinModelStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getSkinModelStatus>>>
+export type GetSkinModelStatusQueryError = ErrorType<unknown>
+
+
+export function useGetSkinModelStatus<TData = Awaited<ReturnType<typeof getSkinModelStatus>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSkinModelStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getSkinModelStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSkinModelStatus<TData = Awaited<ReturnType<typeof getSkinModelStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSkinModelStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getSkinModelStatus>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetSkinModelStatus<TData = Awaited<ReturnType<typeof getSkinModelStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Skin model availability and mode
+ */
+
+export function useGetSkinModelStatus<TData = Awaited<ReturnType<typeof getSkinModelStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSkinModelStatus>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSkinModelStatusQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

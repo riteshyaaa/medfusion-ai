@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CardiacModelStatusStatus = typeof CardiacModelStatusStatus[keyof typeof CardiacModelStatusStatus];
+/**
+ * @nullable
+ */
+export type CardiacModelStatusStatus = typeof CardiacModelStatusStatus[keyof typeof CardiacModelStatusStatus] | null;
 
 
 export const CardiacModelStatusStatus = {

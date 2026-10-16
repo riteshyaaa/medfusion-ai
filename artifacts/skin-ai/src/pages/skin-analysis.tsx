@@ -6,13 +6,16 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
-import { deleteUpload, uploadFile } from "@workspace/api-client-react";
+import { deleteUpload, uploadFile, useGetSkinModelStatus } from "@workspace/api-client-react";
 
 export default function SkinAnalysis() {
   const { mutate: analyze, isPending, data: result, reset } = useAnalyzeSkin();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [isUploading, setIsUploading] = useState(false);
+  const modelStatus = useGetSkinModelStatus();
+  const status = modelStatus.data;
+  const researchAvailable = Boolean(status?.available && status.mode === "research_only");
 
   const handleUpload = async (uploadedFile: File) => {
     setIsUploading(true);
@@ -32,8 +35,8 @@ export default function SkinAnalysis() {
             await deleteUpload(uploadId!).catch(() => undefined);
             const message = (error as { data?: { message?: string } }).data?.message;
             toast({
-              title: "Skin model unavailable",
-              description: message || "No approved skin-analysis model is configured. No prediction was created, and the temporary upload was removed when possible.",
+              title: "Skin analysis did not complete",
+              description: message || "No verified and enabled skin model is configured. No prediction was created, and the temporary upload was removed when possible.",
               variant: "destructive",
             });
             reset();
@@ -79,7 +82,9 @@ export default function SkinAnalysis() {
               Skin Analysis
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-              Upload an image for server-side validation. The skin classification model is currently unavailable, so this prototype will not return a condition result.
+              {researchAvailable
+                ? "Upload an image for server-side analysis. A verified research-only baseline model will rank candidate labels from raw scores. This is not a diagnosis."
+                : "Upload an image for server-side validation. No verified and enabled skin model is currently available, so this prototype will not return a condition result."}
             </p>
           </div>
 
@@ -89,8 +94,16 @@ export default function SkinAnalysis() {
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
-              <div className="text-3xl font-display font-bold text-amber-600 mb-2">Unavailable</div>
-              <p className="text-sm text-slate-500">No approved skin model is configured</p>
+              <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-amber-600" : "text-slate-400"}`}>
+                {researchAvailable ? "Research preview" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
+              </div>
+              <p className="text-sm text-slate-500">
+                {researchAvailable
+                  ? `Checksum-verified ${status?.modelVersion ?? "model"} • raw scores only`
+                  : researchAvailable === false && status?.reason
+                    ? "No verified model is enabled for inference"
+                    : "No approved skin model is configured"}
+              </p>
             </div>
             <div>
               <div className="text-3xl font-display font-bold text-primary mb-2">Privacy First</div>
@@ -115,8 +128,15 @@ export default function SkinAnalysis() {
                 <ul className="text-amber-700 text-sm space-y-1">
                   <li>• This is a research prototype, not a medical device</li>
                   <li>• Cannot reliably rule out skin cancer or other serious conditions</li>
-                  <li>• No results are available until a verified model is approved and configured</li>
-                  <li>• Any future model would have limitations across skin tone, image quality, and condition type</li>
+                  {researchAvailable ? (
+                    <>
+                      <li>• The served checkpoint is a research baseline on PAD-UFES-20; it was never clinically validated and its held-out accuracy is low ({status?.readinessState === "research_only_not_approved" ? "test accuracy ≈ 25%, macro-F1 ≈ 0.23" : "unverified"}), so labels are often wrong</li>
+                      <li>• Scores are raw softmax outputs (uncalibrated); they are not diagnostic probabilities</li>
+                    </>
+                  ) : (
+                    <li>• No results are available until a verified model is approved and configured</li>
+                  )}
+                  <li>• Any model would have limitations across skin tone, image quality, and condition type</li>
                 </ul>
               </div>
             </div>

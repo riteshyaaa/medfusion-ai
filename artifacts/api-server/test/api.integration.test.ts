@@ -18,6 +18,7 @@ process.env.RATE_LIMIT_UPLOAD = "100";
 process.env.RATE_LIMIT_DOCUMENT = "100";
 process.env.RATE_LIMIT_PREDICT = "100";
 process.env.AI_RATE_LIMIT = "100";
+process.env.SKIN_RESEARCH_INFERENCE_ENABLED = "false";
 const uploadDirectory = await mkdtemp(path.join(tmpdir(), "medscope-api-test-"));
 process.env.UPLOAD_DIR = uploadDirectory;
 
@@ -28,6 +29,7 @@ const [
   { setTestInferenceProvider },
   { setTestOcrProvider },
   { setTestDocumentInterpreter },
+  { cardiacModelStatus },
 ] = await Promise.all([
   import("../src/app"),
   import("@workspace/db"),
@@ -35,6 +37,7 @@ const [
   import("../src/inference"),
   import("../src/document-extraction"),
   import("../src/document-interpreter"),
+  import("../src/cardiac"),
 ]);
 
 const createdUserIds: number[] = [];
@@ -134,6 +137,7 @@ test("API foundation persists data, enforces owner access, and fails closed with
 
   const readiness = await app.request("/api/readyz");
   assert.equal(readiness.status, 200);
+  const cardiacExpected = JSON.parse(JSON.stringify(await cardiacModelStatus())) as Record<string, unknown>;
   assert.deepEqual(await readiness.json(), {
     status: "ready",
     checks: {
@@ -142,6 +146,15 @@ test("API foundation persists data, enforces owner access, and fails closed with
       cardiacModel: false,
       aiProvider: "disabled",
       documentOcr: { status: "configured", providerId: "tesseract.js" },
+      skinInference: { available: false, reason: "Research-only skin inference is disabled by configuration (SKIN_RESEARCH_INFERENCE_ENABLED=false).", status: "unavailable" },
+      symptomClassifier: {
+        available: true,
+        classCount: 41,
+        mode: "research_only",
+        modelId: "medscope-symptoms-bernoulli-nb-v1",
+        modelVersion: "symptom-bernoulli-nb-20261016",
+      },
+      cardiacInference: cardiacExpected,
     },
   });
 
@@ -220,7 +233,73 @@ test("API foundation persists data, enforces owner access, and fails closed with
   const symptomId = symptomBody.assessment.id;
   assert.equal((await jsonRequest(`/symptom-assessments/${symptomId}`, "GET", undefined, cookieB)).status, 404);
   assert.equal((await (await jsonRequest("/symptom-assessments", "GET", undefined, cookieB)).json() as { total: number }).total, 0);
+  const persistedSymptom = await jsonRequest(`/symptom-assessments/${symptomId}`, "GET", undefined, cookieA);
+  const persistedSymptomBody = await persistedSymptom.json() as { assessment: { classification: { status: string } | null } };
+  assert.equal(persistedSymptomBody.assessment.classification?.status, "insufficient_input");
+
+  const classification = await jsonRequest("/symptom-assessments", "POST", {
+    primarySymptom: "itching and skin rash",
+    symptomCategory: "skin",
+    selectedSymptoms: ["itching", "skin_rash", "my custom phrase"],
+  }, cookieA);
+  assert.equal(classification.status, 201);
+  const classificationBody = await classification.json() as { assessment: { id: number; classification: { status: string; modelId: string; rankedConditions: Array<{ condition: string; score: number; supportingSymptoms: string[] }>; unmatchedSymptoms: string[]; notice: string } } };
+  assert.equal(classificationBody.assessment.classification.status, "completed");
+  assert.equal(classificationBody.assessment.classification.modelId, "medscope-symptoms-bernoulli-nb-v1");
+  assert.equal(classificationBody.assessment.classification.rankedConditions[0]?.condition, "Fungal infection");
+  assert.ok(classificationBody.assessment.classification.rankedConditions[0]?.score > 0.9);
+  assert.deepEqual(classificationBody.assessment.classification.unmatchedSymptoms, ["my custom phrase"]);
+  assert.match(classificationBody.assessment.classification.notice, /not diagnosis probabilities/i);
+  const classificationPersisted = await (await jsonRequest(`/symptom-assessments/${classificationBody.assessment.id}`, "GET", undefined, cookieA)).json() as { assessment: { classification: { status: string; rankedConditions: { length: number } } } };
+  assert.equal(classificationPersisted.assessment.classification.status, "completed");
+  assert.equal(classificationPersisted.assessment.classification.rankedConditions.length, 8);
+  const catalogueStatus = await app.request("/api/symptoms/classifier-status");
+  const catalogueBody = await catalogueStatus.json() as { available: boolean; catalogue?: string[]; mode?: string };
+  assert.equal(catalogueBody.available, true);
+  assert.equal(catalogueBody.mode, "research_only");
+  assert.ok((catalogueBody.catalogue?.length ?? 0) === 132);
   assert.equal((await jsonRequest("/symptom-assessments", "POST", { caseId, primarySymptom: "test", symptomCategory: "general" }, cookieB)).status, 404);
+
+  const cardiacStatus = await app.request("/api/cardiac/model-status");
+  assert.equal(cardiacStatus.status, 200);
+  const cardiacStatusBody = await cardiacStatus.json() as { available: boolean; mode?: string; modelId?: string; metrics?: { test?: { rocAuc?: number } } };
+  assert.equal(cardiacStatusBody.available, true);
+  assert.equal(cardiacStatusBody.mode, "research_only");
+  assert.equal(cardiacStatusBody.modelId, "medscope-cardiac-logreg-v1");
+  assert.ok(cardiacStatusBody.metrics && typeof cardiacStatusBody.metrics.test?.rocAuc === "number");
+
+  const cardiac = await jsonRequest("/cardiac/assessments", "POST", {
+    caseId,
+    age: 58, sex: "male", chestPainType: "asymptomatic", restingBloodPressure: 140, serumCholesterol: 260,
+    fastingBloodSugarOver120: "no", restingEcg: "st_t_abnormality", maxHeartRate: 130, exerciseAngina: "yes",
+    stDepression: 3.2, stSlope: "flat", majorVessels: 2, thalassemia: "reversible_defect",
+  }, cookieA);
+  assert.equal(cardiac.status, 201);
+  const cardiacBody = await cardiac.json() as { assessment: { id: number; status: string; riskScore: number; label: string; aboveThreshold: boolean; threshold: number; modelId: string; modelVersion: string; topFactors: unknown[]; notice: string; diagnosticLimitations: string[] } };
+  assert.equal(cardiacBody.assessment.status, "research_only");
+  assert.ok(Math.abs(cardiacBody.assessment.riskScore - 0.99709692) < 0.00005, `expected pinned high-risk ~0.99709692, got ${cardiacBody.assessment.riskScore}`);
+  assert.equal(cardiacBody.assessment.label, "disease");
+  assert.equal(cardiacBody.assessment.aboveThreshold, true);
+  assert.equal(cardiacBody.assessment.threshold, 0.5);
+  assert.equal(cardiacBody.assessment.modelId, "medscope-cardiac-logreg-v1");
+  assert.equal(cardiacBody.assessment.modelVersion, "cardiac-logreg-20261016");
+  assert.equal(cardiacBody.assessment.topFactors.length, 3);
+  assert.match(cardiacBody.assessment.notice, /not a probability of heart disease/i);
+  assert.ok(cardiacBody.assessment.diagnosticLimitations.length > 0);
+  const cardiacId = cardiacBody.assessment.id;
+  assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}`, "GET", undefined, cookieB)).status, 404);
+  const cardiacList = await jsonRequest("/cardiac/assessments", "GET", undefined, cookieA);
+  assert.equal((await cardiacList.json() as { assessments: unknown[] }).assessments.length, 1);
+  const cardiacInvalid = await jsonRequest("/cardiac/assessments", "POST", {
+    caseId, age: 58, sex: "male", chestPainType: "asymptomatic", restingBloodPressure: 140, serumCholesterol: 260,
+    fastingBloodSugarOver120: "no", restingEcg: "st_t_abnormality", maxHeartRate: 130, exerciseAngina: "yes",
+    stDepression: 3.2, stSlope: "flat", majorVessels: 1.5, thalassemia: "reversible_defect",
+  }, cookieA);
+  assert.equal(cardiacInvalid.status, 400);
+  const cardiacInvalidBody = await cardiacInvalid.json() as { error: string; field: string };
+  assert.equal(cardiacInvalidBody.error, "invalid_feature_value");
+  assert.equal(cardiacInvalidBody.field, "majorVessels");
+  assert.equal((await (await jsonRequest("/cardiac/assessments", "GET", undefined, cookieB)).json() as { total: number }).total, 0);
 
   const png = await sharp({ create: { width: 3, height: 2, channels: 3, background: "#d9a78b" } }).png().toBuffer();
   const uploadResponse = await upload(cookieA, png, "image/png", "synthetic-fixture.png", caseId);
@@ -245,7 +324,7 @@ test("API foundation persists data, enforces owner access, and fails closed with
   assert.equal(unavailable.status, 503);
   const unavailableBody = await unavailable.json() as { error: string; message: string };
   assert.equal(unavailableBody.error, "model_unavailable");
-  assert.match(unavailableBody.message, /no approved model/i);
+  assert.match(unavailableBody.message, /no verified and enabled skin model/i);
   assert.equal((await (await jsonRequest("/predictions", "GET", undefined, cookieA)).json() as { total: number }).total, 0);
   assert.equal((await jsonRequest("/predict", "POST", { uploadId }, cookieB)).status, 404);
 

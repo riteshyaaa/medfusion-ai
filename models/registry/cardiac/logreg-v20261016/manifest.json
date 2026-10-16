@@ -1,0 +1,104 @@
+{
+  "modelId": "medscope-cardiac-logreg-v1",
+  "modelVersion": "cardiac-logreg-20261016",
+  "modality": "structured_cardiac_features",
+  "task": "binary-heart-disease-risk-research-classification",
+  "intendedUse": "Research-only demonstration of a structured-feature classifier against the UCI Cleveland cohort. Decision-support prototyping only.",
+  "outOfScope": [
+    "Clinical risk assessment or triage",
+    "Any prediction outside the 13 recorded features",
+    "Use with real patient identifiers in production"
+  ],
+  "labels": [
+    "no_disease",
+    "disease"
+  ],
+  "featureCount": 13,
+  "artifact": {
+    "path": "bundle.json",
+    "sha256": "3efde19841b2ffff6a5207ac6d132c057ffcecd05dba8ae40caa6d9abec83628"
+  },
+  "algorithm": "logistic_regression_l2_c_1.0",
+  "preprocessing": {
+    "numeric": "z-score fitted on the training partition only",
+    "categorical": "one-hot with fixed category orders; categories forward-mapped by the API contract (see cardiac.ts)",
+    "missingValues": "rows with missing ca/thal dropped (n=303 -> n=297); the API rejects missing inputs rather than imputing"
+  },
+  "datasetProvenance": {
+    "datasetId": "UCI Heart Disease (Cleveland subset)",
+    "sourceUrl": "https://archive.ics.uci.edu/dataset/45/heart+disease",
+    "file": "processed.cleveland.data",
+    "licenseNote": "UCI Machine Learning Repository terms; research use. Not redistribution-approved for clinical purposes.",
+    "originalRows": 303,
+    "rowsDroppedMissing": [
+      "row88",
+      "row167",
+      "row193",
+      "row267",
+      "row288",
+      "row303"
+    ],
+    "usableRows": 297,
+    "classBalance": {
+      "no_disease": 160,
+      "disease": 137
+    }
+  },
+  "trainingConfig": {
+    "splitSeed": 20261016,
+    "splitMethod": "deterministic stratified 70/15/15 per target shuffles",
+    "trainCount": 207,
+    "validationCount": 45,
+    "testCount": 45,
+    "noLeakage": "preprocessing fitted on train partition only; test partition untouched until final evaluation"
+  },
+  "evaluation": {
+    "validation": {
+      "datasetSplit": "held-out stratified validation partition",
+      "sampleCount": 45,
+      "accuracy": 0.8444444444444444,
+      "sensitivity_recall": 0.8571428571428571,
+      "specificity": 0.8333333333333334,
+      "precision": 0.8181818181818182,
+      "rocAuc": 0.9107142857142857,
+      "brier": 0.11058063502516242,
+      "expectedCalibrationError": 0.13667302805281512,
+      "decisionThreshold": 0.5,
+      "confusion": {
+        "tp": 18,
+        "tn": 20,
+        "fp": 4,
+        "fn": 3
+      }
+    },
+    "test": {
+      "datasetSplit": "held-out test partition (untouched during training)",
+      "sampleCount": 45,
+      "accuracy": 0.7555555555555555,
+      "sensitivity_recall": 0.5714285714285714,
+      "specificity": 0.9166666666666666,
+      "precision": 0.8571428571428571,
+      "rocAuc": 0.8234126984126984,
+      "brier": 0.1846085427250661,
+      "expectedCalibrationError": 0.19140869010593178,
+      "decisionThreshold": 0.5,
+      "confusion": {
+        "tp": 12,
+        "tn": 22,
+        "fp": 2,
+        "fn": 9
+      }
+    },
+    "calibrationStatus": "uncalibrated",
+    "scoreSemantics": "uncalibrated_risk_score",
+    "knownLimitations": [
+      "Small historical cohort (297 usable records from 1988 Cleveland); not representative of current or any local populations.",
+      "Public benchmark dataset; a held-out score here is not clinical validation.",
+      "Scores are uncalibrated logistic outputs, not probabilities of disease for an individual.",
+      "No subgroup fairness analyses were performed; therefore fairness across demographic groups is unverified."
+    ]
+  },
+  "readinessState": "research_only_not_approved",
+  "inferenceNote": "Serve only as clearly-labelled research output; never as clinical risk.",
+  "packageVersion": "0.1.0"
+}

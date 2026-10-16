@@ -27,6 +27,36 @@ export const ReadinessCheckResponse = zod.object({
   "database": zod.boolean().optional(),
   "model": zod.boolean().optional(),
   "cardiacModel": zod.boolean().optional(),
+  "skinInference": zod.object({
+  "available": zod.boolean(),
+  "status": zod.enum(['unavailable']).optional(),
+  "reason": zod.string().optional(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal('approved'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "readinessState": zod.string().nullish(),
+  "calibrationStatus": zod.string().nullish(),
+  "labels": zod.array(zod.string()).nullish(),
+  "readinessNote": zod.string().nullish()
+}).optional(),
+  "cardiacInference": zod.object({
+  "available": zod.boolean(),
+  "status": zod.union([zod.literal('model_unavailable'),zod.literal(null)]).nullish(),
+  "reason": zod.string().nullish(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "calibrationStatus": zod.string().nullish()
+}).optional(),
+  "symptomClassifier": zod.object({
+  "available": zod.boolean(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "classCount": zod.number().int().nullish(),
+  "status": zod.union([zod.literal('unavailable'),zod.literal(null)]).nullish(),
+  "reason": zod.string().nullish()
+}).optional(),
   "aiProvider": zod.enum(['disabled', 'unconfigured', 'misconfigured', 'configured']).optional(),
   "documentOcr": zod.object({
   "status": zod.enum(['disabled', 'configured']).optional(),
@@ -169,7 +199,7 @@ export const PredictSkinDiseaseResponse = zod.object({
   "modelVersion": zod.string().nullable(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']),
   "createdAt": zod.string()
 })
 
@@ -208,7 +238,7 @@ export const ExplainSkinPredictionResponse = zod.object({
   "modelVersion": zod.string().nullish(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 }),
   "explanation": zod.object({
@@ -256,7 +286,7 @@ export const GetPredictionHistoryResponse = zod.object({
   "modelVersion": zod.string().nullish(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 })),
   "total": zod.number().int(),
@@ -290,7 +320,7 @@ export const GetPredictionByIdResponse = zod.object({
   "modelVersion": zod.string().nullish(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 })
 
@@ -643,6 +673,21 @@ export const ListSymptomAssessmentsResponse = zod.object({
   "recommendations": zod.array(zod.string()),
   "disclaimer": zod.string()
 }),
+  "selectedSymptoms": zod.array(zod.string()).optional(),
+  "classification": zod.object({
+  "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
+  "modelId": zod.string().nullable(),
+  "modelVersion": zod.string().nullable(),
+  "notice": zod.string(),
+  "rankedConditions": zod.array(zod.object({
+  "condition": zod.string(),
+  "score": zod.number(),
+  "supportingSymptoms": zod.array(zod.string()).optional(),
+  "nonSupportingSymptoms": zod.array(zod.string()).optional()
+})).optional(),
+  "unmatchedSymptoms": zod.array(zod.string()).optional(),
+  "diagnosticLimitations": zod.array(zod.string()).optional()
+}).nullish(),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -656,6 +701,12 @@ export const ListSymptomAssessmentsResponse = zod.object({
 /**
  * @summary Create a symptom assessment
  */
+export const createSymptomAssessmentBodySelectedSymptomsItemMax = 300;
+
+export const createSymptomAssessmentBodySelectedSymptomsMax = 60;
+
+
+
 export const CreateSymptomAssessmentBody = zod.object({
   "caseId": zod.number().int().optional(),
   "primarySymptom": zod.string(),
@@ -667,7 +718,8 @@ export const CreateSymptomAssessmentBody = zod.object({
   "associatedSymptoms": zod.array(zod.string()).optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
-  "allergies": zod.array(zod.string()).optional()
+  "allergies": zod.array(zod.string()).optional(),
+  "selectedSymptoms": zod.array(zod.string().max(createSymptomAssessmentBodySelectedSymptomsItemMax)).max(createSymptomAssessmentBodySelectedSymptomsMax).optional()
 })
 
 export const CreateSymptomAssessmentResponse = zod.object({
@@ -689,6 +741,21 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "recommendations": zod.array(zod.string()),
   "disclaimer": zod.string()
 }),
+  "selectedSymptoms": zod.array(zod.string()).optional(),
+  "classification": zod.object({
+  "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
+  "modelId": zod.string().nullable(),
+  "modelVersion": zod.string().nullable(),
+  "notice": zod.string(),
+  "rankedConditions": zod.array(zod.object({
+  "condition": zod.string(),
+  "score": zod.number(),
+  "supportingSymptoms": zod.array(zod.string()).optional(),
+  "nonSupportingSymptoms": zod.array(zod.string()).optional()
+})).optional(),
+  "unmatchedSymptoms": zod.array(zod.string()).optional(),
+  "diagnosticLimitations": zod.array(zod.string()).optional()
+}).nullish(),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -722,6 +789,21 @@ export const GetSymptomAssessmentResponse = zod.object({
   "recommendations": zod.array(zod.string()),
   "disclaimer": zod.string()
 }),
+  "selectedSymptoms": zod.array(zod.string()).optional(),
+  "classification": zod.object({
+  "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
+  "modelId": zod.string().nullable(),
+  "modelVersion": zod.string().nullable(),
+  "notice": zod.string(),
+  "rankedConditions": zod.array(zod.object({
+  "condition": zod.string(),
+  "score": zod.number(),
+  "supportingSymptoms": zod.array(zod.string()).optional(),
+  "nonSupportingSymptoms": zod.array(zod.string()).optional()
+})).optional(),
+  "unmatchedSymptoms": zod.array(zod.string()).optional(),
+  "diagnosticLimitations": zod.array(zod.string()).optional()
+}).nullish(),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -1222,11 +1304,210 @@ export const InterpretDocumentResponse = zod.object({
  */
 export const GetCardiacModelStatusResponse = zod.object({
   "available": zod.boolean(),
-  "status": zod.enum(['model_unavailable']),
-  "reason": zod.string(),
+  "status": zod.union([zod.literal('model_unavailable'),zod.literal(null)]).nullish(),
+  "reason": zod.string().nullish(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "readinessState": zod.string().nullish(),
+  "calibrationStatus": zod.string().nullish(),
+  "metrics": zod.object({
+
+}).passthrough().nullish(),
+  "readinessNote": zod.string().nullish(),
   "contract": zod.object({
 
 }).passthrough()
+})
+
+
+/**
+ * @summary List persisted cardiac assessments (owner-scoped)
+ */
+export const listCardiacAssessmentsQueryPageDefault = 1;
+export const listCardiacAssessmentsQueryLimitDefault = 20;
+export const listCardiacAssessmentsQueryLimitMax = 100;
+
+
+
+export const ListCardiacAssessmentsQueryParams = zod.object({
+  "page": zod.coerce.number().int().default(listCardiacAssessmentsQueryPageDefault),
+  "limit": zod.coerce.number().int().max(listCardiacAssessmentsQueryLimitMax).default(listCardiacAssessmentsQueryLimitDefault),
+  "caseId": zod.coerce.number().int().optional()
+})
+
+export const ListCardiacAssessmentsResponse = zod.object({
+  "assessments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "inputs": zod.object({
+
+}).passthrough(),
+  "riskScore": zod.number().nullish(),
+  "aboveThreshold": zod.boolean().nullish(),
+  "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
+  "status": zod.enum(['research_only', 'model_unavailable']),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "threshold": zod.number().nullish(),
+  "topFactors": zod.array(zod.object({
+  "feature": zod.string(),
+  "description": zod.string(),
+  "contribution": zod.number(),
+  "unit": zod.string().nullish()
+})).optional(),
+  "notice": zod.string(),
+  "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "createdAt": zod.string()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+/**
+ * Scores must come from the checksum-verified research bundle. Scores are uncalibrated logistic outputs, never clinical probabilities. Reuse of contract feature names and categories is required.
+ * @summary Run the research-only cardiac baseline and persist the assessment
+ */
+export const createCardiacAssessmentBodyAgeMin = 18;
+export const createCardiacAssessmentBodyAgeMax = 120;
+
+export const createCardiacAssessmentBodyRestingBloodPressureMin = 60;
+export const createCardiacAssessmentBodyRestingBloodPressureMax = 250;
+
+export const createCardiacAssessmentBodySerumCholesterolMin = 50;
+export const createCardiacAssessmentBodySerumCholesterolMax = 700;
+
+export const createCardiacAssessmentBodyMaxHeartRateMin = 50;
+export const createCardiacAssessmentBodyMaxHeartRateMax = 250;
+
+export const createCardiacAssessmentBodyStDepressionMin = 0;
+export const createCardiacAssessmentBodyStDepressionMax = 10;
+
+export const createCardiacAssessmentBodyMajorVesselsMin = 0;
+export const createCardiacAssessmentBodyMajorVesselsMax = 3;
+
+
+
+export const CreateCardiacAssessmentBody = zod.object({
+  "caseId": zod.number().int().optional(),
+  "age": zod.number().min(createCardiacAssessmentBodyAgeMin).max(createCardiacAssessmentBodyAgeMax),
+  "sex": zod.enum(['male', 'female']),
+  "chestPainType": zod.enum(['typical_angina', 'atypical_angina', 'non_anginal', 'asymptomatic']),
+  "restingBloodPressure": zod.number().min(createCardiacAssessmentBodyRestingBloodPressureMin).max(createCardiacAssessmentBodyRestingBloodPressureMax),
+  "serumCholesterol": zod.number().min(createCardiacAssessmentBodySerumCholesterolMin).max(createCardiacAssessmentBodySerumCholesterolMax),
+  "fastingBloodSugarOver120": zod.enum(['yes', 'no']),
+  "restingEcg": zod.enum(['normal', 'st_t_abnormality', 'left_ventricular_hypertrophy']),
+  "maxHeartRate": zod.number().min(createCardiacAssessmentBodyMaxHeartRateMin).max(createCardiacAssessmentBodyMaxHeartRateMax),
+  "exerciseAngina": zod.enum(['yes', 'no']),
+  "stDepression": zod.number().min(createCardiacAssessmentBodyStDepressionMin).max(createCardiacAssessmentBodyStDepressionMax),
+  "stSlope": zod.enum(['upsloping', 'flat', 'downsloping']),
+  "majorVessels": zod.number().min(createCardiacAssessmentBodyMajorVesselsMin).max(createCardiacAssessmentBodyMajorVesselsMax),
+  "thalassemia": zod.enum(['normal', 'fixed_defect', 'reversible_defect'])
+})
+
+export const CreateCardiacAssessmentResponse = zod.object({
+  "assessment": zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "inputs": zod.object({
+
+}).passthrough(),
+  "riskScore": zod.number().nullish(),
+  "aboveThreshold": zod.boolean().nullish(),
+  "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
+  "status": zod.enum(['research_only', 'model_unavailable']),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "threshold": zod.number().nullish(),
+  "topFactors": zod.array(zod.object({
+  "feature": zod.string(),
+  "description": zod.string(),
+  "contribution": zod.number(),
+  "unit": zod.string().nullish()
+})).optional(),
+  "notice": zod.string(),
+  "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "createdAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Get one persisted cardiac assessment
+ */
+export const GetCardiacAssessmentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetCardiacAssessmentResponse = zod.object({
+  "assessment": zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "inputs": zod.object({
+
+}).passthrough(),
+  "riskScore": zod.number().nullish(),
+  "aboveThreshold": zod.boolean().nullish(),
+  "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
+  "status": zod.enum(['research_only', 'model_unavailable']),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "threshold": zod.number().nullish(),
+  "topFactors": zod.array(zod.object({
+  "feature": zod.string(),
+  "description": zod.string(),
+  "contribution": zod.number(),
+  "unit": zod.string().nullish()
+})).optional(),
+  "notice": zod.string(),
+  "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "createdAt": zod.string()
+})
+})
+
+
+/**
+ * Reports whether the checksum-verified research-only symptom classifier is installed and returns the curated symptom vocabulary for building the multi-select interface. Scores from this classifier are uncalibrated posteriors and must never be presented as diagnoses.
+ * @summary Symptom classifier availability, catalogue, and provenance
+ */
+export const GetSymptomClassifierStatusResponse = zod.object({
+  "available": zod.boolean(),
+  "status": zod.union([zod.literal('unavailable'),zod.literal(null)]).nullish(),
+  "reason": zod.string().nullish(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "readinessState": zod.string().nullish(),
+  "calibrationStatus": zod.string().nullish(),
+  "classCount": zod.number().int().nullish(),
+  "catalogue": zod.array(zod.string()).nullish(),
+  "readinessNote": zod.string().nullish(),
+  "datasetProvenance": zod.object({
+  "datasetId": zod.string().optional(),
+  "sourceOrigin": zod.string().optional(),
+  "licenseNote": zod.string().optional()
+}).nullish()
+})
+
+
+/**
+ * Reports whether a checksum-verified skin model artifact is installed and which serving mode applies. Research-only artifacts stay clearly labelled: their scores are raw model outputs, not clinically validated results.
+ * @summary Skin model availability and mode
+ */
+export const GetSkinModelStatusResponse = zod.object({
+  "available": zod.boolean(),
+  "status": zod.union([zod.literal('unavailable'),zod.literal(null)]).nullish(),
+  "reason": zod.string().nullish(),
+  "mode": zod.union([zod.literal('research_only'),zod.literal('approved'),zod.literal(null)]).nullish(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "readinessState": zod.string().nullish(),
+  "preprocessingVersion": zod.string().nullish(),
+  "calibrationStatus": zod.string().nullish(),
+  "labels": zod.array(zod.string()).nullish(),
+  "readinessNote": zod.string().nullish()
 })
 
 
@@ -1286,7 +1567,7 @@ export const GetCaseWorkspaceResponse = zod.object({
   "modelVersion": zod.string().nullish(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 })),
   "documents": zod.array(zod.object({
@@ -1324,10 +1605,48 @@ export const GetCaseWorkspaceResponse = zod.object({
   "recommendations": zod.array(zod.string()),
   "disclaimer": zod.string()
 }),
+  "selectedSymptoms": zod.array(zod.string()).optional(),
+  "classification": zod.object({
+  "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
+  "modelId": zod.string().nullable(),
+  "modelVersion": zod.string().nullable(),
+  "notice": zod.string(),
+  "rankedConditions": zod.array(zod.object({
+  "condition": zod.string(),
+  "score": zod.number(),
+  "supportingSymptoms": zod.array(zod.string()).optional(),
+  "nonSupportingSymptoms": zod.array(zod.string()).optional()
+})).optional(),
+  "unmatchedSymptoms": zod.array(zod.string()).optional(),
+  "diagnosticLimitations": zod.array(zod.string()).optional()
+}).nullish(),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "cardiacAssessments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "inputs": zod.object({
+
+}).passthrough(),
+  "riskScore": zod.number().nullish(),
+  "aboveThreshold": zod.boolean().nullish(),
+  "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
+  "status": zod.enum(['research_only', 'model_unavailable']),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "threshold": zod.number().nullish(),
+  "topFactors": zod.array(zod.object({
+  "feature": zod.string(),
+  "description": zod.string(),
+  "contribution": zod.number(),
+  "unit": zod.string().nullish()
+})).optional(),
+  "notice": zod.string(),
+  "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "createdAt": zod.string()
+})).optional(),
   "reports": zod.array(zod.object({
   "id": zod.number().int(),
   "reportNumber": zod.string(),

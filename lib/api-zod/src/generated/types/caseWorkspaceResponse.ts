@@ -5,6 +5,7 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CardiacAssessment } from './cardiacAssessment.ts';
 import type { Case } from './case.ts';
 import type { CaseWorkspaceResponsePatient } from './caseWorkspaceResponsePatient.ts';
 import type { Document } from './document.ts';
@@ -21,6 +22,7 @@ export interface CaseWorkspaceResponse {
   predictions: PredictionRecord[];
   documents: Document[];
   symptomAssessments: SymptomAssessment[];
+  cardiacAssessments?: CardiacAssessment[];
   reports: Report[];
   limitations?: string[];
 }

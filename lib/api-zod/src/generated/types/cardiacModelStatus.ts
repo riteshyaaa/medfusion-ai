@@ -6,11 +6,29 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CardiacModelStatusContract } from './cardiacModelStatusContract.ts';
+import type { CardiacModelStatusMetrics } from './cardiacModelStatusMetrics.ts';
+import type { CardiacModelStatusMode } from './cardiacModelStatusMode.ts';
 import type { CardiacModelStatusStatus } from './cardiacModelStatusStatus.ts';
 
 export interface CardiacModelStatus {
   available: boolean;
-  status: CardiacModelStatusStatus;
-  reason: string;
+  /** @nullable */
+  status?: CardiacModelStatusStatus;
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  mode?: CardiacModelStatusMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  readinessState?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+  /** @nullable */
+  metrics?: CardiacModelStatusMetrics;
+  /** @nullable */
+  readinessNote?: string | null;
   contract: CardiacModelStatusContract;
 }

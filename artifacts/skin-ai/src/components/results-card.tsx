@@ -27,6 +27,7 @@ interface ResultsCardProps {
 export function ResultsCard({ result, onReset }: ResultsCardProps) {
   const simulated = result.status === "simulated" || result.scoreSemantics === "simulated";
   const unverified = result.status === "legacy_unverified" || result.scoreSemantics === "unverified";
+  const researchOnly = result.status === "research_only";
   const calibrated = result.scoreSemantics === "calibrated_probability";
   const rawScore = Number.isFinite(result.confidence) ? result.confidence.toFixed(2) : "Not reported";
 
@@ -35,8 +36,8 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-8 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2" />
         <div className="relative z-10">
-          <div className="flex flex-wrap items-center gap-3 mb-4"><SeverityBadge severity={unverified ? "unassessed" : result.severity} /><span className="text-slate-300 text-sm">{simulated ? "Simulated test output" : unverified ? "Legacy record not verified" : "Persisted model output"}</span></div>
-          <h2 className="text-3xl md:text-4xl font-display font-bold mb-5 text-teal-300">{simulated ? "SIMULATED TEST OUTPUT" : unverified ? "UNVERIFIED LEGACY RECORD" : `Model output: ${result.disease}`}</h2>
+          <div className="flex flex-wrap items-center gap-3 mb-4"><SeverityBadge severity={unverified ? "unassessed" : result.severity} /><span className="text-slate-300 text-sm">{simulated ? "Simulated test output" : unverified ? "Legacy record not verified" : researchOnly ? "Research preview — not clinically validated" : "Persisted model output"}</span></div>
+          <h2 className="text-3xl md:text-4xl font-display font-bold mb-5 text-teal-300">{simulated ? "SIMULATED TEST OUTPUT" : unverified ? "UNVERIFIED LEGACY RECORD" : `Research preview: ${result.disease}`}</h2>
           {simulated ? <p className="text-sm font-semibold text-amber-200">This record was created by an explicit test double. It is not a model prediction and its values are hidden.</p> : unverified ? <p className="text-sm font-semibold text-amber-200">Model provenance was not recorded for this legacy row. Its label, score, and stored guidance are hidden.</p> : <div className="max-w-xl"><p className="text-sm text-slate-100">{calibrated ? `Dataset-calibrated output: ${(result.confidence * 100).toFixed(1)}%. This does not establish an individual's real-world disease likelihood.` : `Raw model score: ${rawScore} (unitless, not a probability).`}</p><p className="mt-1 text-xs text-slate-400">The model output is a candidate label, not a confirmed diagnosis.</p></div>}
         </div>
       </div>

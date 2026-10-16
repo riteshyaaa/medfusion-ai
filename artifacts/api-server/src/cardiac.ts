@@ -1,9 +1,17 @@
-// Cardiac risk assessment contract.
+// Cardiac risk assessment contract and research-only classifier.
 //
-// No cardiac model artifact is present in this repository. There is no trained,
-// verified, or approved heart-disease model, so the application must not produce
-// a cardiac prediction. This module documents the exact contract a future model
-// must satisfy and reports its availability honestly.
+// A checksum-verified logistic-regression baseline trained on the UCI Cleveland
+// cohort can serve clearly-labelled research scores. There is still no approved
+// model, so `hasApprovedCardiacModel()` stays false and nothing here is a
+// clinical risk assessment.
+
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
 
 export type CardiacFeatureType = "numeric" | "categorical";
 
@@ -22,11 +30,11 @@ export const CARDIAC_MODEL_CONTRACT = {
   dataset: {
     id: "UCI Heart Disease (Cleveland subset)",
     sourceUrl: "https://archive.ics.uci.edu/dataset/45/heart+disease",
-    licenseNote: "UCI Machine Learning Repository terms; verify before any download.",
+    licenseNote: "UCI Machine Learning Repository terms; research-only use.",
     knownLimitations: [
       "Small historical cohort from 1988; not representative of current populations.",
-      "Substantial missing values in some fields; missing-value handling must be documented.",
-      "A model trained on this data is research-only and cannot be presented as clinical risk.",
+      "Research metrics come from a small held-out split and are not clinical validation.",
+      "Uncalibrated score; not an individual disease probability.",
     ],
   },
   features: [
@@ -44,18 +52,286 @@ export const CARDIAC_MODEL_CONTRACT = {
     { name: "majorVessels", type: "numeric", unit: "count", description: "Number of major vessels (0-3) colored by fluoroscopy", minimum: 0, maximum: 3 },
     { name: "thalassemia", type: "categorical", unit: null, description: "Thalassemia test result", allowedValues: ["normal", "fixed_defect", "reversible_defect"] },
   ] as CardiacFeature[],
-  preprocessingNote: "Any future model artifact must record dataset version, feature order, encodings, missing-value behavior, and calibration status, and be approved for inference before this application may serve a score.",
+  preprocessingNote: "The research artifact records dataset version, feature order, encodings, missing-value behavior (rows with missing ca/thal were dropped), and calibration status.",
 } as const;
+
+export type CardiacModelStatus = {
+  available: true;
+  mode: "research_only";
+  modelId: string;
+  modelVersion: string;
+  readinessState: string;
+  calibrationStatus: string;
+  metrics: Record<string, unknown>;
+  readinessNote: string;
+  contract: typeof CARDIAC_MODEL_CONTRACT;
+};
+
+type CardiacBundle = {
+  bundleType: string;
+  classOrder: string[];
+  columnOrder: string[];
+  numericFeatures: Record<string, { mean: number; std: number }>;
+  categoricalFeatures: Record<string, string[]>;
+  coefficients: number[];
+  intercept: number;
+  decisionThreshold: number;
+};
+
+type CardiacManifest = {
+  modelId: string;
+  modelVersion: string;
+  readinessState: string;
+  artifact: { path: string; sha256: string };
+  evaluation: Record<string, unknown>;
+};
 
 export function hasApprovedCardiacModel(): boolean {
   return false;
 }
 
-export function cardiacModelStatus() {
+export type CardiacAssessmentInput = {
+  age: number;
+  sex: string;
+  chestPainType: string;
+  restingBloodPressure: number;
+  serumCholesterol: number;
+  fastingBloodSugarOver120: string;
+  restingEcg: string;
+  maxHeartRate: number;
+  exerciseAngina: string;
+  stDepression: number;
+  stSlope: string;
+  majorVessels: number;
+  thalassemia: string;
+};
+
+const FIELD_TO_FEATURE: Record<keyof CardiacAssessmentInput, string> = {
+  age: "age",
+  sex: "sex",
+  chestPainType: "cp",
+  restingBloodPressure: "trestbps",
+  serumCholesterol: "chol",
+  fastingBloodSugarOver120: "fbs",
+  restingEcg: "restecg",
+  maxHeartRate: "thalach",
+  exerciseAngina: "exang",
+  stDepression: "oldpeak",
+  stSlope: "slope",
+  majorVessels: "ca",
+  thalassemia: "thal",
+};
+
+const NUMERIC_FIELDS = new Set(["age", "restingBloodPressure", "serumCholesterol", "maxHeartRate", "stDepression"]);
+const CATEGORICAL_NUMERIC_FIELDS = new Set(["majorVessels"]);
+
+export class CardiacFeatureError extends Error {
+  readonly field: string;
+  constructor(field: string, message: string) {
+    super(message);
+    this.field = field;
+  }
+}
+
+async function sha256File(pathname: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    createReadStream(pathname)
+      .on("data", (chunk) => hash.update(chunk))
+      .on("error", reject)
+      .on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+function resolveArtifactDir(): string {
+  return process.env.CARDIAC_MODEL_DIR
+    ? path.resolve(repositoryRoot, process.env.CARDIAC_MODEL_DIR)
+    : path.resolve(repositoryRoot, "models/registry/cardiac/logreg-v20261016");
+}
+
+let cache: {
+  at: number;
+  status: CardiacModelStatus | { available: false; status: "model_unavailable"; reason: string; contract: typeof CARDIAC_MODEL_CONTRACT };
+} | null = null;
+const STATUS_CACHE_TTL_MS = 30_000;
+
+async function loadModel(): Promise<{ bundle: CardiacBundle; manifest: CardiacManifest }> {
+  const artifactDir = resolveArtifactDir();
+  const manifestRaw = await readFile(path.join(artifactDir, "manifest.json"), "utf8");
+  const manifest = JSON.parse(manifestRaw) as CardiacManifest;
+  if (manifest.artifact.path !== "bundle.json" || typeof manifest.artifact.sha256 !== "string" || manifest.artifact.sha256.length !== 64) {
+    throw new Error("Cardiac manifest does not reference bundle.json with a checksum");
+  }
+  const actual = await sha256File(path.join(artifactDir, "bundle.json"));
+  if (actual !== manifest.artifact.sha256) throw new Error("Cardiac bundle checksum does not match the manifest");
+  const bundle = JSON.parse(await readFile(path.join(artifactDir, "bundle.json"), "utf8")) as CardiacBundle;
+  if (bundle.bundleType !== "cardiac-risk-logistic-regression") throw new Error("Unknown cardiac bundle type");
+  if (bundle.classOrder.length !== 2 || bundle.classOrder[1] !== "disease") throw new Error("Cardiac bundle class order is unsupported");
+  if (bundle.coefficients.length !== bundle.columnOrder.length) throw new Error("Cardiac bundle coefficients do not match its column order");
+  if (!Number.isFinite(bundle.intercept) || !Number.isFinite(bundle.decisionThreshold)) throw new Error("Cardiac bundle intercept/threshold invalid");
+  const numericNames = Object.keys(bundle.numericFeatures);
+  if (numericNames.length !== 5) throw new Error("Cardiac bundle must standardize exactly five numeric features");
+  return { bundle, manifest };
+}
+
+export function resetCardiacCache(): void {
+  cache = null;
+}
+
+export async function getCardiacInferenceStatus(): Promise<CardiacModelStatus | { available: false; status: "model_unavailable"; reason: string; contract: typeof CARDIAC_MODEL_CONTRACT }> {
+  if (cache && Date.now() - cache.at < STATUS_CACHE_TTL_MS) return cache.status;
+  let status: CardiacModelStatus | { available: false; status: "model_unavailable"; reason: string; contract: typeof CARDIAC_MODEL_CONTRACT };
+  try {
+    const { bundle, manifest } = await loadModel();
+    status = {
+      available: true,
+      mode: "research_only",
+      modelId: manifest.modelId,
+      modelVersion: manifest.modelVersion,
+      readinessState: manifest.readinessState,
+      calibrationStatus: String((manifest.evaluation as { calibrationStatus?: string }).calibrationStatus ?? "uncalibrated"),
+      metrics: (manifest.evaluation as { test?: unknown }) ?? {},
+      readinessNote:
+        "Checksum-verified research baseline on the UCI Cleveland cohort (1988, 297 usable records). Scores are uncalibrated logistic outputs served beside the documented limitations; nothing here is clinically validated.",
+      contract: CARDIAC_MODEL_CONTRACT,
+    };
+    void bundle;
+  } catch (error) {
+    status = {
+      available: false,
+      status: "model_unavailable",
+      reason: `No verified cardiac research artifact is served: ${error instanceof Error ? error.message : String(error)}`,
+      contract: CARDIAC_MODEL_CONTRACT,
+    };
+  }
+  cache = { at: Date.now(), status };
+  return status;
+}
+
+export function cardiacModelStatus(): Promise<CardiacModelStatus | { available: false; status: "model_unavailable"; reason: string; contract: typeof CARDIAC_MODEL_CONTRACT }> {
+  return getCardiacInferenceStatus();
+}
+
+export type CardiacFactor = { feature: string; description: string; contribution: number; unit: string | null };
+
+export type CardiacAssessmentResult = {
+  status: "research_only" | "model_unavailable";
+  modelId: string | null;
+  modelVersion: string | null;
+  riskScore: number | null;
+  aboveThreshold: boolean | null;
+  label: string | null;
+  threshold: number | null;
+  topFactors: CardiacFactor[];
+  notice: string;
+  diagnosticLimitations: string[];
+};
+
+function sigmoid(value: number): number {
+  if (value >= 0) return 1 / (1 + Math.exp(-value));
+  const flipped = Math.exp(value);
+  return flipped / (1 + flipped);
+}
+
+export async function assessCardiacRisk(input: CardiacAssessmentInput): Promise<CardiacAssessmentResult> {
+  const status = await getCardiacInferenceStatus();
+  const unavailableNotice =
+    "No cardiac prediction was produced: no approved cardiac model is configured. This output would only be a research score, and none is served.";
+  if (!status.available) {
+    return {
+      status: "model_unavailable",
+      modelId: null,
+      modelVersion: null,
+      riskScore: null,
+      aboveThreshold: null,
+      label: null,
+      threshold: null,
+      topFactors: [],
+      notice: unavailableNotice,
+      diagnosticLimitations: [...CARDIAC_MODEL_CONTRACT.dataset.knownLimitations],
+    };
+  }
+  const { bundle, manifest } = await loadModel();
+  const numericInput: Record<string, number> = {
+    age: input.age,
+    restingBloodPressure: input.restingBloodPressure,
+    serumCholesterol: input.serumCholesterol,
+    maxHeartRate: input.maxHeartRate,
+    stDepression: input.stDepression,
+    majorVessels: input.majorVessels,
+  };
+  if (Math.abs(input.majorVessels - Math.round(input.majorVessels)) > 1e-9) {
+    throw new CardiacFeatureError("majorVessels", "Major vessels count must be a whole number");
+  }
+  if (Math.abs(input.stDepression * 10 - Math.round(input.stDepression * 10)) > 1e-9) {
+    throw new CardiacFeatureError("stDepression", "ST depression must be recorded to one decimal place");
+  }
+  const featureDescriptions = new Map(CARDIAC_MODEL_CONTRACT.features.map((feature) => [feature.name, feature]));
+  const vector = { values: [] as Array<{ column: string; value: number; coefficient: number; descriptor: string | null }> };
+  const values: Array<{ column: string; value: number; coefficient: number }> = [];
+  for (const [field, datasetName] of Object.entries(FIELD_TO_FEATURE) as Array<[keyof CardiacAssessmentInput, string]>) {
+    if (NUMERIC_FIELDS.has(field)) {
+      const normalizer = bundle.numericFeatures[datasetName];
+      if (!normalizer) throw new CardiacFeatureError(field, "Numeric feature configuration missing from the model bundle");
+      const standardized = (numericInput[field] - normalizer.mean) / normalizer.std;
+      const column = `numeric:${datasetName}`;
+      const coefficient = bundle.coefficients[bundle.columnOrder.indexOf(column)];
+      values.push({ column, value: standardized, coefficient });
+    } else {
+      const datasetNameLocal = FIELD_TO_FEATURE[field];
+      const value = CATEGORICAL_NUMERIC_FIELDS.has(field)
+        ? String(numericInput[field])
+        : input[field];
+      const allowedDataset = bundle.categoricalFeatures[datasetNameLocal];
+      const allowedContract = CARDIAC_MODEL_CONTRACT.features.find((feature) => feature.name === field)?.allowedValues;
+      if (CATEGORICAL_NUMERIC_FIELDS.has(field)) {
+        if (value !== String(Math.round(Number(value)))) {
+          throw new CardiacFeatureError(field, "Major vessels count must be a whole number");
+        }
+      }
+      if (!Array.isArray(allowedDataset) || allowedDataset.indexOf(String(value)) === -1) {
+        if (allowedDataset) {
+          throw new CardiacFeatureError(field, `Unsupported value ${String(value)}; expected one of ${allowedDataset.join(", ")}`);
+        }
+        if (allowedContract && allowedContract.indexOf(String(value)) === -1) {
+          throw new CardiacFeatureError(field, `Unsupported value ${String(value)}; expected one of ${allowedContract.join(", ")}`);
+        }
+        throw new CardiacFeatureError(field, "Unsupported categorical value");
+      }
+      const column = `categorical:${datasetNameLocal}=${String(value)}`;
+      const coefficient = bundle.coefficients[bundle.columnOrder.indexOf(column)];
+      values.push({ column, value: 1, coefficient });
+    }
+  }
+  void vector;
+  const score = values.reduce((total, entry) => total + entry.coefficient * entry.value, bundle.intercept);
+  const riskScore = sigmoid(score);
+  const threshold = bundle.decisionThreshold;
+  const contributions = values
+    .map((entry) => {
+      const datasetName = entry.column.startsWith("numeric:") ? entry.column.slice("numeric:".length) : entry.column.slice("categorical:".length, entry.column.indexOf("="));
+      return {
+        column: entry.column,
+        contribution: entry.coefficient * entry.value,
+        description: featureDescriptions.get(Object.entries(FIELD_TO_FEATURE).find(([, dataset]) => dataset === datasetName)?.[0] ?? "")?.description ?? entry.column,
+        unit: featureDescriptions.get(Object.entries(FIELD_TO_FEATURE).find(([, dataset]) => dataset === datasetName)?.[0] ?? "")?.unit ?? null,
+      };
+    })
+    .sort((left, right) => Math.abs(right.contribution) - Math.abs(left.contribution))
+    .slice(0, 3)
+    .map((entry) => ({ feature: entry.column, description: entry.description, contribution: entry.contribution, unit: entry.unit }));
+  const limitationsFromManifest = ((manifest.evaluation as { knownLimitations?: string[] }).knownLimitations) ?? CARDIAC_MODEL_CONTRACT.dataset.knownLimitations;
   return {
-    available: false as const,
-    status: "model_unavailable" as const,
-    reason: "No verified, approved cardiac risk model artifact is configured in this repository. No cardiac prediction can be produced.",
-    contract: CARDIAC_MODEL_CONTRACT,
+    status: "research_only",
+    modelId: manifest.modelId,
+    modelVersion: manifest.modelVersion,
+    riskScore,
+    aboveThreshold: riskScore >= threshold,
+    label: riskScore >= threshold ? "disease" : "no_disease",
+    threshold,
+    topFactors: contributions,
+    notice:
+      "Research-only score from a logistic baseline trained on the UCI Cleveland cohort (1988, 297 usable records). This is an uncalibrated score, not a probability of heart disease and not clinical advice.",
+    diagnosticLimitations: Array.isArray(limitationsFromManifest) ? limitationsFromManifest : [...CARDIAC_MODEL_CONTRACT.dataset.knownLimitations],
   };
 }

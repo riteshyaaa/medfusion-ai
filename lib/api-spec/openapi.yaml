@@ -23,6 +23,8 @@ tags:
     description: Case management operations
   - name: symptom-assessments
     description: Symptom assessment operations
+  - name: symptoms
+    description: Symptom classifier status and curated symptom catalogue (research-only ranking)
   - name: reviews
     description: Clinical review operations
   - name: reports
@@ -30,7 +32,11 @@ tags:
   - name: documents
     description: Medical report document upload, OCR extraction, findings review, and consent-gated interpretation
   - name: cardiac
-    description: Cardiac risk model status (no approved model artifact is currently available)
+    description: Cardiac research-only risk baseline status, feature contract, and persisted assessments
+  - name: cardiac-assessments
+    description: Structured cardiac risk assessments persisted per account (research-only scores)
+  - name: skin
+    description: Skin model status and image predictions (research-only serving mode until a model is approved)
 paths:
   /healthz:
     get:
@@ -1417,6 +1423,148 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CardiacModelStatus"
+  /cardiac/assessments:
+    get:
+      operationId: listCardiacAssessments
+      tags: [cardiac-assessments]
+      summary: List persisted cardiac assessments (owner-scoped)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: caseId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated cardiac assessments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacAssessmentListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createCardiacAssessment
+      tags: [cardiac-assessments]
+      summary: Run the research-only cardiac baseline and persist the assessment
+      description: >
+        Scores must come from the checksum-verified research bundle. Scores are
+        uncalibrated logistic outputs, never clinical probabilities. Reuse of
+        contract feature names and categories is required.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCardiacAssessmentRequest"
+      responses:
+        "201":
+          description: Cardiac assessment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacAssessmentResponse"
+        "400":
+          description: Invalid request body or unsupported feature value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Case not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cardiac/assessments/{id}:
+    get:
+      operationId: getCardiacAssessment
+      tags: [cardiac-assessments]
+      summary: Get one persisted cardiac assessment
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cardiac assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacAssessmentResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /symptoms/classifier-status:
+    get:
+      operationId: getSymptomClassifierStatus
+      tags: [symptoms]
+      summary: Symptom classifier availability, catalogue, and provenance
+      description: >
+        Reports whether the checksum-verified research-only symptom classifier is
+        installed and returns the curated symptom vocabulary for building the
+        multi-select interface. Scores from this classifier are uncalibrated
+        posteriors and must never be presented as diagnoses.
+      responses:
+        "200":
+          description: Symptom classifier status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomClassifierStatus"
+  /skin/model-status:
+    get:
+      operationId: getSkinModelStatus
+      tags: [skin]
+      summary: Skin model availability and mode
+      description: >
+        Reports whether a checksum-verified skin model artifact is installed and
+        which serving mode applies. Research-only artifacts stay clearly labelled:
+        their scores are raw model outputs, not clinically validated results.
+      responses:
+        "200":
+          description: Skin model status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkinInferenceStatus"
   /cases/{id}/workspace:
     get:
       operationId: getCaseWorkspace
@@ -1512,6 +1660,93 @@ components:
               type: boolean
             cardiacModel:
               type: boolean
+            skinInference:
+              type: object
+              properties:
+                available:
+                  type: boolean
+                status:
+                  type: string
+                  enum: [unavailable]
+                reason:
+                  type: string
+                mode:
+                  type: string
+                  nullable: true
+                  enum: [research_only, approved]
+                modelId:
+                  type: string
+                  nullable: true
+                modelVersion:
+                  type: string
+                  nullable: true
+                readinessState:
+                  type: string
+                  nullable: true
+                calibrationStatus:
+                  type: string
+                  nullable: true
+                labels:
+                  type: array
+                  nullable: true
+                  items:
+                    type: string
+                readinessNote:
+                  type: string
+                  nullable: true
+              required: [available]
+            cardiacInference:
+              type: object
+              properties:
+                available:
+                  type: boolean
+                status:
+                  type: string
+                  nullable: true
+                  enum: [model_unavailable]
+                reason:
+                  type: string
+                  nullable: true
+                mode:
+                  type: string
+                  nullable: true
+                  enum: [research_only]
+                modelId:
+                  type: string
+                  nullable: true
+                modelVersion:
+                  type: string
+                  nullable: true
+                calibrationStatus:
+                  type: string
+                  nullable: true
+              required: [available]
+            symptomClassifier:
+              type: object
+              properties:
+                available:
+                  type: boolean
+                mode:
+                  type: string
+                  nullable: true
+                  enum: [research_only]
+                modelId:
+                  type: string
+                  nullable: true
+                modelVersion:
+                  type: string
+                  nullable: true
+                classCount:
+                  type: integer
+                  nullable: true
+                status:
+                  type: string
+                  nullable: true
+                  enum: [unavailable]
+                reason:
+                  type: string
+                  nullable: true
+              required: [available]
             aiProvider:
               type: string
               enum: [disabled, unconfigured, misconfigured, configured]
@@ -1687,7 +1922,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [completed, simulated, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
+          enum: [completed, simulated, research_only, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
         createdAt:
           type: string
       required:
@@ -1755,7 +1990,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [completed, simulated, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
+          enum: [completed, simulated, research_only, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
         createdAt:
           type: string
       required:
@@ -2128,6 +2363,56 @@ components:
             - recommendations
             - disclaimer
           additionalProperties: false
+        selectedSymptoms:
+          type: array
+          items:
+            type: string
+        classification:
+          type: object
+          nullable: true
+          properties:
+            status:
+              type: string
+              enum: [completed, not_available, insufficient_input]
+            modelId:
+              type: string
+              nullable: true
+            modelVersion:
+              type: string
+              nullable: true
+            notice:
+              type: string
+            rankedConditions:
+              type: array
+              items:
+                type: object
+                properties:
+                  condition:
+                    type: string
+                  score:
+                    type: number
+                  supportingSymptoms:
+                    type: array
+                    items:
+                      type: string
+                  nonSupportingSymptoms:
+                    type: array
+                    items:
+                      type: string
+                required: [condition, score]
+            unmatchedSymptoms:
+              type: array
+              items:
+                type: string
+            diagnosticLimitations:
+              type: array
+              items:
+                type: string
+          required:
+            - status
+            - modelId
+            - modelVersion
+            - notice
         status:
           type: string
         createdAt:
@@ -2201,6 +2486,12 @@ components:
           type: array
           items:
             type: string
+        selectedSymptoms:
+          type: array
+          maxItems: 60
+          items:
+            type: string
+            maxLength: 300
       required:
         - primarySymptom
         - symptomCategory
@@ -2613,6 +2904,98 @@ components:
       required:
         - interpretation
         - notice
+    SymptomClassifierStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        status:
+          type: string
+          nullable: true
+          enum: [unavailable]
+        reason:
+          type: string
+          nullable: true
+        mode:
+          type: string
+          nullable: true
+          enum: [research_only]
+        modelId:
+          type: string
+          nullable: true
+        modelVersion:
+          type: string
+          nullable: true
+        readinessState:
+          type: string
+          nullable: true
+        calibrationStatus:
+          type: string
+          nullable: true
+        classCount:
+          type: integer
+          nullable: true
+        catalogue:
+          type: array
+          nullable: true
+          items:
+            type: string
+        readinessNote:
+          type: string
+          nullable: true
+        datasetProvenance:
+          type: object
+          nullable: true
+          properties:
+            datasetId:
+              type: string
+            sourceOrigin:
+              type: string
+            licenseNote:
+              type: string
+      required:
+        - available
+    SkinInferenceStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        status:
+          type: string
+          nullable: true
+          enum: [unavailable]
+        reason:
+          type: string
+          nullable: true
+        mode:
+          type: string
+          nullable: true
+          enum: [research_only, approved]
+        modelId:
+          type: string
+          nullable: true
+        modelVersion:
+          type: string
+          nullable: true
+        readinessState:
+          type: string
+          nullable: true
+        preprocessingVersion:
+          type: string
+          nullable: true
+        calibrationStatus:
+          type: string
+          nullable: true
+        labels:
+          type: array
+          nullable: true
+          items:
+            type: string
+        readinessNote:
+          type: string
+          nullable: true
+      required:
+        - available
     CardiacModelStatus:
       type: object
       properties:
@@ -2620,16 +3003,170 @@ components:
           type: boolean
         status:
           type: string
+          nullable: true
           enum: [model_unavailable]
         reason:
           type: string
+          nullable: true
+        mode:
+          type: string
+          nullable: true
+          enum: [research_only]
+        modelId:
+          type: string
+          nullable: true
+        modelVersion:
+          type: string
+          nullable: true
+        readinessState:
+          type: string
+          nullable: true
+        calibrationStatus:
+          type: string
+          nullable: true
+        metrics:
+          type: object
+          nullable: true
+        readinessNote:
+          type: string
+          nullable: true
         contract:
           type: object
       required:
         - available
-        - status
-        - reason
         - contract
+    CreateCardiacAssessmentRequest:
+      type: object
+      properties:
+        caseId:
+          type: integer
+        age:
+          type: number
+          minimum: 18
+          maximum: 120
+        sex:
+          type: string
+          enum: [male, female]
+        chestPainType:
+          type: string
+          enum: [typical_angina, atypical_angina, non_anginal, asymptomatic]
+        restingBloodPressure:
+          type: number
+          minimum: 60
+          maximum: 250
+        serumCholesterol:
+          type: number
+          minimum: 50
+          maximum: 700
+        fastingBloodSugarOver120:
+          type: string
+          enum: [yes, no]
+        restingEcg:
+          type: string
+          enum: [normal, st_t_abnormality, left_ventricular_hypertrophy]
+        maxHeartRate:
+          type: number
+          minimum: 50
+          maximum: 250
+        exerciseAngina:
+          type: string
+          enum: [yes, no]
+        stDepression:
+          type: number
+          minimum: 0
+          maximum: 10
+        stSlope:
+          type: string
+          enum: [upsloping, flat, downsloping]
+        majorVessels:
+          type: number
+          minimum: 0
+          maximum: 3
+        thalassemia:
+          type: string
+          enum: [normal, fixed_defect, reversible_defect]
+      required: [age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia]
+    CardiacAssessment:
+      type: object
+      properties:
+        id:
+          type: integer
+        caseId:
+          type: integer
+          nullable: true
+        inputs:
+          type: object
+        riskScore:
+          type: number
+          nullable: true
+        aboveThreshold:
+          type: boolean
+          nullable: true
+        label:
+          type: string
+          nullable: true
+          enum: [disease, no_disease]
+        status:
+          type: string
+          enum: [research_only, model_unavailable]
+        modelId:
+          type: string
+          nullable: true
+        modelVersion:
+          type: string
+          nullable: true
+        threshold:
+          type: number
+          nullable: true
+        topFactors:
+          type: array
+          items:
+            type: object
+            properties:
+              feature:
+                type: string
+              description:
+                type: string
+              contribution:
+                type: number
+              unit:
+                type: string
+                nullable: true
+            required: [feature, description, contribution]
+        notice:
+          type: string
+        diagnosticLimitations:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - inputs
+        - status
+        - notice
+        - createdAt
+    CardiacAssessmentResponse:
+      type: object
+      properties:
+        assessment:
+          $ref: "#/components/schemas/CardiacAssessment"
+      required: [assessment]
+    CardiacAssessmentListResponse:
+      type: object
+      properties:
+        assessments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CardiacAssessment"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required: [assessments, total, page, limit]
     CaseWorkspaceResponse:
       type: object
       properties:
@@ -2654,6 +3191,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SymptomAssessment"
+        cardiacAssessments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CardiacAssessment"
         reports:
           type: array
           items:

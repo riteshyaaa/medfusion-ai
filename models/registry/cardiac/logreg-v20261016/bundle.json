@@ -1,0 +1,133 @@
+{
+ "bundleType": "cardiac-risk-logistic-regression",
+ "bundleVersion": "cardiac-logreg-20261016",
+ "classOrder": [
+  "no_disease",
+  "disease"
+ ],
+ "columnOrder": [
+  "numeric:age",
+  "numeric:trestbps",
+  "numeric:chol",
+  "numeric:thalach",
+  "numeric:oldpeak",
+  "categorical:sex=female",
+  "categorical:sex=male",
+  "categorical:cp=typical_angina",
+  "categorical:cp=atypical_angina",
+  "categorical:cp=non_anginal",
+  "categorical:cp=asymptomatic",
+  "categorical:fbs=no",
+  "categorical:fbs=yes",
+  "categorical:restecg=normal",
+  "categorical:restecg=st_t_abnormality",
+  "categorical:restecg=left_ventricular_hypertrophy",
+  "categorical:exang=no",
+  "categorical:exang=yes",
+  "categorical:slope=upsloping",
+  "categorical:slope=flat",
+  "categorical:slope=downsloping",
+  "categorical:ca=0",
+  "categorical:ca=1",
+  "categorical:ca=2",
+  "categorical:ca=3",
+  "categorical:thal=normal",
+  "categorical:thal=fixed_defect",
+  "categorical:thal=reversible_defect"
+ ],
+ "numericFeatures": {
+  "age": {
+   "mean": 54.65700483091788,
+   "std": 8.889729008817884
+  },
+  "trestbps": {
+   "mean": 131.2415458937198,
+   "std": 16.601309928135773
+  },
+  "chol": {
+   "mean": 248.17874396135267,
+   "std": 54.47387294111715
+  },
+  "thalach": {
+   "mean": 150.09178743961354,
+   "std": 23.235951658196925
+  },
+  "oldpeak": {
+   "mean": 1.0632850241545893,
+   "std": 1.1907066999606912
+  }
+ },
+ "categoricalFeatures": {
+  "sex": [
+   "female",
+   "male"
+  ],
+  "cp": [
+   "typical_angina",
+   "atypical_angina",
+   "non_anginal",
+   "asymptomatic"
+  ],
+  "fbs": [
+   "no",
+   "yes"
+  ],
+  "restecg": [
+   "normal",
+   "st_t_abnormality",
+   "left_ventricular_hypertrophy"
+  ],
+  "exang": [
+   "no",
+   "yes"
+  ],
+  "slope": [
+   "upsloping",
+   "flat",
+   "downsloping"
+  ],
+  "ca": [
+   "0",
+   "1",
+   "2",
+   "3"
+  ],
+  "thal": [
+   "normal",
+   "fixed_defect",
+   "reversible_defect"
+  ]
+ },
+ "coefficients": [
+  -0.053726263293464506,
+  0.0037720689097962687,
+  0.17656802995445278,
+  -0.2627613471719817,
+  0.8419368322118945,
+  -0.47660000697215416,
+  0.49169188198257746,
+  -1.0407618132276961,
+  0.5180553857851126,
+  -0.6643225346240413,
+  1.202120837077049,
+  0.04412929541858113,
+  -0.02903742040815438,
+  -0.5489801144115941,
+  0.1131379429960823,
+  0.4509340464259366,
+  -0.3769696867054878,
+  0.39206156171591,
+  -0.21993985768778998,
+  0.37381726066779813,
+  -0.1387855279695871,
+  -1.3652714771395134,
+  0.7178548696060314,
+  0.6857235734529218,
+  -0.023215090909016817,
+  -0.7511092043450973,
+  0.03317723337812931,
+  0.7330238459773939
+ ],
+ "intercept": 0.04521240645778793,
+ "decisionThreshold": 0.5
+}

@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
-import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations } from "@workspace/db/schema";
+import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments } from "@workspace/db/schema";
 import { eq, desc, and, or, ilike, count, sql, inArray, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
@@ -16,11 +16,13 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { LocalPrivateStorage } from "./storage";
 import { getTestInferenceProvider, hasApprovedSkinModel } from "./inference";
+import { getResearchSkinInferenceProvider, getSkinInferenceStatus, SkinInferenceError } from "./skin-inference";
 import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
 import { getOcrStatus } from "./document-extraction";
 import { scheduleDocumentProcessing } from "./document-service";
 import { InterpretationValidationError, getDocumentInterpreter } from "./document-interpreter";
-import { cardiacModelStatus, hasApprovedCardiacModel } from "./cardiac";
+import { cardiacModelStatus, hasApprovedCardiacModel, assessCardiacRisk, CardiacFeatureError } from "./cardiac";
+import { classifySymptoms as classifySymptomsSymptomAssessment, getSymptomClassifierStatus } from "./symptom-classifier";
 
 type Variables = {
   user: typeof users.$inferSelect;
@@ -279,10 +281,23 @@ app.get("/auth/me", async (c) => {
 app.get("/healthz", (c) => c.json({ status: "healthy" }));
 
 app.get("/readyz", async (c) => {
+  const [skinInference, symptomClassifier, cardiacInference] = await Promise.all([
+    getSkinInferenceStatus(),
+    getSymptomClassifierStatus(),
+    cardiacModelStatus(),
+  ]);
   const checks = {
     database: true,
     model: hasApprovedSkinModel(),
+    skinInference,
+    symptomClassifier: {
+      available: symptomClassifier.available,
+      ...(symptomClassifier.available
+        ? { mode: symptomClassifier.mode, modelId: symptomClassifier.modelId, modelVersion: symptomClassifier.modelVersion, classCount: symptomClassifier.classCount }
+        : { status: symptomClassifier.status, reason: symptomClassifier.reason }),
+    },
     cardiacModel: hasApprovedCardiacModel(),
+    cardiacInference,
     aiProvider: getAIProviderStatus(),
     documentOcr: getOcrStatus(),
   };
@@ -294,7 +309,106 @@ app.get("/readyz", async (c) => {
   }
 });
 
-app.get("/cardiac/model-status", (c) => c.json(cardiacModelStatus()));
+app.get("/cardiac/model-status", async (c) => c.json(await cardiacModelStatus()));
+app.get("/skin/model-status", async (c) => c.json(await getSkinInferenceStatus()));
+app.get("/symptoms/classifier-status", async (c) => c.json(await getSymptomClassifierStatus()));
+
+const createCardiacAssessmentSchema = z.object({
+  caseId: z.number().int().positive().optional(),
+  age: z.number().min(18).max(120),
+  sex: z.enum(["male", "female"]),
+  chestPainType: z.enum(["typical_angina", "atypical_angina", "non_anginal", "asymptomatic"]),
+  restingBloodPressure: z.number().min(60).max(250),
+  serumCholesterol: z.number().min(50).max(700),
+  fastingBloodSugarOver120: z.enum(["yes", "no"]),
+  restingEcg: z.enum(["normal", "st_t_abnormality", "left_ventricular_hypertrophy"]),
+  maxHeartRate: z.number().min(50).max(250),
+  exerciseAngina: z.enum(["yes", "no"]),
+  stDepression: z.number().min(0).max(10),
+  stSlope: z.enum(["upsloping", "flat", "downsloping"]),
+  majorVessels: z.number().min(0).max(3),
+  thalassemia: z.enum(["normal", "fixed_defect", "reversible_defect"]),
+});
+
+function cardiacAssessmentView(assessment: typeof cardiacAssessments.$inferSelect) {
+  return {
+    id: assessment.id,
+    caseId: assessment.caseId,
+    inputs: assessment.inputs,
+    riskScore: assessment.riskScore,
+    aboveThreshold: assessment.aboveThreshold,
+    label: assessment.label,
+    status: assessment.status,
+    modelId: assessment.modelId,
+    modelVersion: assessment.modelVersion,
+    threshold: assessment.threshold,
+    topFactors: assessment.topFactors,
+    notice: assessment.notice,
+    diagnosticLimitations: assessment.diagnosticLimitations,
+    createdAt: assessment.createdAt,
+  };
+}
+
+app.get("/cardiac/assessments", requireAuth, async (c) => {
+  const user = c.get("user");
+  const { page, limit } = parsePagination(c.req.query());
+  const filters = z.object({ caseId: z.coerce.number().int().positive().optional() }).safeParse(c.req.query());
+  if (!filters.success) throw new HTTPException(400, { message: "Invalid cardiac assessment filters" });
+  const offset = (page - 1) * limit;
+  let whereClause = eq(cardiacAssessments.userId, user.id);
+  if (filters.data.caseId) whereClause = and(whereClause, eq(cardiacAssessments.caseId, filters.data.caseId))!;
+  const [items, totalResult] = await Promise.all([
+    db.query.cardiacAssessments.findMany({ where: whereClause, orderBy: [desc(cardiacAssessments.createdAt)], limit, offset }),
+    db.select({ count: count() }).from(cardiacAssessments).where(whereClause),
+  ]);
+  return c.json({ assessments: items.map(cardiacAssessmentView), total: totalResult[0]?.count || 0, page, limit });
+});
+
+app.post("/cardiac/assessments", requireAuth, jsonBody(createCardiacAssessmentSchema), async (c) => {
+  const user = c.get("user");
+  const data = c.req.valid("json");
+  if (data.caseId) {
+    const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, data.caseId), eq(cases.createdById, user.id)) });
+    if (!caseData) throw new HTTPException(404, { message: "Case not found" });
+  }
+  let result;
+  try {
+    result = await assessCardiacRisk(data);
+  } catch (error) {
+    if (error instanceof CardiacFeatureError) {
+      return c.json({ error: "invalid_feature_value", field: error.field, message: error.message, requestId: c.get("requestId") }, 400);
+    }
+    throw error;
+  }
+  const { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia, caseId, ..._rest } = data;
+  const inputs: Record<string, string | number> = { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia };
+  void _rest;
+  const [assessment] = await db.insert(cardiacAssessments).values({
+    userId: user.id,
+    ...(data.caseId ? { caseId: data.caseId } : {}),
+    inputs,
+    riskScore: result.riskScore,
+    aboveThreshold: result.aboveThreshold,
+    label: result.label as "disease" | "no_disease" | null,
+    status: result.status,
+    modelId: result.modelId,
+    modelVersion: result.modelVersion,
+    threshold: result.threshold,
+    topFactors: result.topFactors,
+    notice: result.notice,
+    diagnosticLimitations: result.diagnosticLimitations,
+  }).returning();
+  await logAudit(c, "cardiac_assessment", "create", "success", "cardiac_assessment", assessment.id.toString(), { status: result.status });
+  return c.json({ assessment: cardiacAssessmentView(assessment) }, 201);
+});
+
+app.get("/cardiac/assessments/:id", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const assessment = await db.query.cardiacAssessments.findFirst({ where: and(eq(cardiacAssessments.id, id), eq(cardiacAssessments.userId, user.id)) });
+  if (!assessment) throw new HTTPException(404, { message: "Cardiac assessment not found" });
+  return c.json({ assessment: cardiacAssessmentView(assessment) });
+});
 
 const ALLOWED_MIME_FORMATS: Record<string, string> = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" };
 
@@ -409,20 +523,33 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
   const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, uploadId), eq(uploads.userId, user.id)) });
   if (!upload) throw new HTTPException(404, { message: "Upload not found" });
 
-  const provider = getTestInferenceProvider();
+  const statusLookup = await getSkinInferenceStatus();
+  const testProvider = getTestInferenceProvider();
+  const researchProvider = testProvider ? undefined : await getResearchSkinInferenceProvider();
+  const provider = testProvider ?? researchProvider;
   if (!provider) {
     await logAudit(c, "prediction", "create", "failure", "upload", upload.id.toString(), { reason: "model_unavailable" });
-    throw new HTTPException(503, { message: "Skin analysis is unavailable because no approved model is configured" });
+    throw new HTTPException(503, {
+      message: statusLookup.available
+        ? "Skin analysis could not start with the configured research model"
+        : "Skin analysis is unavailable because no verified and enabled skin model is configured",
+    });
   }
 
   let output;
   try {
     output = await provider.predict(await storage.read(upload.storageKey));
-  } catch {
+  } catch (error) {
     await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: "inference_failed" });
-    throw new HTTPException(500, { message: "Skin analysis could not be completed" });
+    if (error instanceof SkinInferenceError && error.code === "model_image_unreadable") {
+      throw new HTTPException(422, { message: "The stored image could not be decoded by the analysis model" });
+    }
+    if (error instanceof SkinInferenceError && error.code === "model_timeout") {
+      throw new HTTPException(504, { message: "Skin analysis timed out before completing" });
+    }
+    throw new HTTPException(error instanceof SkinInferenceError ? 502 : 500, { message: "Skin analysis could not be completed" });
   }
-  const status = provider.simulated ? "simulated" : "completed";
+  const status = testProvider?.simulated ? "simulated" : researchProvider ? (researchProvider.mode === "approved" ? "completed" : "research_only") : "completed";
   const [prediction] = await db.insert(predictions).values({
     disease: output.disease,
     confidence: output.confidence,
@@ -434,7 +561,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     status,
     modelId: output.modelId,
     modelVersion: output.modelVersion,
-    scoreSemantics: provider.simulated ? "simulated" : output.scoreSemantics,
+    scoreSemantics: testProvider?.simulated ? "simulated" : output.scoreSemantics,
     preprocessingVersion: output.preprocessingVersion,
     uploadId,
     fileName: upload.originalFileName,
@@ -1059,6 +1186,7 @@ app.get("/cases/:id/workspace", requireAuth, async (c) => {
     .orderBy(desc(predictions.createdAt));
   const caseDocuments = await db.query.documents.findMany({ where: and(eq(documents.caseId, id), eq(documents.userId, user.id)), orderBy: [desc(documents.createdAt)] });
   const caseAssessments = await db.query.symptomAssessments.findMany({ where: and(eq(symptomAssessments.caseId, id), eq(symptomAssessments.userId, user.id)), orderBy: [desc(symptomAssessments.createdAt)] });
+  const caseCardiac = await db.query.cardiacAssessments.findMany({ where: and(eq(cardiacAssessments.caseId, id), eq(cardiacAssessments.userId, user.id)), orderBy: [desc(cardiacAssessments.createdAt)] });
   const caseReports = await db.query.reports.findMany({ where: and(eq(reports.caseId, id), eq(reports.authorId, user.id)), orderBy: [desc(reports.createdAt)] });
 
   const documentFindingCounts = caseDocuments.length === 0 ? [] : await db.select({ documentId: documentFindings.documentId, count: count() })
@@ -1082,10 +1210,12 @@ app.get("/cases/:id/workspace", requireAuth, async (c) => {
     predictions: casePredictions.map(({ prediction }) => predictionView(prediction)),
     documents: caseDocuments.map((document) => documentSummaryView(document, countByDocument.get(document.id) ?? 0)),
     symptomAssessments: caseAssessments,
+    cardiacAssessments: caseCardiac.map(cardiacAssessmentView),
     reports: caseReports,
     limitations: [
       "Each item below shows what actually ran and when. Incompatible model outputs are never merged into a single score.",
       "Skin model outputs are listed only when a verified inference provider produced them.",
+      "Symptom condition rankings and cardiac scores are research-only, uncalibrated outputs shown beside their limitations.",
       "Extracted document findings require user confirmation and are not clinical conclusions.",
     ],
   });
@@ -1119,6 +1249,7 @@ const createSymptomAssessmentSchema = z.object({
   medicalHistory: z.array(z.string().max(300)).max(50).default([]),
   medications: z.array(z.string().max(300)).max(100).default([]),
   allergies: z.array(z.string().max(300)).max(50).default([]),
+  selectedSymptoms: z.array(z.string().trim().min(1).max(300)).max(60).default([]),
 });
 
 const RED_FLAG_SYMPTOMS = [
@@ -1171,6 +1302,7 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
   }
   
   const { urgency, redFlags, guidance } = assessUrgency(data);
+  const classification = classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
   
   const [assessment] = await db.insert(symptomAssessments).values({
     ...data,
@@ -1178,6 +1310,8 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
     redFlagsTriggered: redFlags,
     urgencyLevel: urgency,
     guidance,
+    selectedSymptoms: data.selectedSymptoms ?? [],
+    classification,
   }).returning();
   
   await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency });
@@ -1317,6 +1451,15 @@ app.post("/reports", requireAuth, jsonBody(createReportSchema), async (c) => {
   }
 
   const assessmentRows = await db.query.symptomAssessments.findMany({ where: and(eq(symptomAssessments.caseId, data.caseId), eq(symptomAssessments.userId, user.id)), orderBy: [desc(symptomAssessments.createdAt)] });
+  const cardiacRows = await db.query.cardiacAssessments.findMany({ where: and(eq(cardiacAssessments.caseId, data.caseId), eq(cardiacAssessments.userId, user.id)), orderBy: [desc(cardiacAssessments.createdAt)] });
+  const documentRows = await db.query.documents.findMany({ where: and(eq(documents.caseId, data.caseId), eq(documents.userId, user.id)), orderBy: [desc(documents.createdAt)] });
+  const findingRows = documentRows.length === 0 ? [] : await db.select().from(documentFindings).where(inArray(documentFindings.documentId, documentRows.map((document) => document.id)));
+  const findingsByDocument = new Map<number, typeof findingRows>();
+  for (const finding of findingRows) {
+    const list = findingsByDocument.get(finding.documentId) ?? [];
+    list.push(finding);
+    findingsByDocument.set(finding.documentId, list);
+  }
   const reportNumber = `RPT-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   const content = {
     source: "persisted_authorized_records",
@@ -1324,8 +1467,24 @@ app.post("/reports", requireAuth, jsonBody(createReportSchema), async (c) => {
     case: { id: caseData.id, caseNumber: caseData.caseNumber, type: caseData.type, status: caseData.status, priority: caseData.priority, chiefComplaint: caseData.chiefComplaint },
     patient: { id: patient.id, name: `${patient.firstName} ${patient.lastName}` },
     symptomAssessments: assessmentRows,
+    cardiacAssessments: cardiacRows.map(cardiacAssessmentView),
+    documentSummaries: documentRows.map((document) => ({
+      id: document.id,
+      documentType: document.documentType,
+      processingStatus: document.processingStatus,
+      createdAt: document.createdAt,
+      findings: (findingsByDocument.get(document.id) ?? []).map((finding) => ({
+        category: finding.category,
+        label: finding.label,
+        value: finding.status === "confirmed" || finding.status === "corrected" ? finding.valueText : `${finding.valueText} (${finding.status})`,
+        unit: finding.status === "confirmed" || finding.status === "corrected" ? (finding.correctedUnit ?? finding.unit) : null,
+        status: finding.status,
+        sourcePage: finding.pageNumber,
+        evidence: finding.sourceText,
+      })),
+    })),
     modelOutputs,
-    limitations: ["Draft assembled from saved application records.", "Not a diagnosis or treatment recommendation.", "Requires review by an appropriately qualified professional before any clinical use."],
+    limitations: ["Draft assembled from saved application records.", "Not a diagnosis or treatment recommendation.", "Research-only classifier outputs (symptom rankings, cardiac scores) are uncalibrated and clearly labelled.", "Rejected or unreviewed document findings are shown as such and are not confirmed values.", "Requires review by an appropriately qualified professional before any clinical use."],
   };
   const [report] = await db.insert(reports).values({ ...data, content, authorId: user.id, reportNumber, status: "draft" }).returning();
   await logAudit(c, "report", "create", "success", "report", report.id.toString());
@@ -1367,6 +1526,28 @@ function renderReportText(report: typeof reports.$inferSelect): string {
     for (const assessment of content.symptomAssessments) {
       lines.push(`  - ${assessment.createdAt ?? ""} [${assessment.urgencyLevel ?? "unknown"}] ${assessment.primarySymptom ?? ""} (${assessment.symptomCategory ?? ""})`);
       for (const recommendation of assessment.guidance?.recommendations ?? []) lines.push(`      ${recommendation}`);
+    }
+    lines.push("");
+  }
+  if (Array.isArray(content.cardiacAssessments) && content.cardiacAssessments.length > 0) {
+    lines.push("Cardiac assessments (research-only baseline; uncalibrated scores)");
+    for (const assessment of content.cardiacAssessments) {
+      if (assessment.status === "research_only" && typeof assessment.riskScore === "number") {
+        lines.push(`  - ${assessment.createdAt} | score: ${assessment.riskScore.toFixed(4)} vs threshold ${assessment.threshold ?? "n/a"} | above threshold: ${assessment.aboveThreshold ? "yes" : "no"} | model: ${assessment.modelId ?? ""} ${assessment.modelVersion ?? ""}`);
+        for (const factor of assessment.topFactors ?? []) lines.push(`      Contribution ${factor.contribution >= 0 ? "+" : ""}${factor.contribution.toFixed(3)}: ${factor.description}`);
+      } else {
+        lines.push(`  - ${assessment.createdAt} | research-only score could not be produced (${assessment.status})`);
+      }
+    }
+    lines.push("");
+  }
+  if (Array.isArray(content.documentSummaries) && content.documentSummaries.length > 0) {
+    lines.push("Report documents (extracted findings; unreviewed entries are not confirmed values)");
+    for (const document of content.documentSummaries) {
+      lines.push(`  - Document #${document.id} | type ${document.documentType} | ${document.processingStatus} | ${document.createdAt}`);
+      for (const finding of document.findings ?? []) {
+        lines.push(`      [${finding.status}] ${finding.label}: ${finding.value}${finding.unit ? ` ${finding.unit}` : ""} (page ${finding.sourcePage ?? "?"})`);
+      }
     }
     lines.push("");
   }

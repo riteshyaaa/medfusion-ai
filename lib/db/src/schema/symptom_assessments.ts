@@ -21,6 +21,16 @@ export const symptomAssessments = pgTable("symptom_assessments", {
   redFlagsTriggered: jsonb("red_flags_triggered").$type<string[]>().default([]),
   urgencyLevel: text("urgency_level", { enum: ["emergency", "urgent", "routine", "self_care"] }).notNull(),
   guidance: jsonb("guidance").$type<{ recommendations: string[]; disclaimer: string }>(),
+  selectedSymptoms: jsonb("selected_symptoms").$type<string[]>().default([]),
+  classification: jsonb("classification").$type<{
+    status: "completed" | "not_available" | "insufficient_input";
+    modelId: string | null;
+    modelVersion: string | null;
+    notice: string;
+    rankedConditions?: Array<{ condition: string; score: number; supportingSymptoms: string[]; nonSupportingSymptoms: string[] }>;
+    unmatchedSymptoms?: string[];
+    diagnosticLimitations?: string[];
+  } | null>(),
   status: text("status", { enum: ["draft", "completed", "reviewed"] }).notNull().default("completed"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

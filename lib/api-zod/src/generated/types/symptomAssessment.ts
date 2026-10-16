@@ -5,6 +5,7 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { SymptomAssessmentClassification } from './symptomAssessmentClassification.ts';
 import type { SymptomAssessmentGuidance } from './symptomAssessmentGuidance.ts';
 import type { SymptomAssessmentUrgencyLevel } from './symptomAssessmentUrgencyLevel.ts';
 
@@ -23,6 +24,9 @@ export interface SymptomAssessment {
   redFlagsTriggered?: string[];
   urgencyLevel: SymptomAssessmentUrgencyLevel;
   guidance: SymptomAssessmentGuidance;
+  selectedSymptoms?: string[];
+  /** @nullable */
+  classification?: SymptomAssessmentClassification;
   status: string;
   createdAt: string;
   updatedAt: string;

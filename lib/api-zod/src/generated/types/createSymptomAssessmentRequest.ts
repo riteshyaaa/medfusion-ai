@@ -18,4 +18,9 @@ export interface CreateSymptomAssessmentRequest {
   medicalHistory?: string[];
   medications?: string[];
   allergies?: string[];
+  /**
+     * @maxItems 60
+     * @items.maxLength 300
+     */
+  selectedSymptoms?: string[];
 }

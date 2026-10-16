@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("manifest", type=Path)
     verify.add_argument("--config", type=Path, default=_default_config_path())
     verify.add_argument("--require-approved", action="store_true")
+
+    infer = subcommands.add_parser("infer", help="Run one image through a manifest-verified checkpoint (research-only serving path).")
+    infer.add_argument("--artifact-dir", type=Path, required=True)
+    infer.add_argument("--image", type=Path, required=True)
     return parser
 
 
@@ -77,6 +81,11 @@ def main() -> int:
             run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             output_dir = args.output_dir or Path("outputs/ml/skin") / run_id
             result = run_training(args.data_root, config, source_manifest, output_dir)
+        elif args.command == "infer":
+            from .infer import main as infer_main
+
+            infer_code = infer_main(["--artifact-dir", str(args.artifact_dir), "--image", str(args.image)])
+            return infer_code
         else:
             config = _load_json(args.config)
             manifest = verify_manifest(

@@ -6,12 +6,18 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ReadinessStatusChecksAiProvider } from './readinessStatusChecksAiProvider.ts';
+import type { ReadinessStatusChecksCardiacInference } from './readinessStatusChecksCardiacInference.ts';
 import type { ReadinessStatusChecksDocumentOcr } from './readinessStatusChecksDocumentOcr.ts';
+import type { ReadinessStatusChecksSkinInference } from './readinessStatusChecksSkinInference.ts';
+import type { ReadinessStatusChecksSymptomClassifier } from './readinessStatusChecksSymptomClassifier.ts';
 
 export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
   cardiacModel?: boolean;
+  skinInference?: ReadinessStatusChecksSkinInference;
+  cardiacInference?: ReadinessStatusChecksCardiacInference;
+  symptomClassifier?: ReadinessStatusChecksSymptomClassifier;
   aiProvider?: ReadinessStatusChecksAiProvider;
   documentOcr?: ReadinessStatusChecksDocumentOcr;
 };

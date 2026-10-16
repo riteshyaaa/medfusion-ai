@@ -17,6 +17,116 @@ export const ReadinessStatusStatus = {
   not_ready: 'not_ready',
 } as const;
 
+export type ReadinessStatusChecksSkinInferenceStatus = typeof ReadinessStatusChecksSkinInferenceStatus[keyof typeof ReadinessStatusChecksSkinInferenceStatus];
+
+
+export const ReadinessStatusChecksSkinInferenceStatus = {
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ReadinessStatusChecksSkinInferenceMode = typeof ReadinessStatusChecksSkinInferenceMode[keyof typeof ReadinessStatusChecksSkinInferenceMode] | null;
+
+
+export const ReadinessStatusChecksSkinInferenceMode = {
+  research_only: 'research_only',
+  approved: 'approved',
+} as const;
+
+export type ReadinessStatusChecksSkinInference = {
+  available: boolean;
+  status?: ReadinessStatusChecksSkinInferenceStatus;
+  reason?: string;
+  /** @nullable */
+  mode?: ReadinessStatusChecksSkinInferenceMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  readinessState?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+  /** @nullable */
+  labels?: string[] | null;
+  /** @nullable */
+  readinessNote?: string | null;
+};
+
+/**
+ * @nullable
+ */
+export type ReadinessStatusChecksCardiacInferenceStatus = typeof ReadinessStatusChecksCardiacInferenceStatus[keyof typeof ReadinessStatusChecksCardiacInferenceStatus] | null;
+
+
+export const ReadinessStatusChecksCardiacInferenceStatus = {
+  model_unavailable: 'model_unavailable',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ReadinessStatusChecksCardiacInferenceMode = typeof ReadinessStatusChecksCardiacInferenceMode[keyof typeof ReadinessStatusChecksCardiacInferenceMode] | null;
+
+
+export const ReadinessStatusChecksCardiacInferenceMode = {
+  research_only: 'research_only',
+} as const;
+
+export type ReadinessStatusChecksCardiacInference = {
+  available: boolean;
+  /** @nullable */
+  status?: ReadinessStatusChecksCardiacInferenceStatus;
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  mode?: ReadinessStatusChecksCardiacInferenceMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+};
+
+/**
+ * @nullable
+ */
+export type ReadinessStatusChecksSymptomClassifierMode = typeof ReadinessStatusChecksSymptomClassifierMode[keyof typeof ReadinessStatusChecksSymptomClassifierMode] | null;
+
+
+export const ReadinessStatusChecksSymptomClassifierMode = {
+  research_only: 'research_only',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ReadinessStatusChecksSymptomClassifierStatus = typeof ReadinessStatusChecksSymptomClassifierStatus[keyof typeof ReadinessStatusChecksSymptomClassifierStatus] | null;
+
+
+export const ReadinessStatusChecksSymptomClassifierStatus = {
+  unavailable: 'unavailable',
+} as const;
+
+export type ReadinessStatusChecksSymptomClassifier = {
+  available: boolean;
+  /** @nullable */
+  mode?: ReadinessStatusChecksSymptomClassifierMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  classCount?: number | null;
+  /** @nullable */
+  status?: ReadinessStatusChecksSymptomClassifierStatus;
+  /** @nullable */
+  reason?: string | null;
+};
+
 export type ReadinessStatusChecksAiProvider = typeof ReadinessStatusChecksAiProvider[keyof typeof ReadinessStatusChecksAiProvider];
 
 
@@ -45,6 +155,9 @@ export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
   cardiacModel?: boolean;
+  skinInference?: ReadinessStatusChecksSkinInference;
+  cardiacInference?: ReadinessStatusChecksCardiacInference;
+  symptomClassifier?: ReadinessStatusChecksSymptomClassifier;
   aiProvider?: ReadinessStatusChecksAiProvider;
   documentOcr?: ReadinessStatusChecksDocumentOcr;
 };
@@ -155,6 +268,7 @@ export type PredictionResultStatus = typeof PredictionResultStatus[keyof typeof 
 export const PredictionResultStatus = {
   completed: 'completed',
   simulated: 'simulated',
+  research_only: 'research_only',
   model_unavailable: 'model_unavailable',
   invalid_input: 'invalid_input',
   abstained: 'abstained',
@@ -203,6 +317,7 @@ export type PredictionRecordStatus = typeof PredictionRecordStatus[keyof typeof 
 export const PredictionRecordStatus = {
   completed: 'completed',
   simulated: 'simulated',
+  research_only: 'research_only',
   model_unavailable: 'model_unavailable',
   invalid_input: 'invalid_input',
   abstained: 'abstained',
@@ -488,6 +603,37 @@ export type SymptomAssessmentGuidance = {
   disclaimer: string;
 };
 
+export type SymptomAssessmentClassificationStatus = typeof SymptomAssessmentClassificationStatus[keyof typeof SymptomAssessmentClassificationStatus];
+
+
+export const SymptomAssessmentClassificationStatus = {
+  completed: 'completed',
+  not_available: 'not_available',
+  insufficient_input: 'insufficient_input',
+} as const;
+
+export type SymptomAssessmentClassificationRankedConditionsItem = {
+  condition: string;
+  score: number;
+  supportingSymptoms?: string[];
+  nonSupportingSymptoms?: string[];
+};
+
+/**
+ * @nullable
+ */
+export type SymptomAssessmentClassification = {
+  status: SymptomAssessmentClassificationStatus;
+  /** @nullable */
+  modelId: string | null;
+  /** @nullable */
+  modelVersion: string | null;
+  notice: string;
+  rankedConditions?: SymptomAssessmentClassificationRankedConditionsItem[];
+  unmatchedSymptoms?: string[];
+  diagnosticLimitations?: string[];
+} | null;
+
 export interface SymptomAssessment {
   id: number;
   primarySymptom: string;
@@ -503,6 +649,9 @@ export interface SymptomAssessment {
   redFlagsTriggered?: string[];
   urgencyLevel: SymptomAssessmentUrgencyLevel;
   guidance: SymptomAssessmentGuidance;
+  selectedSymptoms?: string[];
+  /** @nullable */
+  classification?: SymptomAssessmentClassification;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -531,6 +680,11 @@ export interface CreateSymptomAssessmentRequest {
   medicalHistory?: string[];
   medications?: string[];
   allergies?: string[];
+  /**
+     * @maxItems 60
+     * @items.maxLength 300
+     */
+  selectedSymptoms?: string[];
 }
 
 export type ReviewStatus = typeof ReviewStatus[keyof typeof ReviewStatus];
@@ -886,20 +1040,320 @@ export interface DocumentInterpretationResponse {
   notice: string;
 }
 
-export type CardiacModelStatusStatus = typeof CardiacModelStatusStatus[keyof typeof CardiacModelStatusStatus];
+/**
+ * @nullable
+ */
+export type SymptomClassifierStatusStatus = typeof SymptomClassifierStatusStatus[keyof typeof SymptomClassifierStatusStatus] | null;
+
+
+export const SymptomClassifierStatusStatus = {
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SymptomClassifierStatusMode = typeof SymptomClassifierStatusMode[keyof typeof SymptomClassifierStatusMode] | null;
+
+
+export const SymptomClassifierStatusMode = {
+  research_only: 'research_only',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SymptomClassifierStatusDatasetProvenance = {
+  datasetId?: string;
+  sourceOrigin?: string;
+  licenseNote?: string;
+} | null;
+
+export interface SymptomClassifierStatus {
+  available: boolean;
+  /** @nullable */
+  status?: SymptomClassifierStatusStatus;
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  mode?: SymptomClassifierStatusMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  readinessState?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+  /** @nullable */
+  classCount?: number | null;
+  /** @nullable */
+  catalogue?: string[] | null;
+  /** @nullable */
+  readinessNote?: string | null;
+  /** @nullable */
+  datasetProvenance?: SymptomClassifierStatusDatasetProvenance;
+}
+
+/**
+ * @nullable
+ */
+export type SkinInferenceStatusStatus = typeof SkinInferenceStatusStatus[keyof typeof SkinInferenceStatusStatus] | null;
+
+
+export const SkinInferenceStatusStatus = {
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SkinInferenceStatusMode = typeof SkinInferenceStatusMode[keyof typeof SkinInferenceStatusMode] | null;
+
+
+export const SkinInferenceStatusMode = {
+  research_only: 'research_only',
+  approved: 'approved',
+} as const;
+
+export interface SkinInferenceStatus {
+  available: boolean;
+  /** @nullable */
+  status?: SkinInferenceStatusStatus;
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  mode?: SkinInferenceStatusMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  readinessState?: string | null;
+  /** @nullable */
+  preprocessingVersion?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+  /** @nullable */
+  labels?: string[] | null;
+  /** @nullable */
+  readinessNote?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type CardiacModelStatusStatus = typeof CardiacModelStatusStatus[keyof typeof CardiacModelStatusStatus] | null;
 
 
 export const CardiacModelStatusStatus = {
   model_unavailable: 'model_unavailable',
 } as const;
 
+/**
+ * @nullable
+ */
+export type CardiacModelStatusMode = typeof CardiacModelStatusMode[keyof typeof CardiacModelStatusMode] | null;
+
+
+export const CardiacModelStatusMode = {
+  research_only: 'research_only',
+} as const;
+
+/**
+ * @nullable
+ */
+export type CardiacModelStatusMetrics = { [key: string]: unknown } | null;
+
 export type CardiacModelStatusContract = { [key: string]: unknown };
 
 export interface CardiacModelStatus {
   available: boolean;
-  status: CardiacModelStatusStatus;
-  reason: string;
+  /** @nullable */
+  status?: CardiacModelStatusStatus;
+  /** @nullable */
+  reason?: string | null;
+  /** @nullable */
+  mode?: CardiacModelStatusMode;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  readinessState?: string | null;
+  /** @nullable */
+  calibrationStatus?: string | null;
+  /** @nullable */
+  metrics?: CardiacModelStatusMetrics;
+  /** @nullable */
+  readinessNote?: string | null;
   contract: CardiacModelStatusContract;
+}
+
+export type CreateCardiacAssessmentRequestSex = typeof CreateCardiacAssessmentRequestSex[keyof typeof CreateCardiacAssessmentRequestSex];
+
+
+export const CreateCardiacAssessmentRequestSex = {
+  male: 'male',
+  female: 'female',
+} as const;
+
+export type CreateCardiacAssessmentRequestChestPainType = typeof CreateCardiacAssessmentRequestChestPainType[keyof typeof CreateCardiacAssessmentRequestChestPainType];
+
+
+export const CreateCardiacAssessmentRequestChestPainType = {
+  typical_angina: 'typical_angina',
+  atypical_angina: 'atypical_angina',
+  non_anginal: 'non_anginal',
+  asymptomatic: 'asymptomatic',
+} as const;
+
+export type CreateCardiacAssessmentRequestFastingBloodSugarOver120 = typeof CreateCardiacAssessmentRequestFastingBloodSugarOver120[keyof typeof CreateCardiacAssessmentRequestFastingBloodSugarOver120];
+
+
+export const CreateCardiacAssessmentRequestFastingBloodSugarOver120 = {
+  yes: 'yes',
+  no: 'no',
+} as const;
+
+export type CreateCardiacAssessmentRequestRestingEcg = typeof CreateCardiacAssessmentRequestRestingEcg[keyof typeof CreateCardiacAssessmentRequestRestingEcg];
+
+
+export const CreateCardiacAssessmentRequestRestingEcg = {
+  normal: 'normal',
+  st_t_abnormality: 'st_t_abnormality',
+  left_ventricular_hypertrophy: 'left_ventricular_hypertrophy',
+} as const;
+
+export type CreateCardiacAssessmentRequestExerciseAngina = typeof CreateCardiacAssessmentRequestExerciseAngina[keyof typeof CreateCardiacAssessmentRequestExerciseAngina];
+
+
+export const CreateCardiacAssessmentRequestExerciseAngina = {
+  yes: 'yes',
+  no: 'no',
+} as const;
+
+export type CreateCardiacAssessmentRequestStSlope = typeof CreateCardiacAssessmentRequestStSlope[keyof typeof CreateCardiacAssessmentRequestStSlope];
+
+
+export const CreateCardiacAssessmentRequestStSlope = {
+  upsloping: 'upsloping',
+  flat: 'flat',
+  downsloping: 'downsloping',
+} as const;
+
+export type CreateCardiacAssessmentRequestThalassemia = typeof CreateCardiacAssessmentRequestThalassemia[keyof typeof CreateCardiacAssessmentRequestThalassemia];
+
+
+export const CreateCardiacAssessmentRequestThalassemia = {
+  normal: 'normal',
+  fixed_defect: 'fixed_defect',
+  reversible_defect: 'reversible_defect',
+} as const;
+
+export interface CreateCardiacAssessmentRequest {
+  caseId?: number;
+  /**
+     * @minimum 18
+     * @maximum 120
+     */
+  age: number;
+  sex: CreateCardiacAssessmentRequestSex;
+  chestPainType: CreateCardiacAssessmentRequestChestPainType;
+  /**
+     * @minimum 60
+     * @maximum 250
+     */
+  restingBloodPressure: number;
+  /**
+     * @minimum 50
+     * @maximum 700
+     */
+  serumCholesterol: number;
+  fastingBloodSugarOver120: CreateCardiacAssessmentRequestFastingBloodSugarOver120;
+  restingEcg: CreateCardiacAssessmentRequestRestingEcg;
+  /**
+     * @minimum 50
+     * @maximum 250
+     */
+  maxHeartRate: number;
+  exerciseAngina: CreateCardiacAssessmentRequestExerciseAngina;
+  /**
+     * @minimum 0
+     * @maximum 10
+     */
+  stDepression: number;
+  stSlope: CreateCardiacAssessmentRequestStSlope;
+  /**
+     * @minimum 0
+     * @maximum 3
+     */
+  majorVessels: number;
+  thalassemia: CreateCardiacAssessmentRequestThalassemia;
+}
+
+export type CardiacAssessmentInputs = { [key: string]: unknown };
+
+/**
+ * @nullable
+ */
+export type CardiacAssessmentLabel = typeof CardiacAssessmentLabel[keyof typeof CardiacAssessmentLabel] | null;
+
+
+export const CardiacAssessmentLabel = {
+  disease: 'disease',
+  no_disease: 'no_disease',
+} as const;
+
+export type CardiacAssessmentStatus = typeof CardiacAssessmentStatus[keyof typeof CardiacAssessmentStatus];
+
+
+export const CardiacAssessmentStatus = {
+  research_only: 'research_only',
+  model_unavailable: 'model_unavailable',
+} as const;
+
+export type CardiacAssessmentTopFactorsItem = {
+  feature: string;
+  description: string;
+  contribution: number;
+  /** @nullable */
+  unit?: string | null;
+};
+
+export interface CardiacAssessment {
+  id: number;
+  /** @nullable */
+  caseId?: number | null;
+  inputs: CardiacAssessmentInputs;
+  /** @nullable */
+  riskScore?: number | null;
+  /** @nullable */
+  aboveThreshold?: boolean | null;
+  /** @nullable */
+  label?: CardiacAssessmentLabel;
+  status: CardiacAssessmentStatus;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  /** @nullable */
+  threshold?: number | null;
+  topFactors?: CardiacAssessmentTopFactorsItem[];
+  notice: string;
+  diagnosticLimitations?: string[];
+  createdAt: string;
+}
+
+export interface CardiacAssessmentResponse {
+  assessment: CardiacAssessment;
+}
+
+export interface CardiacAssessmentListResponse {
+  assessments: CardiacAssessment[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /**
@@ -927,6 +1381,7 @@ export interface CaseWorkspaceResponse {
   predictions: PredictionRecord[];
   documents: Document[];
   symptomAssessments: SymptomAssessment[];
+  cardiacAssessments?: CardiacAssessment[];
   reports: Report[];
   limitations?: string[];
 }
@@ -1052,4 +1507,13 @@ export const ListDocumentsStatus = {
   failed: 'failed',
   unsupported: 'unsupported',
 } as const;
+
+export type ListCardiacAssessmentsParams = {
+page?: number;
+/**
+ * @maximum 100
+ */
+limit?: number;
+caseId?: number;
+};
 
