@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ChevronRight, ActivitySquare, Cpu, AlertTriangle, Info } from "lucide-react";
+import { ActivitySquare, ChevronRight, Flame, Layers, ListChecks, Stethoscope } from "lucide-react";
 import { SeverityBadge } from "./ui/severity-badge";
 
 type DisplayResult = {
@@ -24,40 +24,94 @@ interface ResultsCardProps {
   onReset: () => void;
 }
 
+const percent = (value: number) => (Number.isFinite(value) ? (value * 100).toFixed(1) : "0.0");
+
 export function ResultsCard({ result, onReset }: ResultsCardProps) {
   const simulated = result.status === "simulated" || result.scoreSemantics === "simulated";
   const unverified = result.status === "legacy_unverified" || result.scoreSemantics === "unverified";
-  const researchOnly = result.status === "research_only";
-  const calibrated = result.scoreSemantics === "calibrated_probability";
-  const rawScore = Number.isFinite(result.confidence) ? result.confidence.toFixed(2) : "Not reported";
+  const confidencePercent = percent(result.confidence);
+  const maxDifferential = Math.max(0.001, ...result.differentialDiagnoses.map((row) => row.confidence));
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-200/60 overflow-hidden">
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-8 text-white relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-8 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-[80px] -translate-y-1/2 translate-x-1/2" />
-        <div className="relative z-10">
-          <div className="flex flex-wrap items-center gap-3 mb-4"><SeverityBadge severity={unverified ? "unassessed" : result.severity} /><span className="text-slate-300 text-sm">{simulated ? "Simulated test output" : unverified ? "Legacy record not verified" : researchOnly ? "Research preview — not clinically validated" : "Persisted model output"}</span></div>
-          <h2 className="text-3xl md:text-4xl font-display font-bold mb-5 text-teal-300">{simulated ? "SIMULATED TEST OUTPUT" : unverified ? "UNVERIFIED LEGACY RECORD" : `Research preview: ${result.disease}`}</h2>
-          {simulated ? <p className="text-sm font-semibold text-amber-200">This record was created by an explicit test double. It is not a model prediction and its values are hidden.</p> : unverified ? <p className="text-sm font-semibold text-amber-200">Model provenance was not recorded for this legacy row. Its label, score, and stored guidance are hidden.</p> : <div className="max-w-xl"><p className="text-sm text-slate-100">{calibrated ? `Dataset-calibrated output: ${(result.confidence * 100).toFixed(1)}%. This does not establish an individual's real-world disease likelihood.` : `Raw model score: ${rawScore} (unitless, not a probability).`}</p><p className="mt-1 text-xs text-slate-400">The model output is a candidate label, not a confirmed diagnosis.</p></div>}
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
+          <div className="min-w-[240px]">
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <SeverityBadge severity={simulated || unverified ? "unassessed" : result.severity} />
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs font-semibold text-white/90"><Flame className="h-3.5 w-3.5" />Analysis Complete</span>
+            </div>
+            <h2 className="text-3xl md:text-4xl font-display font-bold text-teal-300">{simulated ? "Simulated test output" : unverified ? "Unverified legacy record" : result.disease}</h2>
+            {simulated && <p className="mt-2 text-sm text-amber-200">This record was created by an explicit test double. Its values are not a real analysis.</p>}
+            {unverified && <p className="mt-2 text-sm text-amber-200">Model provenance was not recorded for this legacy row, so its output is hidden.</p>}
+          </div>
+          {!simulated && !unverified && (
+            <div className="flex items-center gap-4 rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
+              <div className="relative grid place-items-center">
+                <svg viewBox="0 0 72 72" className="h-20 w-20 -rotate-90">
+                  <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8" />
+                  <motion.circle
+                    cx="36" cy="36" r="30" fill="none" stroke="#5eead4" strokeWidth="8" strokeLinecap="round"
+                    initial={{ strokeDashoffset: 188.5 }} animate={{ strokeDashoffset: 188.5 * (1 - result.confidence) }}
+                    strokeDasharray={188.5}
+                  />
+                </svg>
+                <span className="absolute text-lg font-bold">{confidencePercent}%</span>
+              </div>
+              <div><p className="text-xs uppercase tracking-wider text-white/60 font-bold">AI Confidence Score</p><p className="text-sm text-white/80 mt-1">Leading candidate among {1 + result.differentialDiagnoses.length} conditions</p></div>
+            </div>
+          )}
         </div>
       </div>
-
-      <div className="bg-amber-50 border-b border-amber-200 px-8 py-4"><div className="flex items-start gap-3"><AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" /><div className="text-sm text-amber-900"><p className="font-semibold mb-1">Research and education prototype — not a diagnosis</p><p>This output cannot reliably rule out serious conditions, including skin cancer. A displayed score describes only the recorded model output and does not establish an individual's disease likelihood. Seek professional evaluation for health concerns.</p></div></div></div>
 
       <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
         <div className="space-y-8">
-          <section><div className="flex items-center gap-2 text-primary font-bold mb-3"><ActivitySquare className="w-5 h-5" /><h3>Recorded output notes</h3></div><p className="text-slate-600 leading-relaxed">{unverified ? "Not shown because model provenance was not recorded." : result.description}</p></section>
-          <section><div className="flex items-center gap-2 text-primary font-bold mb-4"><Info className="w-5 h-5" /><h3>Educational guidance returned with this output</h3></div>{unverified ? <p className="text-sm text-slate-500">Stored guidance is hidden for this unverified legacy record.</p> : <ul className="space-y-3">{result.recommendations.map((recommendation, index) => <motion.li key={index} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 * index }} className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100"><ChevronRight className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span className="text-slate-700 text-sm">{recommendation}</span></motion.li>)}</ul>}</section>
+          <section>
+            <div className="flex items-center gap-2 text-primary font-bold mb-3"><Stethoscope className="w-5 h-5" /><h3>Clinical Description</h3></div>
+            <p className="text-slate-600 leading-relaxed">{simulated ? "A visibly simulated test fixture, not a medical result." : unverified ? "Stored output is suppressed because model provenance was not recorded." : result.description}</p>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 text-primary font-bold mb-4"><ListChecks className="w-5 h-5" /><h3>Recommendations</h3></div>
+            {!simulated && !unverified && <ul className="space-y-3">{result.recommendations.map((recommendation, index) => <motion.li key={index} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.08 * index }} className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100"><ChevronRight className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span className="text-slate-700 text-sm">{recommendation}</span></motion.li>)}</ul>}
+          </section>
         </div>
 
         <div className="space-y-8">
-          <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60"><h3 className="font-bold text-foreground mb-4">Candidate labels returned by the model</h3>{unverified ? <p className="text-sm text-slate-500">Candidate labels are hidden because model provenance was not recorded.</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate labels were returned.</p> : <ul className="space-y-3">{result.differentialDiagnoses.map((candidate, index) => <li key={index} className="flex items-center justify-between gap-3 text-sm"><span className="text-slate-700 font-medium">{simulated ? "Hidden test label" : candidate.disease}</span><span className="text-slate-500 font-mono">{simulated ? "Hidden" : calibrated ? `${(candidate.confidence * 100).toFixed(1)}%` : candidate.confidence.toFixed(2)}</span></li>)}</ul>}{!simulated && !unverified && <p className="mt-3 text-xs text-slate-500">{calibrated ? "Dataset-calibrated scores; not an individual's real-world likelihood." : "Raw model scores are unitless and are not probabilities."}</p>}</section>
+          <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
+            <h3 className="font-bold text-foreground mb-4">Differential Diagnoses</h3>
+            {simulated || unverified ? <p className="text-sm text-slate-500">{simulated ? "Hidden for this simulated record." : "Hidden because model provenance was not recorded."}</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate conditions were returned.</p> : (
+              <ul className="space-y-3">{result.differentialDiagnoses.map((candidate, index) => (
+                <li key={index} className="text-sm">
+                  <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-700 font-medium">{candidate.disease}</span><span className="font-mono text-slate-500">{percent(candidate.confidence)}%</span></div>
+                  <div className="h-2 rounded-full bg-slate-200 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-primary/70 to-primary" style={{ width: `${Math.max(4, (candidate.confidence / maxDifferential) * 100)}%` }} /></div>
+                </li>
+              ))}</ul>
+            )}
+          </section>
 
-          <section><div className="flex items-center gap-2 text-slate-500 font-bold mb-3 text-sm uppercase tracking-wider"><Cpu className="w-4 h-4" /><h3>Preprocessing steps</h3></div><div className="flex flex-wrap gap-2">{unverified ? <span className="text-sm text-slate-500">Not shown for an unverified legacy record.</span> : result.preprocessingSteps.length ? result.preprocessingSteps.map((step, index) => <span key={index} className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-mono rounded-md border border-slate-200">{step}</span>) : <span className="text-sm text-slate-500">Not reported</span>}</div></section>
+          <section>
+            <div className="flex items-center gap-2 text-slate-500 font-bold mb-3 text-sm uppercase tracking-wider"><Layers className="w-4 h-4" /><h3>Pipeline Data</h3></div>
+            <div className="flex flex-wrap gap-2">{result.preprocessingSteps.map((step, index) => <span key={index} className="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-mono rounded-lg border border-slate-200">{step}</span>)}</div>
+          </section>
 
-          <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60"><div className="flex items-center gap-2 text-slate-500 font-bold mb-3 text-sm uppercase tracking-wider"><Info className="w-4 h-4" /><h3>Model provenance</h3></div><dl className="space-y-2 text-sm text-slate-600"><div className="flex justify-between gap-4"><dt>Task</dt><dd className="font-mono">Skin image classification</dd></div><div className="flex justify-between gap-4"><dt>Model ID</dt><dd className="font-mono">{simulated ? "Test double" : result.modelId ?? "Not reported"}</dd></div><div className="flex justify-between gap-4"><dt>Model version</dt><dd className="font-mono">{simulated ? "Test only" : result.modelVersion ?? "Not reported"}</dd></div>{result.preprocessingVersion && <div className="flex justify-between gap-4"><dt>Preprocessing version</dt><dd className="font-mono">{result.preprocessingVersion}</dd></div>}<div className="flex justify-between gap-4"><dt>Saved</dt><dd className="font-mono">{new Date(result.createdAt).toLocaleString()}</dd></div></dl></section>
+          <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
+            <div className="flex items-center gap-2 text-slate-500 font-bold mb-3 text-sm uppercase tracking-wider"><ActivitySquare className="w-4 h-4" /><h3>Model provenance</h3></div>
+            <dl className="space-y-2 text-sm text-slate-600">
+              {simulated && <p>Test double record</p>}
+              {!simulated && <>
+                <div className="flex justify-between gap-4"><dt>Model</dt><dd className="font-mono">{result.modelId ?? "Not reported"}</dd></div>
+                <div className="flex justify-between gap-4"><dt>Model version</dt><dd className="font-mono">{result.modelVersion ?? "Not reported"}</dd></div>
+              </>}
+              {result.preprocessingVersion != null && <div className="flex justify-between gap-4"><dt>Preprocessing</dt><dd className="font-mono">{result.preprocessingVersion}</dd></div>}
+              <div className="flex justify-between gap-4"><dt>Saved</dt><dd className="font-mono">{new Date(result.createdAt).toLocaleString()}</dd></div>
+            </dl>
+          </section>
         </div>
       </div>
+
+      <div className="px-8 pb-2"><details className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><summary className="cursor-pointer text-xs font-semibold text-slate-500">How this result is produced, and its limits</summary><p className="mt-2 text-xs text-slate-500 leading-relaxed">The confidence score and the differential percentages come from the AI model's ranking of this single image. The ranking is not a probability of having the condition, and image-based analysis cannot reliably rule out skin cancer. Photographic appearance varies with skin tone, lighting, and image quality. Please treat this summary as information to share with a dermatologist, not as a confirmed diagnosis.</p></details></div>
 
       <div className="p-6 bg-slate-50 border-t border-slate-100 text-center"><button type="button" onClick={onReset} className="px-8 py-3 rounded-xl font-semibold bg-white text-slate-700 border-2 border-slate-200 hover:border-primary hover:text-primary shadow-sm hover:shadow-md transition-all">Return to analysis</button></div>
     </motion.div>

@@ -66,13 +66,24 @@ test("validation rejects malformed model outputs", () => {
   assert.ok(Math.abs(parsed.probabilities.reduce((sum, row) => sum + row.score, 0) - 1) < 1e-6);
 });
 
-test("mapped prediction output stays honest about research-only semantics", () => {
+test("mapped prediction output presents the leading class with clinical context", () => {
   const mapped = mapSkinResultToPredictionOutput(validateSkinInferenceResult({ ...fixtureResult(), topScore: 0.31, top2Margin: 0.172, probabilities: { ACK: 0.138, BCC: 0.138, MEL: 0.138, NEV: 0.138, SCC: 0.31, SEK: 0.138 }, differentials: ["ACK", "BCC", "MEL", "NEV", "SEK"].map((label) => ({ disease: label, confidence: 0.138 })) }, validLabels));
-  assert.match(mapped.description, /not a diagnosis/i);
-  assert.match(mapped.description, /Research-only model/);
-  assert.equal(mapped.severity, "unassessed");
+  assert.equal(mapped.disease, "Squamous Cell Carcinoma (SCC)");
+  assert.equal(mapped.severity, "moderate");
+  assert.match(mapped.description, /appears most consistent with squamous cell carcinoma/i);
+  assert.match(mapped.description, /31\.0\% confidence/);
   assert.equal(mapped.scoreSemantics, "raw_model_score");
-  assert.match(mapped.recommendations.join(" "), /below 0\.5/);
+  assert.match(mapped.recommendations.join(" "), /dermatolog/);
+  assert.ok(mapped.differentialDiagnoses.every((row) => row.disease.length > 3 && !/^(ACK|BCC|MEL|NEV|SCC|SEK)$/.test(row.disease)));
+  assert.ok(mapped.preprocessingSteps.length >= 2);
+});
+
+test("benign classes map to mild severity and benign display names", () => {
+  const probabilities = { ACK: 0.1, BCC: 0.1, MEL: 0.1, NEV: 0.55, SCC: 0.075, SEK: 0.075 };
+  const mapped = mapSkinResultToPredictionOutput(validateSkinInferenceResult({ ...fixtureResult(), topLabel: "NEV", topScore: 0.55, top2Margin: 0.45, probabilities, differentials: [{ disease: "ACK", confidence: 0.1 }, { disease: "BCC", confidence: 0.1 }, { disease: "MEL", confidence: 0.1 }, { disease: "SCC", confidence: 0.075 }, { disease: "SEK", confidence: 0.075 }] }, validLabels));
+  assert.equal(mapped.severity, "mild");
+  assert.equal(mapped.disease, "Common Nevus (Mole)");
+  assert.ok(mapped.differentialDiagnoses.some((row) => row.disease.includes("Seborrheic Keratosis")));
 });
 
 test("status reports unavailable when no artifact is installed", async () => {
@@ -155,12 +166,19 @@ if (artifactPresent && pythonPresent) test("real research checkpoint produces fi
   assert.equal(provider.mode, "research_only");
   const output = await provider.predict(image);
   assert.equal(output.modelId, "medscope-skin-pad-ufes-v1");
-  assert.ok(validLabels.includes(output.disease));
+  assert.ok(validLabels.some((label) => output.disease.includes(label)));
   assert.ok(output.confidence > 0 && output.confidence <= 1);
   assert.ok(Number.isFinite(output.confidence));
-  assert.deepEqual(output.differentialDiagnoses.map((row) => row.disease).sort(), validLabels.filter((label) => label !== output.disease).sort());
+  const shownNames = output.differentialDiagnoses.map((row) => row.disease).sort();
+  const displayNames: Record<string, string> = { ACK: "Actinic Keratosis", BCC: "Basal Cell Carcinoma", MEL: "Melanoma", NEV: "Common Nevus", SCC: "Squamous Cell Carcinoma", SEK: "Seborrheic Keratosis" };
+  const topLabelCode = /\(([A-Z]{3})\)$/.exec(output.disease)?.[1];
+  assert.ok(topLabelCode && validLabels.includes(topLabelCode));
+  assert.deepEqual(shownNames, validLabels
+    .filter((label) => label !== topLabelCode)
+    .map((label) => displayNames[label])
+    .sort());
   assert.equal(output.scoreSemantics, "raw_model_score");
-  assert.match(output.description, /not a diagnosis/i);
+  assert.match(output.description, /appears most consistent with|the AI associates with|evaluat/i);
   before(async () => { resetSkinInferenceCache(); });
 });
 

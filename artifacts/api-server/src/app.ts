@@ -555,7 +555,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     disease: output.disease,
     confidence: output.confidence,
     description: output.description,
-    severity: "unassessed",
+    severity: testProvider?.simulated ? "unassessed" : output.severity,
     recommendations: output.recommendations,
     differentialDiagnoses: output.differentialDiagnoses,
     preprocessingSteps: output.preprocessingSteps,

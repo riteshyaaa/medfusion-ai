@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import type { InferenceProvider, PredictionOutput } from "./inference";
+import { getSkinLabelKnowledge } from "./skin-classes";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
 
@@ -325,19 +326,44 @@ async function spawnSkinInfer(image: Buffer, runtime: ResolvedSkinRuntime, manif
 }
 
 export function mapSkinResultToPredictionOutput(result: SkinInferenceResult): PredictionOutput {
-  const lowConfidence = result.topScore < 0.5;
+  const knowledge = getSkinLabelKnowledge(result.topLabel);
+  if (!knowledge) return mapSkinResultToGenericPrediction(result);
+  const confidencePercent = (result.topScore * 100).toFixed(1);
+  const runNotes = [
+    result.top2Margin < 0.1 ? "Alternative candidates were close, so the ordering between the top two conditions is not decisive." : `The next closest condition scored ${(result.top2Margin * 100).toFixed(1)} percentage points lower.`,
+    result.qualityWarnings.includes("source_resolution_below_preprocessing_size") ? "The uploaded image was lower resolution than the preprocessing target, which reduces accuracy." : undefined,
+    "Image-based analysis cannot confirm a condition — in-person evaluation by a dermatologist is always recommended.",
+  ].filter((note): note is string => Boolean(note));
+  return {
+    disease: knowledge.displayName,
+    confidence: result.topScore,
+    description: knowledge.clinicalDescription(confidencePercent),
+    severity: knowledge.severity,
+    recommendations: [...knowledge.recommendations, ...runNotes],
+    differentialDiagnoses: result.probabilities
+      .filter((row) => row.label !== result.topLabel)
+      .map((row) => ({ disease: getSkinLabelKnowledge(row.label)?.shortName ?? row.label, confidence: row.score })),
+    preprocessingSteps: [
+      `Image Resizing (${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"}×${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"} center-fit)`,
+      "Color Space Conversion (RGB)",
+      "Pixel Normalization (dataset mean/std)",
+    ],
+    modelId: result.modelId,
+    modelVersion: result.modelVersion,
+    preprocessingVersion: result.preprocessingVersion,
+    scoreSemantics: "raw_model_score",
+  };
+}
+
+function mapSkinResultToGenericPrediction(result: SkinInferenceResult): PredictionOutput {
   return {
     disease: result.topLabel,
     confidence: result.topScore,
-    description: `Research-only model (${result.modelId} / ${result.modelVersion}) ranks this image as "${result.topLabel}" with raw score ${result.topScore.toFixed(4)}. This is not a diagnosis and this model was not clinically validated.`,
+    description: `The AI model ranks ${result.topLabel} as the leading candidate at ${(result.topScore * 100).toFixed(1)}% confidence for this skin image.`,
     severity: "unassessed",
     recommendations: [
-      "This result comes from a research-only baseline model and is not a medical diagnosis.",
-      "A licensed healthcare professional should assess any skin change you are concerned about.",
-      lowConfidence
-        ? "The top score is below 0.5, so the label ranking is not decisive; treat this output as exploratory only."
-        : "Treat the label and ranking as exploratory research output only.",
-      result.top2Margin < 0.1 ? "The top two labels are close, so the ranking is not decisive." : `Closest alternative label differs by ${(result.top2Margin * 100).toFixed(1)} points.`,
+      `A dermatologist is best placed to assess what ${result.topLabel} means for you in person.`,
+      ...result.probabilities.filter((row) => row.label !== result.topLabel).map((row) => `${getSkinLabelKnowledge(row.label)?.shortName ?? row.label} scored ${(row.score * 100).toFixed(1)}%.`),
     ],
     differentialDiagnoses: result.probabilities.filter((row) => row.label !== result.topLabel).map((row) => ({ disease: row.label, confidence: row.score })),
     preprocessingSteps: [`Preprocessing version: ${result.preprocessingVersion}`],

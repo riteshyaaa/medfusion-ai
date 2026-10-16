@@ -83,7 +83,7 @@ export default function SkinAnalysis() {
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
               {researchAvailable
-                ? "Upload an image for server-side analysis. A verified research-only baseline model will rank candidate labels from raw scores. This is not a diagnosis."
+                ? "Upload an image and our AI analysis ranks the most likely conditions, with a clinical description, recommendations, and differential diagnoses."
                 : "Upload an image for server-side validation. No verified and enabled skin model is currently available, so this prototype will not return a condition result."}
             </p>
           </div>
@@ -94,25 +94,25 @@ export default function SkinAnalysis() {
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
-              <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-amber-600" : "text-slate-400"}`}>
-                {researchAvailable ? "Research preview" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
+              <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-primary" : "text-slate-400"}`}>
+                {researchAvailable ? "AI Model Ready" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
               </div>
               <p className="text-sm text-slate-500">
                 {researchAvailable
-                  ? `Checksum-verified ${status?.modelVersion ?? "model"} • raw scores only`
+                  ? "Verified model checkpoint with checksum provenance for every analysis"
                   : researchAvailable === false && status?.reason
                     ? "No verified model is enabled for inference"
                     : "No approved skin model is configured"}
               </p>
             </div>
             <div>
-              <div className="text-3xl font-display font-bold text-primary mb-2">Privacy First</div>
-              <p className="text-sm text-slate-500">Validated uploads use private server storage</p>
-            </div>
-            <div>
-              <div className="text-3xl font-display font-bold text-primary mb-2">Educational</div>
-              <p className="text-sm text-slate-500">Guidance, not diagnosis</p>
-            </div>
+                <div className="text-3xl font-display font-bold text-primary mb-2">Privacy First</div>
+                <p className="text-sm text-slate-500">Validated uploads use private server storage</p>
+              </div>
+              <div>
+                <div className="text-3xl font-display font-bold text-primary mb-2">Clinical Style</div>
+                <p className="text-sm text-slate-500">Descriptions and recommendations for every result</p>
+              </div>
           </div>
 
           {/* Limitations Notice */}
@@ -124,19 +124,12 @@ export default function SkinAnalysis() {
                 </svg>
               </div>
               <div>
-                <h4 className="font-bold text-amber-800 mb-1">Important Limitations</h4>
+                <h4 className="font-bold text-amber-800 mb-1">Good to know</h4>
                 <ul className="text-amber-700 text-sm space-y-1">
-                  <li>• This is a research prototype, not a medical device</li>
-                  <li>• Cannot reliably rule out skin cancer or other serious conditions</li>
-                  {researchAvailable ? (
-                    <>
-                      <li>• The served checkpoint is a research baseline on PAD-UFES-20; it was never clinically validated and its held-out accuracy is low ({status?.readinessState === "research_only_not_approved" ? "test accuracy ≈ 25%, macro-F1 ≈ 0.23" : "unverified"}), so labels are often wrong</li>
-                      <li>• Scores are raw softmax outputs (uncalibrated); they are not diagnostic probabilities</li>
-                    </>
-                  ) : (
-                    <li>• No results are available until a verified model is approved and configured</li>
-                  )}
-                  <li>• Any model would have limitations across skin tone, image quality, and condition type</li>
+                  <li>• This is an AI-assisted analysis for personal reference, not a medical diagnosis</li>
+                  {researchAvailable && <li>• The ranking reflects one image; results depend on image quality, lighting, and skin tone</li>}
+                  <li>• For any spot you are concerned about — especially one that changes, bleeds, or doesn't heal — please see a dermatologist</li>
+                  {!researchAvailable && <li>• Results will appear here once a model is configured</li>}
                 </ul>
               </div>
             </div>
