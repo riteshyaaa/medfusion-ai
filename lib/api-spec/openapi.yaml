@@ -15,6 +15,8 @@ tags:
     description: File upload operations
   - name: predictions
     description: Skin disease prediction operations
+  - name: ai
+    description: Optional, consent-gated provider explanations for approved model results
   - name: patients
     description: Patient management operations
   - name: cases
@@ -125,7 +127,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LogoutResponse"
+                $ref: "#/components/schemas/LogoutResult"
         "401":
           description: Not authenticated
           content:
@@ -190,12 +192,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /uploads/{id}:
+    delete:
+      operationId: deleteUpload
+      tags: [uploads]
+      summary: Delete an owned upload that is not linked to a prediction
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "204":
+          description: Upload deleted
+        "404":
+          description: Upload not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Upload is referenced by a saved prediction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /predict:
     post:
       operationId: predictSkinDisease
       tags: [predictions]
-      summary: Predict skin disease from image
-      description: Analyzes uploaded skin image and returns disease prediction with confidence score
+      summary: Request skin analysis for an owned upload
+      description: Requires an approved model. Without one, returns model_unavailable and creates no prediction.
       security:
         - cookieAuth: []
       requestBody:
@@ -205,7 +236,7 @@ paths:
             schema:
               $ref: "#/components/schemas/PredictRequest"
       responses:
-        "200":
+        "201":
           description: Prediction result
           content:
             application/json:
@@ -219,6 +250,63 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Model unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /ai/explanations:
+    post:
+      operationId: explainSkinPrediction
+      tags: [ai]
+      summary: Generate an optional educational explanation for a prediction
+      description: Requires an owner-scoped, completed output from an approved model, explicit per-request consent, and server-side external-data approval. Provider output is separate from the immutable classifier result and is not persisted.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIExplanationRequest"
+      responses:
+        "200":
+          description: Provider-generated educational explanation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIExplanationResponse"
+        "400":
+          description: Invalid request or missing external-processing consent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Prediction not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Prediction is not eligible for explanation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Application or provider rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Approved model, external processing, or provider unavailable
           content:
             application/json:
               schema:
@@ -449,7 +537,7 @@ paths:
             type: integer
       responses:
         "204":
-          description: Patient deleted
+          description: Patient archived without deleting related records
         "401":
           description: Not authenticated
           content:
@@ -612,6 +700,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
   /symptom-assessments:
+    get:
+      operationId: listSymptomAssessments
+      tags: [symptom-assessments]
+      summary: List the authenticated user's symptom assessments
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Persisted symptom assessments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAssessmentListResponse"
     post:
       operationId: createSymptomAssessment
       tags: [symptom-assessments]
@@ -971,6 +1086,9 @@ components:
               type: boolean
             model:
               type: boolean
+            aiProvider:
+              type: string
+              enum: [disabled, unconfigured, misconfigured, configured]
       required:
         - status
         - checks
@@ -982,7 +1100,8 @@ components:
           format: email
         password:
           type: string
-          minLength: 8
+          minLength: 10
+          maxLength: 200
         fullName:
           type: string
       required:
@@ -996,6 +1115,7 @@ components:
           format: email
         password:
           type: string
+          maxLength: 200
       required:
         - email
         - password
@@ -1004,12 +1124,9 @@ components:
       properties:
         user:
           $ref: "#/components/schemas/User"
-        sessionId:
-          type: string
       required:
         - user
-        - sessionId
-    LogoutResponse:
+    LogoutResult:
       type: object
       properties:
         message:
@@ -1028,15 +1145,12 @@ components:
         role:
           type: string
           enum: [user, clinician, admin]
-        isActive:
-          type: boolean
         createdAt:
           type: string
       required:
         - id
         - email
         - role
-        - isActive
         - createdAt
     UserResponse:
       type: object
@@ -1067,8 +1181,9 @@ components:
       properties:
         id:
           type: integer
-        storageKey:
-          type: string
+        caseId:
+          type: integer
+          nullable: true
         originalFileName:
           type: string
         mimeType:
@@ -1083,7 +1198,6 @@ components:
           type: string
       required:
         - id
-        - storageKey
         - originalFileName
         - mimeType
         - sizeBytes
@@ -1091,17 +1205,12 @@ components:
     PredictRequest:
       type: object
       properties:
-        imageBase64:
-          type: string
-          description: Base64 encoded image data
-        imageUrl:
-          type: string
-          description: URL of the image to analyze (optional alternative to base64)
-        fileName:
-          type: string
-          description: Original filename of the uploaded image
+        uploadId:
+          type: integer
+          minimum: 1
+          description: ID returned by POST /uploads, scoped to the current user
       required:
-        - imageBase64
+        - uploadId
     PredictionResult:
       type: object
       properties:
@@ -1115,7 +1224,7 @@ components:
           type: string
         severity:
           type: string
-          enum: [mild, moderate, severe, normal]
+          enum: [unassessed, mild, moderate, severe, normal]
         recommendations:
           type: array
           items:
@@ -1130,11 +1239,19 @@ components:
             type: string
         modelId:
           type: string
+          nullable: true
         modelVersion:
           type: string
+          nullable: true
+        scoreSemantics:
+          type: string
+          enum: [simulated, raw_model_score, calibrated_probability, unverified]
+        preprocessingVersion:
+          type: string
+          nullable: true
         status:
           type: string
-          enum: [completed, model_unavailable, invalid_input, abstained, failed]
+          enum: [completed, simulated, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
         createdAt:
           type: string
       required:
@@ -1148,6 +1265,7 @@ components:
         - preprocessingSteps
         - modelId
         - modelVersion
+        - scoreSemantics
         - status
         - createdAt
     DifferentialDiagnosis:
@@ -1185,16 +1303,23 @@ components:
           type: array
           items:
             type: string
-        imageBase64:
-          type: string
         fileName:
           type: string
         modelId:
           type: string
+          nullable: true
         modelVersion:
           type: string
+          nullable: true
+        scoreSemantics:
+          type: string
+          enum: [simulated, raw_model_score, calibrated_probability, unverified]
+        preprocessingVersion:
+          type: string
+          nullable: true
         status:
           type: string
+          enum: [completed, simulated, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
         createdAt:
           type: string
       required:
@@ -1225,6 +1350,43 @@ components:
         - total
         - page
         - limit
+    AIExplanationRequest:
+      type: object
+      properties:
+        predictionId:
+          type: integer
+          minimum: 1
+        consentToExternalProcessing:
+          type: boolean
+          description: Must be true for this request. Server configuration must also permit external health-data processing.
+      required:
+        - predictionId
+        - consentToExternalProcessing
+    AIExplanationResponse:
+      type: object
+      properties:
+        prediction:
+          $ref: "#/components/schemas/PredictionRecord"
+        explanation:
+          type: object
+          properties:
+            provider:
+              type: string
+              enum: [nvidia, gemini, openai]
+            model:
+              type: string
+            text:
+              type: string
+              maxLength: 1200
+            generatedAt:
+              type: string
+              format: date-time
+          required: [provider, model, text, generatedAt]
+        notice:
+          type: string
+        scoreNotice:
+          type: string
+      required: [prediction, explanation, notice, scoreNotice]
     Patient:
       type: object
       properties:
@@ -1299,8 +1461,12 @@ components:
       properties:
         firstName:
           type: string
+          minLength: 1
+          maxLength: 100
         lastName:
           type: string
+          minLength: 1
+          maxLength: 100
         dateOfBirth:
           type: string
           format: date
@@ -1515,6 +1681,17 @@ components:
           enum: [emergency, urgent, routine, self_care]
         guidance:
           type: object
+          properties:
+            recommendations:
+              type: array
+              items:
+                type: string
+            disclaimer:
+              type: string
+          required:
+            - recommendations
+            - disclaimer
+          additionalProperties: false
         status:
           type: string
         createdAt:
@@ -1537,6 +1714,24 @@ components:
           $ref: "#/components/schemas/SymptomAssessment"
       required:
         - assessment
+    SymptomAssessmentListResponse:
+      type: object
+      properties:
+        assessments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomAssessment"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - assessments
+        - total
+        - page
+        - limit
     CreateSymptomAssessmentRequest:
       type: object
       properties:
@@ -1715,8 +1910,6 @@ components:
         type:
           type: string
           enum: [skin_analysis, symptom_assessment, comprehensive, follow_up]
-        content:
-          type: object
         predictionIds:
           type: array
           items:
@@ -1725,25 +1918,22 @@ components:
         - caseId
         - title
         - type
-        - content
     UpdateReportRequest:
       type: object
       properties:
         status:
           type: string
-          enum: [draft, finalized, archived, amended]
-        content:
-          type: object
-        predictionIds:
-          type: array
-          items:
-            type: integer
+          enum: [archived]
+      required:
+        - status
     ErrorResponse:
       type: object
       properties:
         error:
           type: string
         message:
+          type: string
+        requestId:
           type: string
       required:
         - error

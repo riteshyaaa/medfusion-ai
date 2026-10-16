@@ -25,7 +25,8 @@ export const ReadinessCheckResponse = zod.object({
   "status": zod.enum(['ready', 'not_ready']),
   "checks": zod.object({
   "database": zod.boolean().optional(),
-  "model": zod.boolean().optional()
+  "model": zod.boolean().optional(),
+  "aiProvider": zod.enum(['disabled', 'unconfigured', 'misconfigured', 'configured']).optional()
 })
 })
 
@@ -33,13 +34,14 @@ export const ReadinessCheckResponse = zod.object({
 /**
  * @summary Register a new user
  */
-export const registerBodyPasswordMin = 8;
+export const registerBodyPasswordMin = 10;
+export const registerBodyPasswordMax = 200;
 
 
 
 export const RegisterBody = zod.object({
   "email": zod.string().email(),
-  "password": zod.string().min(registerBodyPasswordMin),
+  "password": zod.string().min(registerBodyPasswordMin).max(registerBodyPasswordMax),
   "fullName": zod.string().optional()
 })
 
@@ -49,19 +51,21 @@ export const RegisterResponse = zod.object({
   "email": zod.string(),
   "fullName": zod.string().optional(),
   "role": zod.enum(['user', 'clinician', 'admin']),
-  "isActive": zod.boolean(),
   "createdAt": zod.string()
-}),
-  "sessionId": zod.string()
+})
 })
 
 
 /**
  * @summary Login user
  */
+export const loginBodyPasswordMax = 200;
+
+
+
 export const LoginBody = zod.object({
   "email": zod.string().email(),
-  "password": zod.string()
+  "password": zod.string().max(loginBodyPasswordMax)
 })
 
 export const LoginResponse = zod.object({
@@ -70,10 +74,8 @@ export const LoginResponse = zod.object({
   "email": zod.string(),
   "fullName": zod.string().optional(),
   "role": zod.enum(['user', 'clinician', 'admin']),
-  "isActive": zod.boolean(),
   "createdAt": zod.string()
-}),
-  "sessionId": zod.string()
+})
 })
 
 
@@ -94,7 +96,6 @@ export const GetCurrentUserResponse = zod.object({
   "email": zod.string(),
   "fullName": zod.string().optional(),
   "role": zod.enum(['user', 'clinician', 'admin']),
-  "isActive": zod.boolean(),
   "createdAt": zod.string()
 })
 })
@@ -111,7 +112,7 @@ export const UploadFileBody = zod.object({
 export const UploadFileResponse = zod.object({
   "upload": zod.object({
   "id": zod.number().int(),
-  "storageKey": zod.string(),
+  "caseId": zod.number().int().nullish(),
   "originalFileName": zod.string(),
   "mimeType": zod.string(),
   "sizeBytes": zod.number().int(),
@@ -123,13 +124,27 @@ export const UploadFileResponse = zod.object({
 
 
 /**
- * Analyzes uploaded skin image and returns disease prediction with confidence score
- * @summary Predict skin disease from image
+ * @summary Delete an owned upload that is not linked to a prediction
  */
+
+
+
+export const DeleteUploadParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const DeleteUploadResponse = zod.void()
+
+
+/**
+ * Requires an approved model. Without one, returns model_unavailable and creates no prediction.
+ * @summary Request skin analysis for an owned upload
+ */
+
+
+
 export const PredictSkinDiseaseBody = zod.object({
-  "imageBase64": zod.string().describe('Base64 encoded image data'),
-  "imageUrl": zod.string().optional().describe('URL of the image to analyze (optional alternative to base64)'),
-  "fileName": zod.string().optional().describe('Original filename of the uploaded image')
+  "uploadId": zod.number().int().min(1).describe('ID returned by POST /uploads, scoped to the current user')
 })
 
 export const PredictSkinDiseaseResponse = zod.object({
@@ -137,17 +152,67 @@ export const PredictSkinDiseaseResponse = zod.object({
   "disease": zod.string(),
   "confidence": zod.number(),
   "description": zod.string(),
-  "severity": zod.enum(['mild', 'moderate', 'severe', 'normal']),
+  "severity": zod.enum(['unassessed', 'mild', 'moderate', 'severe', 'normal']),
   "recommendations": zod.array(zod.string()),
   "differentialDiagnoses": zod.array(zod.object({
   "disease": zod.string(),
   "confidence": zod.number()
 })),
   "preprocessingSteps": zod.array(zod.string()),
-  "modelId": zod.string(),
-  "modelVersion": zod.string(),
-  "status": zod.enum(['completed', 'model_unavailable', 'invalid_input', 'abstained', 'failed']),
+  "modelId": zod.string().nullable(),
+  "modelVersion": zod.string().nullable(),
+  "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']),
+  "preprocessingVersion": zod.string().nullish(),
+  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']),
   "createdAt": zod.string()
+})
+
+
+/**
+ * Requires an owner-scoped, completed output from an approved model, explicit per-request consent, and server-side external-data approval. Provider output is separate from the immutable classifier result and is not persisted.
+ * @summary Generate an optional educational explanation for a prediction
+ */
+
+
+
+export const ExplainSkinPredictionBody = zod.object({
+  "predictionId": zod.number().int().min(1),
+  "consentToExternalProcessing": zod.boolean().describe('Must be true for this request. Server configuration must also permit external health-data processing.')
+})
+
+export const explainSkinPredictionResponseExplanationTextMax = 1200;
+
+
+
+export const ExplainSkinPredictionResponse = zod.object({
+  "prediction": zod.object({
+  "id": zod.number().int(),
+  "disease": zod.string(),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "severity": zod.string(),
+  "recommendations": zod.array(zod.string()),
+  "differentialDiagnoses": zod.array(zod.object({
+  "disease": zod.string(),
+  "confidence": zod.number()
+})),
+  "preprocessingSteps": zod.array(zod.string()),
+  "fileName": zod.string().optional(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
+  "preprocessingVersion": zod.string().nullish(),
+  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "createdAt": zod.string()
+}),
+  "explanation": zod.object({
+  "provider": zod.enum(['nvidia', 'gemini', 'openai']),
+  "model": zod.string(),
+  "text": zod.string().max(explainSkinPredictionResponseExplanationTextMax),
+  "generatedAt": zod.date()
+}),
+  "notice": zod.string(),
+  "scoreNotice": zod.string()
 })
 
 
@@ -180,11 +245,12 @@ export const GetPredictionHistoryResponse = zod.object({
   "confidence": zod.number()
 })),
   "preprocessingSteps": zod.array(zod.string()),
-  "imageBase64": zod.string().optional(),
   "fileName": zod.string().optional(),
-  "modelId": zod.string().optional(),
-  "modelVersion": zod.string().optional(),
-  "status": zod.string().optional(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
+  "preprocessingVersion": zod.string().nullish(),
+  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 })),
   "total": zod.number().int(),
@@ -213,11 +279,12 @@ export const GetPredictionByIdResponse = zod.object({
   "confidence": zod.number()
 })),
   "preprocessingSteps": zod.array(zod.string()),
-  "imageBase64": zod.string().optional(),
   "fileName": zod.string().optional(),
-  "modelId": zod.string().optional(),
-  "modelVersion": zod.string().optional(),
-  "status": zod.string().optional(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
+  "preprocessingVersion": zod.string().nullish(),
+  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
   "createdAt": zod.string()
 })
 
@@ -247,7 +314,9 @@ export const ListPatientsResponse = zod.object({
   "sex": zod.string().optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -264,14 +333,22 @@ export const ListPatientsResponse = zod.object({
 /**
  * @summary Create a patient
  */
+export const createPatientBodyFirstNameMax = 100;
+
+export const createPatientBodyLastNameMax = 100;
+
+
+
 export const CreatePatientBody = zod.object({
-  "firstName": zod.string(),
-  "lastName": zod.string(),
+  "firstName": zod.string().min(1).max(createPatientBodyFirstNameMax),
+  "lastName": zod.string().min(1).max(createPatientBodyLastNameMax),
   "dateOfBirth": zod.date().optional(),
   "sex": zod.enum(['male', 'female', 'other']).optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -287,7 +364,9 @@ export const CreatePatientResponse = zod.object({
   "sex": zod.string().optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -314,7 +393,9 @@ export const GetPatientResponse = zod.object({
   "sex": zod.string().optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -339,7 +420,9 @@ export const UpdatePatientBody = zod.object({
   "sex": zod.enum(['male', 'female', 'other']).optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -355,7 +438,9 @@ export const UpdatePatientResponse = zod.object({
   "sex": zod.string().optional(),
   "phone": zod.string().optional(),
   "email": zod.string().optional(),
-  "address": zod.object({}).passthrough().optional(),
+  "address": zod.object({
+
+}).passthrough().optional(),
   "medicalHistory": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
@@ -404,7 +489,9 @@ export const ListCasesResponse = zod.object({
   "status": zod.enum(['open', 'in_review', 'closed', 'on_hold']),
   "priority": zod.enum(['low', 'medium', 'high', 'urgent']),
   "chiefComplaint": zod.string().optional(),
-  "clinicalNotes": zod.array(zod.object({}).passthrough()).optional(),
+  "clinicalNotes": zod.array(zod.object({
+
+}).passthrough()).optional(),
   "tags": zod.array(zod.string()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
@@ -438,7 +525,9 @@ export const CreateCaseResponse = zod.object({
   "status": zod.enum(['open', 'in_review', 'closed', 'on_hold']),
   "priority": zod.enum(['low', 'medium', 'high', 'urgent']),
   "chiefComplaint": zod.string().optional(),
-  "clinicalNotes": zod.array(zod.object({}).passthrough()).optional(),
+  "clinicalNotes": zod.array(zod.object({
+
+}).passthrough()).optional(),
   "tags": zod.array(zod.string()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
@@ -465,7 +554,9 @@ export const GetCaseResponse = zod.object({
   "status": zod.enum(['open', 'in_review', 'closed', 'on_hold']),
   "priority": zod.enum(['low', 'medium', 'high', 'urgent']),
   "chiefComplaint": zod.string().optional(),
-  "clinicalNotes": zod.array(zod.object({}).passthrough()).optional(),
+  "clinicalNotes": zod.array(zod.object({
+
+}).passthrough()).optional(),
   "tags": zod.array(zod.string()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
@@ -500,12 +591,58 @@ export const UpdateCaseResponse = zod.object({
   "status": zod.enum(['open', 'in_review', 'closed', 'on_hold']),
   "priority": zod.enum(['low', 'medium', 'high', 'urgent']),
   "chiefComplaint": zod.string().optional(),
-  "clinicalNotes": zod.array(zod.object({}).passthrough()).optional(),
+  "clinicalNotes": zod.array(zod.object({
+
+}).passthrough()).optional(),
   "tags": zod.array(zod.string()).optional(),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "closedAt": zod.string().optional()
 })
+})
+
+
+/**
+ * @summary List the authenticated user's symptom assessments
+ */
+export const listSymptomAssessmentsQueryPageDefault = 1;
+
+export const listSymptomAssessmentsQueryLimitDefault = 20;
+export const listSymptomAssessmentsQueryLimitMax = 100;
+
+
+
+export const ListSymptomAssessmentsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).default(listSymptomAssessmentsQueryPageDefault),
+  "limit": zod.coerce.number().int().min(1).max(listSymptomAssessmentsQueryLimitMax).default(listSymptomAssessmentsQueryLimitDefault)
+})
+
+export const ListSymptomAssessmentsResponse = zod.object({
+  "assessments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "primarySymptom": zod.string(),
+  "symptomCategory": zod.string(),
+  "onset": zod.string().optional(),
+  "duration": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "progression": zod.string().optional(),
+  "associatedSymptoms": zod.array(zod.string()).optional(),
+  "medicalHistory": zod.array(zod.string()).optional(),
+  "medications": zod.array(zod.string()).optional(),
+  "allergies": zod.array(zod.string()).optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional(),
+  "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
+  "guidance": zod.object({
+  "recommendations": zod.array(zod.string()),
+  "disclaimer": zod.string()
+}),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
 })
 
 
@@ -541,7 +678,10 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "allergies": zod.array(zod.string()).optional(),
   "redFlagsTriggered": zod.array(zod.string()).optional(),
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
-  "guidance": zod.object({}).passthrough(),
+  "guidance": zod.object({
+  "recommendations": zod.array(zod.string()),
+  "disclaimer": zod.string()
+}),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -571,7 +711,10 @@ export const GetSymptomAssessmentResponse = zod.object({
   "allergies": zod.array(zod.string()).optional(),
   "redFlagsTriggered": zod.array(zod.string()).optional(),
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
-  "guidance": zod.object({}).passthrough(),
+  "guidance": zod.object({
+  "recommendations": zod.array(zod.string()),
+  "disclaimer": zod.string()
+}),
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -585,7 +728,9 @@ export const GetSymptomAssessmentResponse = zod.object({
 export const CreateReviewBody = zod.object({
   "predictionId": zod.number().int(),
   "status": zod.enum(['pending', 'reviewed', 'accepted', 'modified', 'rejected', 'needs_more_information']),
-  "reviewedOutput": zod.object({}).passthrough().optional(),
+  "reviewedOutput": zod.object({
+
+}).passthrough().optional(),
   "rationale": zod.string().optional()
 })
 
@@ -595,8 +740,12 @@ export const CreateReviewResponse = zod.object({
   "predictionId": zod.number().int(),
   "reviewerId": zod.number().int(),
   "status": zod.enum(['pending', 'reviewed', 'accepted', 'modified', 'rejected', 'needs_more_information']),
-  "originalOutput": zod.object({}).passthrough(),
-  "reviewedOutput": zod.object({}).passthrough().optional(),
+  "originalOutput": zod.object({
+
+}).passthrough(),
+  "reviewedOutput": zod.object({
+
+}).passthrough().optional(),
   "rationale": zod.string().optional(),
   "reviewedAt": zod.string().optional(),
   "createdAt": zod.string()
@@ -617,8 +766,12 @@ export const GetReviewResponse = zod.object({
   "predictionId": zod.number().int(),
   "reviewerId": zod.number().int(),
   "status": zod.enum(['pending', 'reviewed', 'accepted', 'modified', 'rejected', 'needs_more_information']),
-  "originalOutput": zod.object({}).passthrough(),
-  "reviewedOutput": zod.object({}).passthrough().optional(),
+  "originalOutput": zod.object({
+
+}).passthrough(),
+  "reviewedOutput": zod.object({
+
+}).passthrough().optional(),
   "rationale": zod.string().optional(),
   "reviewedAt": zod.string().optional(),
   "createdAt": zod.string()
@@ -635,7 +788,9 @@ export const UpdateReviewParams = zod.object({
 
 export const UpdateReviewBody = zod.object({
   "status": zod.enum(['pending', 'reviewed', 'accepted', 'modified', 'rejected', 'needs_more_information']).optional(),
-  "reviewedOutput": zod.object({}).passthrough().optional(),
+  "reviewedOutput": zod.object({
+
+}).passthrough().optional(),
   "rationale": zod.string().optional()
 })
 
@@ -645,8 +800,12 @@ export const UpdateReviewResponse = zod.object({
   "predictionId": zod.number().int(),
   "reviewerId": zod.number().int(),
   "status": zod.enum(['pending', 'reviewed', 'accepted', 'modified', 'rejected', 'needs_more_information']),
-  "originalOutput": zod.object({}).passthrough(),
-  "reviewedOutput": zod.object({}).passthrough().optional(),
+  "originalOutput": zod.object({
+
+}).passthrough(),
+  "reviewedOutput": zod.object({
+
+}).passthrough().optional(),
   "rationale": zod.string().optional(),
   "reviewedAt": zod.string().optional(),
   "createdAt": zod.string()
@@ -681,7 +840,9 @@ export const ListReportsResponse = zod.object({
   "title": zod.string(),
   "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
   "status": zod.enum(['draft', 'finalized', 'archived', 'amended']),
-  "content": zod.object({}).passthrough(),
+  "content": zod.object({
+
+}).passthrough(),
   "predictionIds": zod.array(zod.number().int()).optional(),
   "reviewedAt": zod.string().optional(),
   "finalizedAt": zod.string().optional(),
@@ -701,7 +862,6 @@ export const CreateReportBody = zod.object({
   "caseId": zod.number().int(),
   "title": zod.string(),
   "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
-  "content": zod.object({}).passthrough(),
   "predictionIds": zod.array(zod.number().int()).optional()
 })
 
@@ -715,7 +875,9 @@ export const CreateReportResponse = zod.object({
   "title": zod.string(),
   "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
   "status": zod.enum(['draft', 'finalized', 'archived', 'amended']),
-  "content": zod.object({}).passthrough(),
+  "content": zod.object({
+
+}).passthrough(),
   "predictionIds": zod.array(zod.number().int()).optional(),
   "reviewedAt": zod.string().optional(),
   "finalizedAt": zod.string().optional(),
@@ -742,7 +904,9 @@ export const GetReportResponse = zod.object({
   "title": zod.string(),
   "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
   "status": zod.enum(['draft', 'finalized', 'archived', 'amended']),
-  "content": zod.object({}).passthrough(),
+  "content": zod.object({
+
+}).passthrough(),
   "predictionIds": zod.array(zod.number().int()).optional(),
   "reviewedAt": zod.string().optional(),
   "finalizedAt": zod.string().optional(),
@@ -760,9 +924,7 @@ export const UpdateReportParams = zod.object({
 })
 
 export const UpdateReportBody = zod.object({
-  "status": zod.enum(['draft', 'finalized', 'archived', 'amended']).optional(),
-  "content": zod.object({}).passthrough().optional(),
-  "predictionIds": zod.array(zod.number().int()).optional()
+  "status": zod.enum(['archived'])
 })
 
 export const UpdateReportResponse = zod.object({
@@ -775,7 +937,9 @@ export const UpdateReportResponse = zod.object({
   "title": zod.string(),
   "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
   "status": zod.enum(['draft', 'finalized', 'archived', 'amended']),
-  "content": zod.object({}).passthrough(),
+  "content": zod.object({
+
+}).passthrough(),
   "predictionIds": zod.array(zod.number().int()).optional(),
   "reviewedAt": zod.string().optional(),
   "finalizedAt": zod.string().optional(),

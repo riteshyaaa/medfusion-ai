@@ -5,13 +5,11 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateReportRequestContent } from './createReportRequestContent.ts';
 import type { CreateReportRequestType } from './createReportRequestType.ts';
 
 export interface CreateReportRequest {
   caseId: number;
   title: string;
   type: CreateReportRequestType;
-  content: CreateReportRequestContent;
   predictionIds?: number[];
 }

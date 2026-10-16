@@ -5,11 +5,8 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
-import type { UpdateReportRequestContent } from './updateReportRequestContent.ts';
 import type { UpdateReportRequestStatus } from './updateReportRequestStatus.ts';
 
 export interface UpdateReportRequest {
-  status?: UpdateReportRequestStatus;
-  content?: UpdateReportRequestContent;
-  predictionIds?: number[];
+  status: UpdateReportRequestStatus;
 }

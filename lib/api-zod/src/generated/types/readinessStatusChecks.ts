@@ -5,8 +5,10 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { ReadinessStatusChecksAiProvider } from './readinessStatusChecksAiProvider.ts';
 
 export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
+  aiProvider?: ReadinessStatusChecksAiProvider;
 };

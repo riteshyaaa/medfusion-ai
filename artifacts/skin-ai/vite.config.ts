@@ -35,6 +35,12 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      "/api": {
+        target: process.env.API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? "3001"}`,
+        changeOrigin: false,
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],

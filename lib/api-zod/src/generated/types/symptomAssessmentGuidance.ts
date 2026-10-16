@@ -6,4 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SymptomAssessmentGuidance = { [key: string]: unknown };
+export type SymptomAssessmentGuidance = {
+  recommendations: string[];
+  disclaimer: string;
+};

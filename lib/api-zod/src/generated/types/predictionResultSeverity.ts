@@ -10,6 +10,7 @@ export type PredictionResultSeverity = typeof PredictionResultSeverity[keyof typ
 
 
 export const PredictionResultSeverity = {
+  unassessed: 'unassessed',
   mild: 'mild',
   moderate: 'moderate',
   severe: 'severe',

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, jsonb, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -18,7 +18,7 @@ export const uploads = pgTable("uploads", {
   metadata: jsonb("metadata").$type<{ format?: string; colorSpace?: string; orientation?: number }>(),
   isProcessed: boolean("is_processed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [index("uploads_user_id_created_at_idx").on(table.userId, table.createdAt)]);
 
 export const insertUploadSchema = createInsertSchema(uploads).omit({ id: true, createdAt: true });
 export type InsertUpload = z.infer<typeof insertUploadSchema>;

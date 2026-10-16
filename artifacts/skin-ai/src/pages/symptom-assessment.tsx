@@ -1,180 +1,91 @@
-import { Layout } from "@/components/layout";
+import { FormEvent, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Brain, AlertTriangle, HeartPulse, Stethoscope } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCreateSymptomAssessment, useListCases, useListSymptomAssessments } from "@workspace/api-client-react";
+import { AlertTriangle, ArrowLeft, ClipboardList } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Layout } from "@/components/layout";
 
-const symptomCategories = [
-  {
-    id: "skin",
-    title: "Skin Symptoms",
-    description: "Rash, lesions, discoloration, itching, swelling",
-    icon: HeartPulse,
-    color: "bg-rose-500",
-    iconBg: "bg-rose-500/10",
-  },
-  {
-    id: "general",
-    title: "General Symptoms",
-    description: "Fever, fatigue, pain, weight changes, appetite",
-    icon: Stethoscope,
-    color: "bg-blue-500",
-    iconBg: "bg-blue-500/10",
-  },
-  {
-    id: "neurological",
-    title: "Neurological",
-    description: "Headache, dizziness, numbness, vision changes",
-    icon: Brain,
-    color: "bg-purple-500",
-    iconBg: "bg-purple-500/10",
-  },
-  {
-    id: "urgent",
-    title: "Urgent Concerns",
-    description: "Chest pain, breathing difficulty, severe bleeding",
-    icon: AlertTriangle,
-    color: "bg-red-500",
-    iconBg: "bg-red-500/10",
-  },
-];
-
-const redFlagSymptoms = [
-  "Chest pain or pressure",
-  "Difficulty breathing or shortness of breath",
-  "Sudden severe headache",
-  "Loss of consciousness or fainting",
-  "Uncontrolled bleeding",
-  "Signs of stroke (face drooping, arm weakness, speech difficulty)",
-  "Severe allergic reaction (swelling, difficulty breathing)",
-  "High fever with stiff neck",
-  "Sudden vision loss",
-  "Suicidal thoughts or self-harm ideation",
-];
+const categories = ["skin", "general", "neurological", "cardiovascular", "respiratory", "gastrointestinal", "musculoskeletal", "psychiatric", "other"] as const;
+const urgencyStyle: Record<string, string> = {
+  emergency: "border-red-300 bg-red-50 text-red-900",
+  urgent: "border-amber-300 bg-amber-50 text-amber-900",
+  routine: "border-blue-200 bg-blue-50 text-blue-900",
+  self_care: "border-slate-200 bg-slate-50 text-slate-800",
+};
 
 export default function SymptomAssessment() {
+  const [primarySymptom, setPrimarySymptom] = useState("");
+  const [category, setCategory] = useState<(typeof categories)[number]>("general");
+  const [onset, setOnset] = useState("");
+  const [duration, setDuration] = useState("");
+  const [severity, setSeverity] = useState("");
+  const [progression, setProgression] = useState("");
+  const [associated, setAssociated] = useState("");
+  const [caseId, setCaseId] = useState("");
+  const queryClient = useQueryClient();
+  const assessmentsQuery = useListSymptomAssessments({ page: 1, limit: 10 });
+  const casesQuery = useListCases({ page: 1, limit: 100 });
+  const createAssessment = useCreateSymptomAssessment({ mutation: {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/symptom-assessments"] });
+      setPrimarySymptom("");
+      setAssociated("");
+    },
+  } });
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    createAssessment.mutate({ data: {
+      primarySymptom: primarySymptom.trim(),
+      symptomCategory: category,
+      ...(onset.trim() ? { onset: onset.trim() } : {}),
+      ...(duration.trim() ? { duration: duration.trim() } : {}),
+      ...(severity ? { severity } : {}),
+      ...(progression ? { progression } : {}),
+      ...(caseId ? { caseId: Number(caseId) } : {}),
+      associatedSymptoms: associated.split(",").map((item) => item.trim()).filter(Boolean),
+    } });
+  };
+
+  const latest = createAssessment.data?.assessment;
+  const previous = (assessmentsQuery.data?.assessments ?? []).filter((item) => item.id !== latest?.id);
+
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto pt-10 pb-20">
-        <div className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-slate-500 hover:text-primary font-medium mb-6 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Overview
-          </Link>
-        </div>
+      <div className="max-w-5xl mx-auto pt-8 pb-20">
+        <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-primary font-medium mb-6"><ArrowLeft className="w-4 h-4" />Back to Overview</Link>
+        <div className="mb-8"><h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Symptom Assessment</h1><p className="text-slate-600 mt-2 max-w-2xl">Record symptoms and receive conservative guidance from a small, transparent rule set. This does not diagnose or rule out illness.</p></div>
 
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-6xl font-display font-extrabold text-slate-900 mb-6 tracking-tight">
-            Symptom Assessment
-          </h1>
-          <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Provide structured symptom information to receive conservative educational guidance
-            and appropriate urgency recommendations. This is not a diagnostic tool.
-          </p>
-        </div>
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><div><h2 className="font-semibold">Urgent symptoms</h2><p className="mt-1 text-sm">If you believe you may be experiencing a medical emergency, contact local emergency services or seek immediate care now. Do not wait for or rely on this assessment.</p></div></div>
 
-        {/* Red Flag Warning */}
-        <div className="mb-8 p-6 bg-red-50 border border-red-200 rounded-2xl">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <div>
-              <h3 className="font-bold text-red-800 mb-2">Seek Immediate Medical Attention If You Experience:</h3>
-              <ul className="text-red-700 text-sm space-y-1 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {redFlagSymptoms.map((symptom, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-red-500">•</span>
-                    <span>{symptom}</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-red-700 text-sm mt-4 font-medium">
-                Call emergency services (911 in US) or go to the nearest emergency department.
-                Do not complete this assessment for life-threatening symptoms.
-              </p>
-            </div>
+        <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="space-y-1 text-sm font-medium md:col-span-2">Primary symptom<textarea value={primarySymptom} onChange={(event) => setPrimarySymptom(event.target.value)} required maxLength={1_000} rows={3} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Describe what you are experiencing" /></label>
+            <label className="space-y-1 text-sm font-medium">Category<select value={category} onChange={(event) => setCategory(event.target.value as (typeof categories)[number])} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{categories.map((value) => <option key={value} value={value}>{value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></label>
+            <label className="space-y-1 text-sm font-medium">Linked case (optional)<select value={caseId} onChange={(event) => setCaseId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">No case</option>{(casesQuery.data?.cases ?? []).map((item) => <option key={item.id} value={item.id}>{item.caseNumber}</option>)}</select></label>
+            <label className="space-y-1 text-sm font-medium">Onset<Input value={onset} onChange={(event) => setOnset(event.target.value)} maxLength={200} placeholder="When it began" /></label>
+            <label className="space-y-1 text-sm font-medium">Duration<Input value={duration} onChange={(event) => setDuration(event.target.value)} maxLength={200} placeholder="How long it has lasted" /></label>
+            <label className="space-y-1 text-sm font-medium">Reported severity<select value={severity} onChange={(event) => setSeverity(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Not recorded</option><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option></select></label>
+            <label className="space-y-1 text-sm font-medium">Progression<select value={progression} onChange={(event) => setProgression(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Not recorded</option><option value="improving">Improving</option><option value="stable">Stable</option><option value="worsening">Worsening</option><option value="fluctuating">Fluctuating</option></select></label>
+            <label className="space-y-1 text-sm font-medium md:col-span-2">Other reported symptoms (comma-separated)<Input value={associated} onChange={(event) => setAssociated(event.target.value)} maxLength={2_000} placeholder="Optional" /></label>
           </div>
-        </div>
+          {casesQuery.isError && <p role="status" className="text-sm text-slate-500">Cases could not be loaded; you can still save without linking one.</p>}
+          {createAssessment.isError && <p role="alert" className="text-sm text-destructive">Assessment was not saved. Check the fields and retry.</p>}
+          <Button type="submit" disabled={createAssessment.isPending || !primarySymptom.trim()}>{createAssessment.isPending ? "Saving assessment…" : "Save and assess"}</Button>
+        </form>
 
-        {/* Assessment Categories */}
-        <div className="mb-12">
-          <h2 className="text-2xl font-display font-bold text-slate-900 mb-6 text-center">
-            Select Symptom Category
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {symptomCategories.map((category) => (
-              <Link
-                key={category.id}
-                href={`/symptom-assessment/${category.id}`}
-                className="group bg-white rounded-2xl p-6 shadow-sm border border-slate-200/60 hover:shadow-xl hover:border-primary/50 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full"
-              >
-                <div className={cn("w-14 h-14 rounded-xl flex items-center justify-center mb-4", category.iconBg)}>
-                  <category.icon className={cn("w-7 h-7", category.color.replace("bg-", "text-"))} />
-                </div>
-                <h3 className="font-display font-bold text-lg text-slate-900 mb-2">{category.title}</h3>
-                <p className="text-slate-600 text-sm leading-relaxed flex-1 mb-4">{category.description}</p>
-                <div className="inline-flex items-center gap-1 text-sm font-medium text-primary group-hover:gap-2 transition-all">
-                  <span>Begin Assessment</span>
-                  <ArrowLeft className="w-4 h-4" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
+        {latest && <section className={`mt-6 rounded-2xl border p-6 ${urgencyStyle[latest.urgencyLevel] ?? urgencyStyle.routine}`} aria-live="polite"><p className="text-xs font-semibold uppercase tracking-wide">Persisted rule-based result · record #{latest.id}</p><h2 className="mt-1 text-2xl font-bold">{latest.urgencyLevel.replace(/_/g, " ").toUpperCase()} guidance</h2><ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(latest.guidance.recommendations ?? []).map((recommendation, index) => <li key={index}>{recommendation}</li>)}</ul>{latest.redFlagsTriggered?.length ? <p className="mt-3 text-sm font-medium">Matched warning terms: {latest.redFlagsTriggered.join(", ")}</p> : null}<p className="mt-4 text-xs">{latest.guidance.disclaimer}</p></section>}
 
-        {/* How it works */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 md:p-8">
-          <h3 className="font-display font-bold text-slate-900 mb-4 text-center">How Symptom Assessment Works</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-            <div className="p-4">
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                <Stethoscope className="w-6 h-6 text-primary" />
-              </div>
-              <h4 className="font-bold text-slate-900 mb-2">Structured Intake</h4>
-              <p className="text-slate-600 text-sm">Answer relevant questions about your symptoms, onset, duration, and severity.</p>
-            </div>
-            <div className="p-4">
-              <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center mx-auto mb-3">
-                <Brain className="w-6 h-6 text-teal-500" />
-              </div>
-              <h4 className="font-bold text-slate-900 mb-2">Rule-Based Guidance</h4>
-              <p className="text-slate-600 text-sm">Receive conservative educational information based on established clinical guidelines.</p>
-            </div>
-            <div className="p-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
-                <AlertTriangle className="w-6 h-6 text-amber-500" />
-              </div>
-              <h4 className="font-bold text-slate-900 mb-2">Urgency Recommendations</h4>
-              <p className="text-slate-600 text-sm">Get appropriate next-step guidance including when to seek professional care.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Disclaimer */}
-        <div className="mt-8 p-6 bg-amber-50 border border-amber-200 rounded-2xl">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-              <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div>
-              <h4 className="font-bold text-amber-800 mb-1">Educational Purpose Only</h4>
-              <p className="text-amber-700 text-sm">
-                This assessment provides general health information and does not constitute medical advice,
-                diagnosis, or treatment. It cannot replace evaluation by a qualified healthcare professional.
-                The system uses rule-based logic, not AI diagnosis. Always consult a clinician for medical concerns.
-              </p>
-            </div>
-          </div>
-        </div>
+        <section className="mt-10 rounded-2xl border border-slate-200 bg-white overflow-hidden"><div className="flex items-center gap-2 p-5 border-b border-slate-200"><ClipboardList className="h-5 w-5 text-primary" /><h2 className="font-semibold">Saved assessments</h2></div>
+          {assessmentsQuery.isLoading && <p role="status" className="p-6 text-sm text-slate-500">Loading saved assessments…</p>}
+          {assessmentsQuery.isError && <div className="p-6"><p role="alert" className="text-sm text-slate-600">Saved assessments could not be loaded.</p><Button variant="outline" className="mt-2" onClick={() => void assessmentsQuery.refetch()}>Retry</Button></div>}
+          {!assessmentsQuery.isLoading && !assessmentsQuery.isError && previous.length === 0 && !latest && <p className="p-6 text-sm text-slate-500">No saved assessments yet.</p>}
+          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
+        </section>
+        <p className="mt-6 text-sm text-slate-500">The rules are not clinical guidelines and may miss important context. They do not provide medical advice or a reliable risk estimate.</p>
       </div>
     </Layout>
   );
-}
-
-function cn(...classes: (string | undefined | null | false)[]) {
-  return classes.filter(Boolean).join(" ");
 }

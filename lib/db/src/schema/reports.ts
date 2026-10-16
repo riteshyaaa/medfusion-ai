@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -19,7 +19,7 @@ export const reports = pgTable("reports", {
   finalizedAt: timestamp("finalized_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [index("reports_author_id_created_at_idx").on(table.authorId, table.createdAt), index("reports_case_id_idx").on(table.caseId)]);
 
 export const insertReportSchema = createInsertSchema(reports).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertReport = z.infer<typeof insertReportSchema>;

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -15,7 +15,7 @@ export const auditEvents = pgTable("audit_events", {
   userAgent: text("user_agent"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [index("audit_events_user_id_created_at_idx").on(table.userId, table.createdAt)]);
 
 export const insertAuditEventSchema = createInsertSchema(auditEvents).omit({ id: true, createdAt: true });
 export type InsertAuditEvent = z.infer<typeof insertAuditEventSchema>;

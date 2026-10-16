@@ -13,8 +13,12 @@ export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
     severe: { color: "bg-danger/15 text-danger border-danger/30", label: "Severe", dot: "bg-danger" },
   };
 
-  const normalizedSeverity = severity?.toLowerCase() || "normal";
-  const style = config[normalizedSeverity] || config.normal;
+  const normalizedSeverity = severity?.toLowerCase() || "";
+  const style = config[normalizedSeverity];
+
+  if (!style) {
+    return <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border border-slate-300 bg-slate-100 text-slate-600", className)}>Not assessed</span>;
+  }
 
   return (
     <div className={cn(
@@ -22,7 +26,7 @@ export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
       style.color,
       className
     )}>
-      <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", style.dot)} />
+      <div className={cn("w-1.5 h-1.5 rounded-full", style.dot)} />
       {style.label}
     </div>
   );

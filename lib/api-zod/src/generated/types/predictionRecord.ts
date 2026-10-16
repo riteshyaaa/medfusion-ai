@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DifferentialDiagnosis } from './differentialDiagnosis.ts';
+import type { PredictionRecordScoreSemantics } from './predictionRecordScoreSemantics.ts';
+import type { PredictionRecordStatus } from './predictionRecordStatus.ts';
 
 export interface PredictionRecord {
   id: number;
@@ -16,10 +18,14 @@ export interface PredictionRecord {
   recommendations: string[];
   differentialDiagnoses: DifferentialDiagnosis[];
   preprocessingSteps: string[];
-  imageBase64?: string;
   fileName?: string;
-  modelId?: string;
-  modelVersion?: string;
-  status?: string;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  scoreSemantics?: PredictionRecordScoreSemantics;
+  /** @nullable */
+  preprocessingVersion?: string | null;
+  status?: PredictionRecordStatus;
   createdAt: string;
 }

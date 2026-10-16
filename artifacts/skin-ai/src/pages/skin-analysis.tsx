@@ -2,44 +2,53 @@ import { Layout } from "@/components/layout";
 import { UploadZone } from "@/components/upload-zone";
 import { ResultsCard } from "@/components/results-card";
 import { useAnalyzeSkin } from "@/hooks/use-predictions";
-import { fileToBase64 } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Link } from "lucide-react";
-import { useLocation } from "wouter";
+import { ArrowLeft } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { useState } from "react";
+import { deleteUpload, uploadFile } from "@workspace/api-client-react";
 
 export default function SkinAnalysis() {
   const { mutate: analyze, isPending, data: result, reset } = useAnalyzeSkin();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleUpload = async (uploadedFile: File) => {
+    setIsUploading(true);
+    let uploadId: number | undefined;
     try {
-      const base64 = await fileToBase64(uploadedFile);
+      const uploaded = await uploadFile({ file: uploadedFile });
+      uploadId = uploaded.upload.id;
+      setIsUploading(false);
       analyze(
         {
           data: {
-            imageBase64: base64,
-            fileName: uploadedFile.name,
+            uploadId: uploaded.upload.id,
           },
         },
         {
-          onError: (error) => {
+          onError: async (error) => {
+            await deleteUpload(uploadId!).catch(() => undefined);
+            const message = (error as { data?: { message?: string } }).data?.message;
             toast({
-              title: "Analysis Failed",
-              description: error.message || "Something went wrong during prediction.",
+              title: "Skin model unavailable",
+              description: message || "No approved skin-analysis model is configured. No prediction was created, and the temporary upload was removed when possible.",
               variant: "destructive",
             });
             reset();
           },
         }
       );
-    } catch (err) {
+    } catch {
       toast({
-        title: "File Error",
-        description: "Failed to process the uploaded image.",
+        title: "Upload failed",
+        description: "The server could not validate or privately store this image. No prediction was created.",
         variant: "destructive",
       });
       reset();
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -70,23 +79,22 @@ export default function SkinAnalysis() {
               Skin Analysis
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-              Upload an image of a skin concern. Our AI model will analyze patterns, assess severity,
-              and provide educational insights with appropriate next-step guidance.
+              Upload an image for server-side validation. The skin classification model is currently unavailable, so this prototype will not return a condition result.
             </p>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 p-2 md:p-6 border border-slate-100">
-            <UploadZone onUpload={handleUpload} isAnalyzing={isPending} />
+            <UploadZone onUpload={handleUpload} isAnalyzing={isPending || isUploading} />
           </div>
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
-              <div className="text-3xl font-display font-bold text-primary mb-2">AI-Powered</div>
-              <p className="text-sm text-slate-500">Deep learning pattern recognition</p>
+              <div className="text-3xl font-display font-bold text-amber-600 mb-2">Unavailable</div>
+              <p className="text-sm text-slate-500">No approved skin model is configured</p>
             </div>
             <div>
               <div className="text-3xl font-display font-bold text-primary mb-2">Privacy First</div>
-              <p className="text-sm text-slate-500">Images processed securely</p>
+              <p className="text-sm text-slate-500">Validated uploads use private server storage</p>
             </div>
             <div>
               <div className="text-3xl font-display font-bold text-primary mb-2">Educational</div>
@@ -107,8 +115,8 @@ export default function SkinAnalysis() {
                 <ul className="text-amber-700 text-sm space-y-1">
                   <li>• This is a research prototype, not a medical device</li>
                   <li>• Cannot reliably rule out skin cancer or other serious conditions</li>
-                  <li>• Results are educational — always consult a qualified dermatologist</li>
-                  <li>• Performance varies by skin tone, image quality, and condition type</li>
+                  <li>• No results are available until a verified model is approved and configured</li>
+                  <li>• Any future model would have limitations across skin tone, image quality, and condition type</li>
                 </ul>
               </div>
             </div>

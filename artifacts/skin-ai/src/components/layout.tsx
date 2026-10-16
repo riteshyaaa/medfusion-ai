@@ -1,14 +1,26 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, History, ShieldAlert, FileText, Stethoscope } from "lucide-react";
+import { Activity, History, ShieldAlert, FileText, Stethoscope, LogOut } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useLogout } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const logout = useLogout({ mutation: {
+    onSuccess: () => {
+      queryClient.clear();
+      setLocation("/login");
+    },
+    onError: () => toast({ title: "Sign out failed", description: "The server could not invalidate this session. Retry in a moment.", variant: "destructive" }),
+  } });
 
   const navItems = [
     { href: "/", label: "Overview", icon: Activity },
@@ -52,7 +64,7 @@ export function Layout({ children }: LayoutProps) {
               </span>
             </div>
 
-            <nav className="flex gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50">
+            <nav aria-label="Main navigation" className="flex gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50">
               {navItems.map((item) => {
                 const isActive = location === item.href;
                 return (
@@ -77,6 +89,10 @@ export function Layout({ children }: LayoutProps) {
                 );
               })}
             </nav>
+            <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:border-primary hover:text-primary disabled:opacity-50" aria-label="Sign out">
+              <LogOut className="w-4 h-4" />
+              <span className="hidden lg:inline">{logout.isPending ? "Signing out…" : "Sign out"}</span>
+            </button>
           </div>
         </div>
       </header>
@@ -96,14 +112,7 @@ export function Layout({ children }: LayoutProps) {
           <p className="text-sm text-muted-foreground">
             &copy; {new Date().getFullYear()} MedScope AI. All rights reserved.
           </p>
-          <div className="flex gap-4">
-            <a
-              href="#"
-              className="text-muted-foreground hover:text-primary transition-colors"
-            >
-              <FileText className="w-5 h-5" />
-            </a>
-          </div>
+          <p className="text-xs text-muted-foreground">Research prototype • not for independent diagnosis</p>
         </div>
       </footer>
     </div>

@@ -1,13 +1,15 @@
 import { Layout } from "@/components/layout";
 import { Link } from "wouter";
-import { Stethoscope, Activity, Users, FileText, History, ClipboardList, ArrowRight } from "lucide-react";
+import { Stethoscope, Activity, Users, FileText, History, ClipboardList, ArrowRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useListCases, useListPatients, useListReports, useListSymptomAssessments, useGetPredictionHistory } from "@workspace/api-client-react";
 
 const features = [
   {
     icon: Stethoscope,
     title: "Skin Analysis",
-    description: "Upload dermatological images for AI-assisted pattern recognition and condition assessment.",
+    description: "Skin Analysis accepts private image uploads. An approved classification model is not configured yet, so no condition result is available.",
     href: "/skin-analysis",
     color: "bg-teal-500",
     iconBg: "bg-teal-500/10",
@@ -39,7 +41,7 @@ const features = [
   {
     icon: History,
     title: "History & Records",
-    description: "Review past analyses, predictions, and clinical records with full audit trails.",
+    description: "Review prediction records that were saved by an available inference provider.",
     href: "/history",
     color: "bg-orange-500",
     iconBg: "bg-orange-500/10",
@@ -55,23 +57,33 @@ const features = [
 ];
 
 export default function Home() {
+  const patients = useListPatients({ page: 1, limit: 1 });
+  const cases = useListCases({ page: 1, limit: 1, status: "open" });
+  const predictions = useGetPredictionHistory({ page: 1, limit: 1 });
+  const assessments = useListSymptomAssessments({ page: 1, limit: 1 });
+  const reports = useListReports({ page: 1, limit: 1, status: "draft" });
+  const metrics = [
+    { label: "Patient records", query: patients, count: patients.data?.total },
+    { label: "Open cases", query: cases, count: cases.data?.total },
+    { label: "Saved predictions", query: predictions, count: predictions.data?.total },
+    { label: "Symptom assessments", query: assessments, count: assessments.data?.total },
+    { label: "Draft reports", query: reports, count: reports.data?.total },
+  ];
+  const hasMetricError = metrics.some((metric) => metric.query.isError);
+
   return (
     <Layout>
       <div className="max-w-7xl mx-auto pt-10 pb-20 px-4 sm:px-6 lg:px-8">
         {/* Hero Section */}
         <div className="text-center mb-16">
           <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium mb-6">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-            </span>
             Research Prototype — Not for Clinical Use
           </div>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-display font-extrabold text-slate-900 mb-6 tracking-tight">
             MedScope<span className="text-primary"> AI</span>
           </h1>
           <p className="text-xl md:text-2xl text-slate-600 max-w-3xl mx-auto leading-relaxed mb-8">
-            Intelligent Health Assessment Platform — AI-assisted clinical decision support for healthcare professionals
+            A research and education workspace for organizing health information and structured assessments
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -90,14 +102,24 @@ export default function Home() {
           </div>
         </div>
 
+        <section className="mb-16" aria-labelledby="dashboard-metrics-title">
+          <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+            <div><h2 id="dashboard-metrics-title" className="text-2xl font-display font-bold text-slate-900">Your workspace</h2><p className="text-sm text-slate-500 mt-1">Counts from records saved to your account.</p></div>
+            {hasMetricError && <Button variant="outline" size="sm" onClick={() => void Promise.all(metrics.map((metric) => metric.query.refetch()))} className="gap-2"><RefreshCw className="h-4 w-4" />Retry metrics</Button>}
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {metrics.map((metric) => <div key={metric.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{metric.label}</p><p className="mt-2 text-3xl font-display font-bold text-slate-900" aria-live="polite">{metric.query.isLoading ? "…" : metric.query.isError ? "Unavailable" : metric.count ?? 0}</p></div>)}
+          </div>
+          {hasMetricError && <p role="status" className="mt-3 text-sm text-slate-500">Some counts could not be loaded. Retry without changing or losing saved records.</p>}
+        </section>
+
         {/* Features Grid */}
         <div className="mb-16">
           <h2 className="text-3xl md:text-4xl font-display font-bold text-center text-slate-900 mb-4">
             Platform Capabilities
           </h2>
           <p className="text-center text-slate-600 max-w-2xl mx-auto mb-12">
-            Each module is designed for specific clinical workflows. Skin Analysis operates independently
-            while integrating with the broader patient and case management system.
+            Available workflows use records saved to your account. Model-dependent features stay unavailable until a verified provider is configured.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {features.map((feature) => (
@@ -134,10 +156,9 @@ export default function Home() {
               <div>
                 <h3 className="font-display font-bold text-slate-900 mb-1">Important Disclaimer</h3>
                 <p className="text-slate-600 text-sm">
-                  MedScope AI is a research prototype for educational and decision-support purposes only.
-                  It does not provide medical advice, diagnosis, or treatment. The Skin Analysis feature
-                  uses pattern recognition on images and cannot reliably rule out serious conditions including
-                  skin cancer. Always consult a qualified healthcare professional for medical concerns.
+                  MedScope AI is a research and education prototype. The Skin Analysis model is unavailable,
+                  and this application does not provide a skin-condition result, medical advice, diagnosis, or treatment.
+                  It cannot rule out serious conditions. Consult a qualified healthcare professional for medical concerns.
                 </p>
               </div>
             </div>

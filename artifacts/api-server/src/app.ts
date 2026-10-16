@@ -1,108 +1,177 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents } from "@workspace/db/schema";
-import { eq, desc, and, or, ilike, count, sql } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, sql, inArray, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
-import { v4 as uuidv4 } from "uuid";
-import crypto from "crypto";
-import path from "path";
-import fs from "fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-
-type Bindings = {
-  DATABASE_URL: string;
-  SESSION_SECRET: string;
-  UPLOAD_DIR: string;
-  CORS_ORIGINS: string;
-  RATE_LIMIT_AUTH: string;
-  RATE_LIMIT_AUTH_WINDOW_MS: string;
-  RATE_LIMIT_UPLOAD: string;
-  RATE_LIMIT_UPLOAD_WINDOW_MS: string;
-  RATE_LIMIT_PREDICT: string;
-  RATE_LIMIT_PREDICT_WINDOW_MS: string;
-};
+import { LocalPrivateStorage } from "./storage";
+import { getTestInferenceProvider, hasApprovedSkinModel } from "./inference";
+import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
 
 type Variables = {
   user: typeof users.$inferSelect;
   sessionId: string;
+  requestId: string;
 };
 
-const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-app.use("*", logger());
-app.use("*", secureHeaders());
-app.use("*", cors({
-  origin: (origin, c) => {
-    const allowedOrigins = c.env.CORS_ORIGINS?.split(",") || ["http://localhost:3000", "http://localhost:5173"];
-    if (!origin || allowedOrigins.includes(origin)) {
-      return origin;
-    }
-    return allowedOrigins[0];
-  },
-  credentials: true,
-}));
-
-
+const app = new Hono<{ Variables: Variables }>();
 const SESSION_COOKIE_NAME = "session_id";
-const SESSION_TTL_DAYS = 30;
+const SESSION_TTL_DAYS = 7;
+const SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 40_000_000;
+const MAX_IMAGE_DIMENSION = 8_192;
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
+const uploadDir = process.env.UPLOAD_DIR
+  ? path.resolve(repositoryRoot, process.env.UPLOAD_DIR)
+  : path.resolve(repositoryRoot, "uploads");
+const storage = new LocalPrivateStorage(uploadDir);
+
+function envLimit(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function rateLimit(maximum: number, windowMs: number) {
+  const requests = new Map<string, { count: number; resetsAt: number }>();
+  return async (c: any, next: () => Promise<void>) => {
+    const now = Date.now();
+    const ip = c.env?.incoming?.socket?.remoteAddress || "unknown";
+    const key = `${ip}:${c.req.path}`;
+    let current = requests.get(key);
+    if (!current || current.resetsAt <= now) {
+      current = { count: 0, resetsAt: now + windowMs };
+      requests.set(key, current);
+    }
+    current.count += 1;
+    if (requests.size > 5_000) {
+      for (const [entry, item] of requests) {
+        if (item.resetsAt <= now) requests.delete(entry);
+      }
+    }
+    if (current.count > maximum) {
+      c.header("Retry-After", String(Math.max(1, Math.ceil((current.resetsAt - now) / 1_000))));
+      return c.json({ error: "rate_limited", message: "Too many requests. Try again later.", requestId: c.get("requestId") }, 429);
+    }
+    await next();
+  };
+}
+
+const jsonBody = <T extends z.ZodTypeAny>(schema: T) =>
+  zValidator("json", schema, (result) => {
+    if (!result.success) throw new HTTPException(400, { message: "Invalid request body" });
+  });
+
+function parseId(raw: string): number {
+  if (!/^\d+$/.test(raw)) throw new HTTPException(400, { message: "Invalid resource identifier" });
+  const id = Number(raw);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new HTTPException(400, { message: "Invalid resource identifier" });
+  return id;
+}
+
+const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+function parsePagination(query: Record<string, string>) {
+  const parsed = paginationSchema.safeParse(query);
+  if (!parsed.success) throw new HTTPException(400, { message: "Invalid pagination parameters" });
+  return parsed.data;
+}
+
+app.use("*", async (c, next) => {
+  c.set("requestId", randomUUID());
+  const startedAt = Date.now();
+  await next();
+  c.header("X-Request-Id", c.get("requestId"));
+  console.info(JSON.stringify({ requestId: c.get("requestId"), method: c.req.method, status: c.res.status, durationMs: Date.now() - startedAt }));
+});
+app.use("*", secureHeaders());
+app.use("*", bodyLimit({ maxSize: 12 * 1024 * 1024, onError: (c) => c.json({ error: "request_too_large", message: "Request exceeds the allowed size.", requestId: c.get("requestId") }, 413) }));
+app.use("*", cors({
+  origin: (origin) => (origin && allowedOrigins.has(origin) ? origin : ""),
+  credentials: true,
+  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowHeaders: ["Content-Type", "X-Request-Id"],
+  exposeHeaders: ["X-Request-Id"],
+}));
+app.use("*", async (c, next) => {
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(c.req.method)) {
+    const origin = c.req.header("origin");
+    if (origin && !allowedOrigins.has(origin)) {
+      throw new HTTPException(403, { message: "Request origin is not allowed" });
+    }
+  }
+  await next();
+});
+app.use("/auth/*", rateLimit(envLimit("RATE_LIMIT_AUTH", 10), envLimit("RATE_LIMIT_AUTH_WINDOW_MS", 900_000)));
+app.use("/uploads", rateLimit(envLimit("RATE_LIMIT_UPLOAD", 20), envLimit("RATE_LIMIT_UPLOAD_WINDOW_MS", 60_000)));
+app.use("/predict", rateLimit(envLimit("RATE_LIMIT_PREDICT", 30), envLimit("RATE_LIMIT_PREDICT_WINDOW_MS", 60_000)));
+app.use("/ai/explanations", rateLimit(envLimit("AI_RATE_LIMIT", 10), envLimit("AI_RATE_LIMIT_WINDOW_MS", 60_000)));
+
+const userView = (user: typeof users.$inferSelect) => ({
+  id: user.id,
+  email: user.email,
+  fullName: user.fullName ?? undefined,
+  role: user.role,
+  createdAt: user.createdAt,
+});
+
+const hashSessionToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 async function createSession(c: any, userId: number): Promise<string> {
-  const sessionId = uuidv4();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
-  
+  const token = randomUUID();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1_000);
+
   await db.insert(sessions).values({
-    id: sessionId,
+    id: hashSessionToken(token),
     userId,
     expiresAt,
   });
-  
-  setCookie(c, SESSION_COOKIE_NAME, sessionId, {
+
+  const previousToken = getCookie(c, SESSION_COOKIE_NAME);
+  if (previousToken && previousToken.length <= 128) {
+    await db.delete(sessions).where(eq(sessions.id, hashSessionToken(previousToken)));
+  }
+
+  setCookie(c, SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: SESSION_TTL_DAYS * 24 * 60 * 60,
+    maxAge: SESSION_TTL_SECONDS,
     path: "/",
   });
   
-  return sessionId;
+  return token;
 }
 
 async function validateSession(c: any): Promise<typeof users.$inferSelect | null> {
-  const sessionId = getCookie(c, SESSION_COOKIE_NAME);
-  if (!sessionId) return null;
-
-  const session = await db.query.sessions.findFirst({
-    where: and(eq(sessions.id, sessionId), sql`${sessions.expiresAt} > NOW()`),
-    with: {
-      user: {
-        columns: {
-          id: true,
-          email: true,
-          passwordHash: true,
-          fullName: true,
-          role: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
-    },
-  });
-
-  if (!session?.user) {
-    return null;
-  }
-
-  c.set("user", session.user);
-  c.set("sessionId", sessionId);
-  return session.user;
+  const token = getCookie(c, SESSION_COOKIE_NAME);
+  if (!token || token.length > 128) return null;
+  const session = await db.query.sessions.findFirst({ where: and(eq(sessions.id, hashSessionToken(token)), sql`${sessions.expiresAt} > NOW()`) });
+  if (!session) return null;
+  const [user] = await db.select().from(users).where(and(eq(users.id, session.userId), eq(users.isActive, true))).limit(1);
+  if (!user) return null;
+  c.set("user", user);
+  c.set("sessionId", session.id);
+  return user;
 }
 
 async function requireAuth(c: any, next: () => Promise<void>) {
@@ -122,24 +191,28 @@ async function requireClinician(c: any, next: () => Promise<void>) {
 }
 
 async function logAudit(c: any, eventType: string, action: string, outcome: "success" | "failure" | "error", resourceType?: string, resourceId?: string, metadata?: Record<string, unknown>) {
-  const user = c.get("user");
-  await db.insert(auditEvents).values({
-    userId: user?.id,
-    eventType,
-    resourceType,
-    resourceId: resourceId?.toString(),
-    action,
-    outcome,
-    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip"),
-    userAgent: c.req.header("user-agent"),
-    metadata,
-  });
+  try {
+    const user = c.get("user");
+    await db.insert(auditEvents).values({
+      userId: user?.id,
+      eventType,
+      resourceType,
+      resourceId: resourceId?.toString(),
+      action,
+      outcome,
+      ipAddress: c.env?.incoming?.socket?.remoteAddress,
+      userAgent: c.req.header("user-agent")?.slice(0, 500),
+      metadata,
+    });
+  } catch {
+    console.error(JSON.stringify({ requestId: c.get("requestId"), event: "audit_write_failed", eventType, action }));
+  }
 }
 
 const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  fullName: z.string().optional(),
+  email: z.string().trim().email().max(254).transform((email) => email.toLowerCase()),
+  password: z.string().min(10).max(200),
+  fullName: z.string().trim().min(1).max(120).optional(),
 });
 
 const loginSchema = z.object({
@@ -147,13 +220,13 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-app.post("/auth/register", zValidator("json", registerSchema), async (c) => {
+app.post("/auth/register", jsonBody(registerSchema), async (c) => {
   const { email, password, fullName } = c.req.valid("json");
   
   const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
   if (existing) {
-    await logAudit(c, "auth", "register", "failure", undefined, undefined, { email, reason: "email_exists" });
-    throw new HTTPException(409, { message: "Email already registered" });
+    await logAudit(c, "auth", "register", "failure", undefined, undefined, { reason: "account_exists" });
+    throw new HTTPException(409, { message: "Unable to create an account with those details" });
   }
   
   const passwordHash = await bcrypt.hash(password, 12);
@@ -162,35 +235,29 @@ app.post("/auth/register", zValidator("json", registerSchema), async (c) => {
   await createSession(c, user.id);
   await logAudit(c, "auth", "register", "success", "user", user.id.toString());
   
-  return c.json({ user: { ...user, passwordHash: undefined }, sessionId: getCookie(c, SESSION_COOKIE_NAME) }, 201);
+  return c.json({ user: userView(user) }, 201);
 });
 
-app.post("/auth/login", zValidator("json", loginSchema), async (c) => {
+app.post("/auth/login", jsonBody(loginSchema), async (c) => {
   const { email, password } = c.req.valid("json");
   
-  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
-  if (!user || !await bcrypt.compare(password, user.passwordHash)) {
-    await logAudit(c, "auth", "login", "failure", undefined, undefined, { email, reason: "invalid_credentials" });
-    throw new HTTPException(401, { message: "Invalid credentials" });
-  }
-  
-  if (!user.isActive) {
-    await logAudit(c, "auth", "login", "failure", "user", user.id.toString(), { reason: "account_inactive" });
-    throw new HTTPException(401, { message: "Account is inactive" });
+  const normalizedEmail = email.toLowerCase();
+  const user = await db.query.users.findFirst({ where: eq(users.email, normalizedEmail) });
+  if (!user || !user.isActive || !await bcrypt.compare(password, user.passwordHash)) {
+    await logAudit(c, "auth", "login", "failure", undefined, undefined, { reason: "invalid_credentials" });
+    throw new HTTPException(401, { message: "Email or password is incorrect" });
   }
   
   await createSession(c, user.id);
   await logAudit(c, "auth", "login", "success", "user", user.id.toString());
   
-  return c.json({ user: { ...user, passwordHash: undefined }, sessionId: getCookie(c, SESSION_COOKIE_NAME) });
+  return c.json({ user: userView(user) });
 });
 
-app.post("/auth/logout", async (c) => {
-  const sessionId = getCookie(c, SESSION_COOKIE_NAME);
-  if (sessionId) {
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
-    setCookie(c, SESSION_COOKIE_NAME, "", { maxAge: 0, path: "/" });
-  }
+app.post("/auth/logout", requireAuth, async (c) => {
+  const sessionId = c.get("sessionId");
+  await db.delete(sessions).where(eq(sessions.id, sessionId));
+  setCookie(c, SESSION_COOKIE_NAME, "", { maxAge: 0, httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" });
   await logAudit(c, "auth", "logout", "success");
   return c.json({ message: "Logged out successfully" });
 });
@@ -200,7 +267,7 @@ app.get("/auth/me", async (c) => {
   if (!user) {
     throw new HTTPException(401, { message: "Not authenticated" });
   }
-  return c.json({ user: { ...user, passwordHash: undefined } });
+  return c.json({ user: userView(user) });
 });
 
 app.get("/healthz", (c) => c.json({ status: "healthy" }));
@@ -208,112 +275,163 @@ app.get("/healthz", (c) => c.json({ status: "healthy" }));
 app.get("/readyz", async (c) => {
   try {
     await db.execute(sql`SELECT 1`);
-    return c.json({ status: "ready", checks: { database: true, model: false } });
+    return c.json({ status: "ready", checks: { database: true, model: hasApprovedSkinModel(), aiProvider: getAIProviderStatus() } });
   } catch {
-    return c.json({ status: "not_ready", checks: { database: false, model: false } }, 503);
+    return c.json({ status: "not_ready", checks: { database: false, model: hasApprovedSkinModel(), aiProvider: getAIProviderStatus() } }, 503);
   }
 });
 
-const uploadDir = process.env.UPLOAD_DIR || "./uploads";
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
-
-async function validateImageFile(file: File): Promise<{ valid: boolean; error?: string; metadata?: { width: number; height: number; format: string } }> {
-  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-    return { valid: false, error: "Unsupported file type. Allowed: JPEG, PNG, WebP" };
-  }
-  
-  if (file.size > MAX_FILE_SIZE) {
-    return { valid: false, error: `File too large. Maximum size: ${MAX_FILE_SIZE / 1024 / 1024}MB` };
-  }
-  
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const ext = path.extname(file.name).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return { valid: false, error: "Invalid file extension" };
-  }
-  
-  try {
-    const metadata = await sharp(buffer).metadata();
-    if (!metadata.width || !metadata.height) {
-      return { valid: false, error: "Invalid image dimensions" };
-    }
-    return { valid: true, metadata: { width: metadata.width, height: metadata.height, format: metadata.format || "unknown" } };
-  } catch {
-    return { valid: false, error: "Invalid or corrupted image file" };
-  }
-}
+const ALLOWED_MIME_FORMATS: Record<string, string> = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" };
 
 app.post("/uploads", requireAuth, async (c) => {
   const user = c.get("user");
   const formData = await c.req.formData();
-  const file = formData.get("file") as File;
-  const caseId = formData.get("caseId") ? parseInt(formData.get("caseId") as string, 10) : undefined;
-  
+  const file = formData.get("file");
+  const caseIdValue = formData.get("caseId");
   if (!file || !(file instanceof File)) {
-    await logAudit(c, "upload", "upload", "failure", undefined, undefined, { reason: "no_file" });
-    throw new HTTPException(400, { message: "No file provided" });
+    throw new HTTPException(400, { message: "A file is required" });
   }
-  
-  const validation = await validateImageFile(file);
-  if (!validation.valid) {
-    await logAudit(c, "upload", "upload", "failure", undefined, undefined, { reason: validation.error });
-    throw new HTTPException(400, { message: validation.error });
+  if (!ALLOWED_MIME_FORMATS[file.type]) {
+    throw new HTTPException(415, { message: "Only JPEG, PNG, and WebP images are allowed" });
   }
-  
-  const storageKey = `${user.id}/${uuidv4()}${path.extname(file.name).toLowerCase()}`;
-  const fullPath = path.join(uploadDir, storageKey);
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(fullPath, buffer);
-  
-  const checksum = crypto.createHash("sha256").update(buffer).digest("hex");
-  
-  const [upload] = await db.insert(uploads).values({
-    userId: user.id,
-    caseId,
-    storageKey,
-    originalFileName: file.name,
-    mimeType: file.type,
-    sizeBytes: file.size,
-    width: validation.metadata?.width,
-    height: validation.metadata?.height,
-    checksum,
-    metadata: { format: validation.metadata?.format },
-  }).returning();
-  
-  await logAudit(c, "upload", "upload", "success", "upload", upload.id.toString(), { fileName: file.name, size: file.size });
-  
-  return c.json({ upload }, 201);
+  if (file.size <= 0) throw new HTTPException(400, { message: "The image file is empty" });
+  if (file.size > MAX_FILE_SIZE) throw new HTTPException(413, { message: "Image exceeds the 10 MB limit" });
+
+  let caseId: number | undefined;
+  if (caseIdValue !== null) {
+    const parsed = z.coerce.number().int().positive().safeParse(caseIdValue);
+    if (!parsed.success) throw new HTTPException(400, { message: "Invalid case identifier" });
+    caseId = parsed.data;
+    const ownedCase = await db.query.cases.findFirst({ where: and(eq(cases.id, caseId), eq(cases.createdById, user.id)) });
+    if (!ownedCase) throw new HTTPException(404, { message: "Case not found" });
+  }
+
+  const input = Buffer.from(await file.arrayBuffer());
+  let metadata: sharp.Metadata;
+  let normalized: Buffer;
+  try {
+    metadata = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" }).metadata();
+    if (metadata.format !== ALLOWED_MIME_FORMATS[file.type]) {
+      throw new HTTPException(415, { message: "Image content does not match its declared format" });
+    }
+    if (!metadata.width || !metadata.height || metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION || metadata.width * metadata.height > MAX_IMAGE_PIXELS) {
+      throw new HTTPException(400, { message: "Image dimensions exceed the supported limit" });
+    }
+    normalized = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" }).rotate().jpeg({ quality: 88 }).toBuffer();
+    if (normalized.length > MAX_FILE_SIZE) {
+      throw new HTTPException(413, { message: "Normalized image exceeds the 10 MB storage limit" });
+    }
+  } catch (error) {
+    if (error instanceof HTTPException) throw error;
+    throw new HTTPException(400, { message: "Image could not be decoded" });
+  }
+
+  const storageKey = `${randomUUID()}.jpg`;
+  const safeFileName = file.name.replace(/[\\/\u0000-\u001f\u007f]/g, "_").slice(0, 180) || "image.jpg";
+  await storage.put(storageKey, normalized);
+  try {
+    const [upload] = await db.insert(uploads).values({
+      userId: user.id,
+      caseId,
+      storageKey,
+      originalFileName: safeFileName,
+      mimeType: "image/jpeg",
+      sizeBytes: normalized.length,
+      width: metadata.width,
+      height: metadata.height,
+      checksum: createHash("sha256").update(normalized).digest("hex"),
+      metadata: { format: "jpeg", colorSpace: metadata.space, orientation: metadata.orientation },
+    }).returning();
+    await logAudit(c, "upload", "create", "success", "upload", upload.id.toString());
+    return c.json({ upload: { id: upload.id, caseId: upload.caseId, originalFileName: upload.originalFileName, mimeType: upload.mimeType, sizeBytes: upload.sizeBytes, width: upload.width, height: upload.height, createdAt: upload.createdAt } }, 201);
+  } catch (error) {
+    await storage.delete(storageKey);
+    throw error;
+  }
 });
 
 const predictSchema = z.object({
-  imageBase64: z.string().min(1),
-  imageUrl: z.string().url().optional(),
-  fileName: z.string().optional(),
+  uploadId: z.number().int().positive(),
 });
 
-app.post("/predict", requireAuth, zValidator("json", predictSchema), async (c) => {
-  const { imageBase64 } = c.req.valid("json");
+function predictionView(prediction: typeof predictions.$inferSelect) {
+  const provenanceVerified = prediction.status !== "legacy_unverified" && prediction.scoreSemantics !== "unverified";
+  return {
+    id: prediction.id,
+    disease: provenanceVerified ? prediction.disease : "Unverified legacy record",
+    confidence: provenanceVerified ? prediction.confidence : 0,
+    description: provenanceVerified ? prediction.description : "Model provenance was not recorded; stored output is suppressed.",
+    severity: provenanceVerified ? prediction.severity : "unassessed",
+    recommendations: provenanceVerified ? prediction.recommendations : [],
+    differentialDiagnoses: provenanceVerified ? prediction.differentialDiagnoses : [],
+    preprocessingSteps: provenanceVerified ? prediction.preprocessingSteps : [],
+    modelId: prediction.modelId,
+    modelVersion: prediction.modelVersion,
+    scoreSemantics: prediction.scoreSemantics,
+    preprocessingVersion: prediction.preprocessingVersion,
+    status: prediction.status,
+    fileName: prediction.fileName,
+    createdAt: prediction.createdAt,
+  };
+}
 
-  if (!imageBase64 || !imageBase64.startsWith("data:image/")) {
-    throw new HTTPException(400, { message: "Invalid image data. Must be base64 data URL." });
+app.delete("/uploads/:id", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, id), eq(uploads.userId, user.id)) });
+  if (!upload) throw new HTTPException(404, { message: "Upload not found" });
+  const linkedPrediction = await db.query.predictions.findFirst({ where: eq(predictions.uploadId, id) });
+  if (linkedPrediction) throw new HTTPException(409, { message: "Upload is linked to a saved prediction" });
+  await storage.delete(upload.storageKey);
+  await db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.userId, user.id)));
+  await logAudit(c, "upload", "delete", "success", "upload", id.toString());
+  return c.body(null, 204);
+});
+
+app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
+  const user = c.get("user");
+  const { uploadId } = c.req.valid("json");
+  const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, uploadId), eq(uploads.userId, user.id)) });
+  if (!upload) throw new HTTPException(404, { message: "Upload not found" });
+
+  const provider = getTestInferenceProvider();
+  if (!provider) {
+    await logAudit(c, "prediction", "create", "failure", "upload", upload.id.toString(), { reason: "model_unavailable" });
+    throw new HTTPException(503, { message: "Skin analysis is unavailable because no approved model is configured" });
   }
-  
-  await logAudit(c, "prediction", "predict", "failure", undefined, undefined, { reason: "model_unavailable" });
-  
-  return c.json({
-    error: "model_unavailable",
-    message: "Skin analysis model is not currently available. Please try again later."
-  }, 503);
+
+  let output;
+  try {
+    output = await provider.predict(await storage.read(upload.storageKey));
+  } catch {
+    await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: "inference_failed" });
+    throw new HTTPException(500, { message: "Skin analysis could not be completed" });
+  }
+  const status = provider.simulated ? "simulated" : "completed";
+  const [prediction] = await db.insert(predictions).values({
+    disease: output.disease,
+    confidence: output.confidence,
+    description: output.description,
+    severity: "unassessed",
+    recommendations: output.recommendations,
+    differentialDiagnoses: output.differentialDiagnoses,
+    preprocessingSteps: output.preprocessingSteps,
+    status,
+    modelId: output.modelId,
+    modelVersion: output.modelVersion,
+    scoreSemantics: provider.simulated ? "simulated" : output.scoreSemantics,
+    preprocessingVersion: output.preprocessingVersion,
+    uploadId,
+    fileName: upload.originalFileName,
+    userId: user.id,
+  }).returning();
+  await logAudit(c, "prediction", "create", "success", "prediction", prediction.id.toString(), { status });
+  return c.json(predictionView(prediction), 201);
 });
 
 app.get("/predictions", requireAuth, async (c) => {
   const user = c.get("user");
-  const page = parseInt(c.req.query("page") || "1", 10);
-  const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
+  const { page, limit } = parsePagination(c.req.query());
   const offset = (page - 1) * limit;
   
   const [preds, totalResult] = await Promise.all([
@@ -327,7 +445,7 @@ app.get("/predictions", requireAuth, async (c) => {
   ]);
   
   return c.json({
-    predictions: preds,
+    predictions: preds.map(predictionView),
     total: totalResult[0]?.count || 0,
     page,
     limit,
@@ -336,7 +454,7 @@ app.get("/predictions", requireAuth, async (c) => {
 
 app.get("/predictions/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   
   const pred = await db.query.predictions.findFirst({
     where: and(eq(predictions.id, id), eq(predictions.userId, user.id)),
@@ -346,33 +464,100 @@ app.get("/predictions/:id", requireAuth, async (c) => {
     throw new HTTPException(404, { message: "Prediction not found" });
   }
   
-  return c.json(pred);
+  return c.json(predictionView(pred));
+});
+
+const explanationRequestSchema = z.object({
+  predictionId: z.number().int().positive(),
+  consentToExternalProcessing: z.boolean(),
+});
+
+function codedError(status: 400 | 409 | 429 | 503, code: string, message: string): HTTPException {
+  const error = new HTTPException(status, { message }) as HTTPException & { apiCode?: string };
+  error.apiCode = code;
+  return error;
+}
+
+app.post("/ai/explanations", requireAuth, jsonBody(explanationRequestSchema), async (c) => {
+  const user = c.get("user");
+  const request = c.req.valid("json");
+  if (!request.consentToExternalProcessing) {
+    throw codedError(400, "external_data_consent_required", "Explicit consent is required before external processing.");
+  }
+  const prediction = await db.query.predictions.findFirst({
+    where: and(eq(predictions.id, request.predictionId), eq(predictions.userId, user.id)),
+  });
+  if (!prediction) throw new HTTPException(404, { message: "Prediction not found" });
+  if (prediction.status !== "completed" || !["raw_model_score", "calibrated_probability"].includes(prediction.scoreSemantics) || !prediction.modelId || !prediction.modelVersion) {
+    throw codedError(409, "prediction_not_eligible", "Only verified, completed model outputs can receive an explanation.");
+  }
+  if (!hasApprovedSkinModel()) {
+    await logAudit(c, "ai_explanation", "generate", "failure", undefined, undefined, { reason: "model_unavailable" });
+    throw codedError(503, "model_unavailable", "No approved skin model is configured for this application.");
+  }
+  if (!externalHealthDataTransferEnabled()) {
+    await logAudit(c, "ai_explanation", "generate", "failure", undefined, undefined, { reason: "external_processing_disabled" });
+    throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+  }
+  const configured = configuredExplanationProvider();
+  if (!configured.provider) {
+    await logAudit(c, "ai_explanation", "generate", "failure", undefined, undefined, { reason: "provider_unavailable" });
+    throw codedError(503, "provider_unavailable", "The configured explanation provider is unavailable.");
+  }
+  try {
+    const candidates = [
+      { label: prediction.disease, score: prediction.confidence },
+      ...prediction.differentialDiagnoses.map((candidate) => ({ label: candidate.disease, score: candidate.confidence })),
+    ];
+    const explanation = await configured.provider.explain({
+      modelId: prediction.modelId,
+      modelVersion: prediction.modelVersion,
+      scoreSemantics: prediction.scoreSemantics as "raw_model_score" | "calibrated_probability",
+      candidates,
+    });
+    await logAudit(c, "ai_explanation", "generate", "success", undefined, undefined, { provider: explanation.provider, providerModel: explanation.model });
+    return c.json({
+      prediction: predictionView(prediction),
+      explanation: { provider: explanation.provider, model: explanation.model, text: explanation.explanation, generatedAt: new Date().toISOString() },
+      notice: "Provider-generated educational text may be incomplete or inaccurate. It is not a diagnosis or treatment advice.",
+      scoreNotice: prediction.scoreSemantics === "raw_model_score"
+        ? "These are raw model scores, not calibrated probabilities or an individual's disease likelihood."
+        : "These are calibrated model outputs on evaluation data, not an individual's real-world disease likelihood.",
+    });
+  } catch (error) {
+    const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+    const outcome = code === "provider_rate_limited" ? "failure" : "error";
+    await logAudit(c, "ai_explanation", "generate", outcome, undefined, undefined, { reason: code });
+    if (code === "provider_rate_limited") throw codedError(429, "provider_rate_limited", "The explanation provider is rate limited. Try again later.");
+    throw codedError(503, "provider_unavailable", "The explanation provider could not complete this request.");
+  }
 });
 
 const createPatientSchema = z.object({
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
   dateOfBirth: z.string().date().optional(),
   sex: z.enum(["male", "female", "other"]).optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  address: z.object({ street: z.string().optional(), city: z.string().optional(), state: z.string().optional(), postalCode: z.string().optional(), country: z.string().optional() }).optional(),
-  medicalHistory: z.array(z.string()).default([]),
-  allergies: z.array(z.string()).default([]),
-  medications: z.array(z.string()).default([]),
-  notes: z.string().optional(),
+  phone: z.string().trim().max(40).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  address: z.object({ street: z.string().max(200).optional(), city: z.string().max(100).optional(), state: z.string().max(100).optional(), postalCode: z.string().max(30).optional(), country: z.string().max(100).optional() }).optional(),
+  medicalHistory: z.array(z.string().max(500)).max(50).default([]),
+  allergies: z.array(z.string().max(300)).max(50).default([]),
+  medications: z.array(z.string().max(300)).max(100).default([]),
+  notes: z.string().max(5_000).optional(),
 });
 
 const updatePatientSchema = createPatientSchema.partial();
 
 app.get("/patients", requireAuth, async (c) => {
   const user = c.get("user");
-  const page = parseInt(c.req.query("page") || "1", 10);
-  const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
-  const search = c.req.query("search");
+  const { page, limit } = parsePagination(c.req.query());
+  const searchResult = z.string().trim().max(100).optional().safeParse(c.req.query("search"));
+  if (!searchResult.success) throw new HTTPException(400, { message: "Invalid patient search" });
+  const search = searchResult.data;
   const offset = (page - 1) * limit;
   
-  let whereClause = eq(patients.userId, user.id);
+  let whereClause = and(eq(patients.userId, user.id), isNull(patients.archivedAt))!;
   if (search) {
     whereClause = and(whereClause, or(
       ilike(patients.firstName, `%${search}%`),
@@ -389,7 +574,7 @@ app.get("/patients", requireAuth, async (c) => {
   return c.json({ patients: pts, total: totalResult[0]?.count || 0, page, limit });
 });
 
-app.post("/patients", requireAuth, zValidator("json", createPatientSchema), async (c) => {
+app.post("/patients", requireAuth, jsonBody(createPatientSchema), async (c) => {
   const user = c.get("user");
   const data = c.req.valid("json");
   
@@ -401,20 +586,20 @@ app.post("/patients", requireAuth, zValidator("json", createPatientSchema), asyn
 
 app.get("/patients/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   
-  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, id), eq(patients.userId, user.id)) });
+  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, id), eq(patients.userId, user.id), isNull(patients.archivedAt)) });
   if (!patient) throw new HTTPException(404, { message: "Patient not found" });
   
   return c.json({ patient });
 });
 
-app.patch("/patients/:id", requireAuth, zValidator("json", updatePatientSchema), async (c) => {
+app.patch("/patients/:id", requireAuth, jsonBody(updatePatientSchema), async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   const data = c.req.valid("json");
   
-  const [patient] = await db.update(patients).set({ ...data, updatedAt: new Date() }).where(and(eq(patients.id, id), eq(patients.userId, user.id))).returning();
+  const [patient] = await db.update(patients).set({ ...data, updatedAt: new Date() }).where(and(eq(patients.id, id), eq(patients.userId, user.id), isNull(patients.archivedAt))).returning();
   if (!patient) throw new HTTPException(404, { message: "Patient not found" });
   
   await logAudit(c, "patient", "update", "success", "patient", patient.id.toString());
@@ -423,12 +608,11 @@ app.patch("/patients/:id", requireAuth, zValidator("json", updatePatientSchema),
 
 app.delete("/patients/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
+  const [patient] = await db.update(patients).set({ archivedAt: new Date(), updatedAt: new Date() }).where(and(eq(patients.id, id), eq(patients.userId, user.id), isNull(patients.archivedAt))).returning({ id: patients.id });
+  if (!patient) throw new HTTPException(404, { message: "Patient not found" });
   
-  const result = await db.delete(patients).where(and(eq(patients.id, id), eq(patients.userId, user.id))).returning({ id: patients.id });
-  if (!result.length) throw new HTTPException(404, { message: "Patient not found" });
-  
-  await logAudit(c, "patient", "delete", "success", "patient", id.toString());
+  await logAudit(c, "patient", "archive", "success", "patient", id.toString());
   return c.body(null, 204);
 });
 
@@ -443,17 +627,16 @@ const createCaseSchema = z.object({
 const updateCaseSchema = z.object({
   status: z.enum(["open", "in_review", "closed", "on_hold"]).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-  assignedToId: z.number().int().positive().optional(),
-  chiefComplaint: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  chiefComplaint: z.string().max(2_000).optional(),
+  tags: z.array(z.string().max(100)).max(30).optional(),
 });
 
 app.get("/cases", requireAuth, async (c) => {
   const user = c.get("user");
-  const page = parseInt(c.req.query("page") || "1", 10);
-  const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
-  const status = c.req.query("status");
-  const patientId = c.req.query("patientId") ? parseInt(c.req.query("patientId")!, 10) : undefined;
+  const { page, limit } = parsePagination(c.req.query());
+  const filters = z.object({ status: z.enum(["open", "in_review", "closed", "on_hold"]).optional(), patientId: z.coerce.number().int().positive().optional() }).safeParse(c.req.query());
+  if (!filters.success) throw new HTTPException(400, { message: "Invalid case filters" });
+  const { status, patientId } = filters.data;
   const offset = (page - 1) * limit;
   
   let whereClause = eq(cases.createdById, user.id);
@@ -468,15 +651,14 @@ app.get("/cases", requireAuth, async (c) => {
   return c.json({ cases: cs, total: totalResult[0]?.count || 0, page, limit });
 });
 
-app.post("/cases", requireAuth, zValidator("json", createCaseSchema), async (c) => {
+app.post("/cases", requireAuth, jsonBody(createCaseSchema), async (c) => {
   const user = c.get("user");
   const data = c.req.valid("json");
   
-  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, data.patientId), eq(patients.userId, user.id)) });
+  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, data.patientId), eq(patients.userId, user.id), isNull(patients.archivedAt)) });
   if (!patient) throw new HTTPException(404, { message: "Patient not found or access denied" });
   
-  const caseCount = await db.select({ count: count() }).from(cases).where(eq(cases.createdById, user.id));
-  const caseNumber = `CS-${new Date().getFullYear()}-${String((caseCount[0]?.count || 0) + 1).padStart(3, "0")}`;
+  const caseNumber = `CS-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   
   const [newCase] = await db.insert(cases).values({ ...data, createdById: user.id, caseNumber }).returning();
   await logAudit(c, "case", "create", "success", "case", newCase.id.toString(), { caseNumber });
@@ -486,7 +668,7 @@ app.post("/cases", requireAuth, zValidator("json", createCaseSchema), async (c) 
 
 app.get("/cases/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   
   const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, id), eq(cases.createdById, user.id)) });
   if (!caseData) throw new HTTPException(404, { message: "Case not found" });
@@ -494,35 +676,34 @@ app.get("/cases/:id", requireAuth, async (c) => {
   return c.json({ case: caseData });
 });
 
-app.patch("/cases/:id", requireAuth, zValidator("json", updateCaseSchema), async (c) => {
+app.patch("/cases/:id", requireAuth, jsonBody(updateCaseSchema), async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   const data = c.req.valid("json");
   
   const updateData: Record<string, unknown> = { ...data, updatedAt: new Date() };
-  if (data.status === "closed" && !updateData.closedAt) {
-    updateData.closedAt = new Date();
-  }
+  if (data.status === "closed") updateData.closedAt = new Date();
+  if (data.status && data.status !== "closed") updateData.closedAt = null;
   
   const [updatedCase] = await db.update(cases).set(updateData).where(and(eq(cases.id, id), eq(cases.createdById, user.id))).returning();
   if (!updatedCase) throw new HTTPException(404, { message: "Case not found" });
   
-  await logAudit(c, "case", "update", "success", "case", updatedCase.id.toString(), data);
+  await logAudit(c, "case", "update", "success", "case", updatedCase.id.toString(), { changedFields: Object.keys(data) });
   return c.json({ case: updatedCase });
 });
 
 const createSymptomAssessmentSchema = z.object({
   caseId: z.number().int().positive().optional(),
-  primarySymptom: z.string().min(1),
+  primarySymptom: z.string().trim().min(1).max(1_000),
   symptomCategory: z.enum(["skin", "general", "neurological", "cardiovascular", "respiratory", "gastrointestinal", "musculoskeletal", "psychiatric", "other"]),
-  onset: z.string().optional(),
-  duration: z.string().optional(),
+  onset: z.string().max(200).optional(),
+  duration: z.string().max(200).optional(),
   severity: z.enum(["mild", "moderate", "severe"]).optional(),
   progression: z.enum(["improving", "stable", "worsening", "fluctuating"]).optional(),
-  associatedSymptoms: z.array(z.string()).default([]),
-  medicalHistory: z.array(z.string()).default([]),
-  medications: z.array(z.string()).default([]),
-  allergies: z.array(z.string()).default([]),
+  associatedSymptoms: z.array(z.string().max(300)).max(30).default([]),
+  medicalHistory: z.array(z.string().max(300)).max(50).default([]),
+  medications: z.array(z.string().max(300)).max(100).default([]),
+  allergies: z.array(z.string().max(300)).max(50).default([]),
 });
 
 const RED_FLAG_SYMPTOMS = [
@@ -532,33 +713,36 @@ const RED_FLAG_SYMPTOMS = [
   "suicidal", "self-harm", "self harm"
 ];
 
-function assessUrgency(symptom: string, category: string, severity?: string): { urgency: "emergency" | "urgent" | "routine" | "self_care"; redFlags: string[]; guidance: { recommendations: string[]; disclaimer: string } } {
-  const lowerSymptom = symptom.toLowerCase();
-  const triggeredFlags = RED_FLAG_SYMPTOMS.filter(flag => lowerSymptom.includes(flag));
-  
-  let urgency: "emergency" | "urgent" | "routine" | "self_care" = "routine";
-  if (triggeredFlags.length > 0) urgency = "emergency";
-  else if (severity === "severe" || category === "cardiovascular" || category === "neurological") urgency = "urgent";
-  else if (severity === "moderate") urgency = "urgent";
-  else urgency = "self_care";
-  
-  const recommendations = [
-    "This assessment is for educational purposes only and does not constitute medical advice.",
-    "Always consult a qualified healthcare professional for proper evaluation and diagnosis.",
-  ];
-  
-  if (urgency === "emergency") {
-    recommendations.unshift("SEEK IMMEDIATE MEDICAL ATTENTION. Call emergency services (911 in US) or go to the nearest emergency department.");
-  } else if (urgency === "urgent") {
-    recommendations.unshift("Seek medical attention within 24 hours. Contact your healthcare provider or visit an urgent care clinic.");
-  } else {
-    recommendations.unshift("Monitor your symptoms. If they worsen or persist, consult a healthcare professional.");
-  }
-  
-  return { urgency, redFlags: triggeredFlags, guidance: { recommendations, disclaimer: "This is a research prototype for educational purposes only." } };
+function assessUrgency(data: z.infer<typeof createSymptomAssessmentSchema>): { urgency: "emergency" | "urgent" | "routine"; redFlags: string[]; guidance: { recommendations: string[]; disclaimer: string } } {
+  const reportedText = [data.primarySymptom, ...data.associatedSymptoms].join(" ").toLowerCase();
+  const triggeredFlags = RED_FLAG_SYMPTOMS.filter((flag) => reportedText.includes(flag));
+  const higherRiskCategory = ["cardiovascular", "respiratory", "neurological"].includes(data.symptomCategory);
+  const urgency: "emergency" | "urgent" | "routine" = triggeredFlags.length > 0
+    ? "emergency"
+    : higherRiskCategory || data.severity === "severe" || data.severity === "moderate" || data.progression === "worsening"
+      ? "urgent"
+      : "routine";
+  const recommendations = urgency === "emergency"
+    ? ["Your answers matched a listed warning symptom. Seek emergency medical care now or contact local emergency services."]
+    : urgency === "urgent"
+      ? ["Arrange prompt assessment by a qualified healthcare professional. This rule set cannot determine the cause or safely rule out urgent conditions."]
+      : ["Arrange professional assessment if symptoms persist, change, or concern you. This rule set cannot determine the cause or rule out a serious condition."];
+  recommendations.push("This result is generated by a small, transparent rule set from the information entered; it is not a diagnosis or medical advice.");
+  return { urgency, redFlags: triggeredFlags, guidance: { recommendations, disclaimer: "Research and educational prototype; not clinically validated." } };
 }
 
-app.post("/symptom-assessments", requireAuth, zValidator("json", createSymptomAssessmentSchema), async (c) => {
+app.get("/symptom-assessments", requireAuth, async (c) => {
+  const user = c.get("user");
+  const { page, limit } = parsePagination(c.req.query());
+  const offset = (page - 1) * limit;
+  const [items, totalResult] = await Promise.all([
+    db.query.symptomAssessments.findMany({ where: eq(symptomAssessments.userId, user.id), orderBy: [desc(symptomAssessments.createdAt)], limit, offset }),
+    db.select({ count: count() }).from(symptomAssessments).where(eq(symptomAssessments.userId, user.id)),
+  ]);
+  return c.json({ assessments: items, total: totalResult[0]?.count || 0, page, limit });
+});
+
+app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSchema), async (c) => {
   const user = c.get("user");
   const data = c.req.valid("json");
   
@@ -567,7 +751,7 @@ app.post("/symptom-assessments", requireAuth, zValidator("json", createSymptomAs
     if (!caseData) throw new HTTPException(404, { message: "Case not found" });
   }
   
-  const { urgency, redFlags, guidance } = assessUrgency(data.primarySymptom, data.symptomCategory, data.severity);
+  const { urgency, redFlags, guidance } = assessUrgency(data);
   
   const [assessment] = await db.insert(symptomAssessments).values({
     ...data,
@@ -584,7 +768,7 @@ app.post("/symptom-assessments", requireAuth, zValidator("json", createSymptomAs
 
 app.get("/symptom-assessments/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   
   const assessment = await db.query.symptomAssessments.findFirst({ where: and(eq(symptomAssessments.id, id), eq(symptomAssessments.userId, user.id)) });
   if (!assessment) throw new HTTPException(404, { message: "Symptom assessment not found" });
@@ -596,20 +780,20 @@ const createReviewSchema = z.object({
   predictionId: z.number().int().positive(),
   status: z.enum(["pending", "reviewed", "accepted", "modified", "rejected", "needs_more_information"]),
   reviewedOutput: z.record(z.unknown()).optional(),
-  rationale: z.string().optional(),
+  rationale: z.string().trim().max(3_000).optional(),
 });
 
 const updateReviewSchema = z.object({
   status: z.enum(["pending", "reviewed", "accepted", "modified", "rejected", "needs_more_information"]).optional(),
   reviewedOutput: z.record(z.unknown()).optional(),
-  rationale: z.string().optional(),
-});
+  rationale: z.string().trim().max(3_000).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one review field is required");
 
-app.post("/reviews", requireAuth, requireClinician, zValidator("json", createReviewSchema), async (c) => {
+app.post("/reviews", requireAuth, requireClinician, jsonBody(createReviewSchema), async (c) => {
   const user = c.get("user");
   const data = c.req.valid("json");
   
-  const prediction = await db.query.predictions.findFirst({ where: eq(predictions.id, data.predictionId) });
+  const prediction = await db.query.predictions.findFirst({ where: and(eq(predictions.id, data.predictionId), eq(predictions.userId, user.id)) });
   if (!prediction) throw new HTTPException(404, { message: "Prediction not found" });
   
   const existing = await db.query.reviews.findFirst({ where: eq(reviews.predictionId, data.predictionId) });
@@ -618,7 +802,7 @@ app.post("/reviews", requireAuth, requireClinician, zValidator("json", createRev
   const [review] = await db.insert(reviews).values({
     ...data,
     reviewerId: user.id,
-    originalOutput: prediction as unknown as Record<string, unknown>,
+    originalOutput: predictionView(prediction),
     reviewedAt: ["reviewed", "accepted", "modified", "rejected"].includes(data.status) ? new Date() : null,
   }).returning();
   
@@ -628,7 +812,7 @@ app.post("/reviews", requireAuth, requireClinician, zValidator("json", createRev
 
 app.get("/reviews/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
 
   const review = await db.query.reviews.findFirst({ where: eq(reviews.id, id) });
   if (!review) throw new HTTPException(404, { message: "Review not found" });
@@ -636,49 +820,50 @@ app.get("/reviews/:id", requireAuth, async (c) => {
   const prediction = await db.query.predictions.findFirst({ where: eq(predictions.id, review.predictionId) });
   if (!prediction) throw new HTTPException(404, { message: "Prediction not found" });
 
-  if (prediction.userId !== user.id && user.role !== "clinician" && user.role !== "admin") {
-    throw new HTTPException(403, { message: "Access denied" });
-  }
+  if (prediction.userId !== user.id && review.reviewerId !== user.id) throw new HTTPException(404, { message: "Review not found" });
 
-  return c.json({ review, prediction });
+  return c.json({ review, prediction: predictionView(prediction) });
 });
 
-app.patch("/reviews/:id", requireAuth, requireClinician, zValidator("json", updateReviewSchema), async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+app.patch("/reviews/:id", requireAuth, requireClinician, jsonBody(updateReviewSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
   const data = c.req.valid("json");
   
   const updateData: Record<string, unknown> = { ...data };
-  if (data.status && ["reviewed", "accepted", "modified", "rejected"].includes(data.status)) {
+  if (data.status && data.status !== "pending") {
     updateData.reviewedAt = new Date();
   }
   
-  const [review] = await db.update(reviews).set(updateData).where(eq(reviews.id, id)).returning();
+  const [review] = await db.update(reviews).set(updateData).where(and(eq(reviews.id, id), eq(reviews.reviewerId, user.id))).returning();
   if (!review) throw new HTTPException(404, { message: "Review not found" });
   
-  await logAudit(c, "review", "update", "success", "review", review.id.toString(), data);
+  await logAudit(c, "review", "update", "success", "review", review.id.toString(), { status: data.status });
   return c.json({ review });
 });
 
 const createReportSchema = z.object({
   caseId: z.number().int().positive(),
-  title: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
   type: z.enum(["skin_analysis", "symptom_assessment", "comprehensive", "follow_up"]),
-  content: z.record(z.unknown()),
-  predictionIds: z.array(z.number().int().positive()).default([]),
+  predictionIds: z.array(z.number().int().positive()).max(100).default([]),
+}).refine((value) => new Set(value.predictionIds).size === value.predictionIds.length, "Prediction identifiers must be unique");
+
+const reportFilterSchema = z.object({
+  status: z.enum(["draft", "finalized", "archived", "amended"]).optional(),
+  caseId: z.coerce.number().int().positive().optional(),
 });
 
 const updateReportSchema = z.object({
-  status: z.enum(["draft", "finalized", "archived", "amended"]).optional(),
-  content: z.record(z.unknown()).optional(),
-  predictionIds: z.array(z.number().int().positive()).optional(),
+  status: z.literal("archived"),
 });
 
 app.get("/reports", requireAuth, async (c) => {
   const user = c.get("user");
-  const page = parseInt(c.req.query("page") || "1", 10);
-  const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 100);
-  const status = c.req.query("status");
-  const caseId = c.req.query("caseId") ? parseInt(c.req.query("caseId")!, 10) : undefined;
+  const { page, limit } = parsePagination(c.req.query());
+  const filters = reportFilterSchema.safeParse(c.req.query());
+  if (!filters.success) throw new HTTPException(400, { message: "Invalid report filters" });
+  const { status, caseId } = filters.data;
   const offset = (page - 1) * limit;
   
   let whereClause = eq(reports.authorId, user.id);
@@ -693,68 +878,78 @@ app.get("/reports", requireAuth, async (c) => {
   return c.json({ reports: rpts, total: totalResult[0]?.count || 0, page, limit });
 });
 
-app.post("/reports", requireAuth, zValidator("json", createReportSchema), async (c) => {
+app.post("/reports", requireAuth, jsonBody(createReportSchema), async (c) => {
   const user = c.get("user");
   const data = c.req.valid("json");
   
   const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, data.caseId), eq(cases.createdById, user.id)) });
-  if (!caseData) throw new HTTPException(404, { message: "Case not found or access denied" });
-  
-  const reportCount = await db.select({ count: count() }).from(reports).where(eq(reports.authorId, user.id));
-  const reportNumber = `RPT-${new Date().getFullYear()}-${String((reportCount[0]?.count || 0) + 1).padStart(3, "0")}`;
-  
-  const [report] = await db.insert(reports).values({ ...data, authorId: user.id, reportNumber }).returning();
-  await logAudit(c, "report", "create", "success", "report", report.id.toString(), { reportNumber });
+  if (!caseData) throw new HTTPException(404, { message: "Case not found" });
+  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, caseData.patientId), eq(patients.userId, user.id)) });
+  if (!patient) throw new HTTPException(404, { message: "Case not found" });
+
+  let modelOutputs: ReturnType<typeof predictionView>[] = [];
+  if (data.predictionIds.length > 0) {
+    const selected = await db.select({ prediction: predictions })
+      .from(predictions)
+      .innerJoin(uploads, eq(predictions.uploadId, uploads.id))
+      .where(and(inArray(predictions.id, data.predictionIds), eq(predictions.userId, user.id), eq(uploads.userId, user.id), eq(uploads.caseId, data.caseId)));
+    if (selected.length !== data.predictionIds.length) throw new HTTPException(404, { message: "One or more predictions are not available for this case" });
+    modelOutputs = selected.map(({ prediction }) => predictionView(prediction));
+  }
+
+  const assessmentRows = await db.query.symptomAssessments.findMany({ where: and(eq(symptomAssessments.caseId, data.caseId), eq(symptomAssessments.userId, user.id)), orderBy: [desc(symptomAssessments.createdAt)] });
+  const reportNumber = `RPT-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+  const content = {
+    source: "persisted_authorized_records",
+    generatedAt: new Date().toISOString(),
+    case: { id: caseData.id, caseNumber: caseData.caseNumber, type: caseData.type, status: caseData.status, priority: caseData.priority, chiefComplaint: caseData.chiefComplaint },
+    patient: { id: patient.id, name: `${patient.firstName} ${patient.lastName}` },
+    symptomAssessments: assessmentRows,
+    modelOutputs,
+    limitations: ["Draft assembled from saved application records.", "Not a diagnosis or treatment recommendation.", "Requires review by an appropriately qualified professional before any clinical use."],
+  };
+  const [report] = await db.insert(reports).values({ ...data, content, authorId: user.id, reportNumber, status: "draft" }).returning();
+  await logAudit(c, "report", "create", "success", "report", report.id.toString());
   
   return c.json({ report }, 201);
 });
 
 app.get("/reports/:id", requireAuth, async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   
-  const report = await db.query.reports.findFirst({ where: eq(reports.id, id) });
+  const report = await db.query.reports.findFirst({ where: and(eq(reports.id, id), eq(reports.authorId, user.id)) });
   if (!report) throw new HTTPException(404, { message: "Report not found" });
-  
-  if (report.authorId !== user.id && user.role !== "clinician" && user.role !== "admin") {
-    throw new HTTPException(403, { message: "Access denied" });
-  }
-  
   return c.json({ report });
 });
 
-app.patch("/reports/:id", requireAuth, zValidator("json", updateReportSchema), async (c) => {
+app.patch("/reports/:id", requireAuth, jsonBody(updateReportSchema), async (c) => {
   const user = c.get("user");
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseId(c.req.param("id"));
   const data = c.req.valid("json");
-  
-  const updateData: Record<string, unknown> = { ...data, updatedAt: new Date() };
-  if (data.status === "finalized" && !updateData.finalizedAt) {
-    updateData.finalizedAt = new Date();
-  }
-  if (data.status === "finalized") {
-    updateData.reviewedAt = new Date();
-  }
-  
-  const [report] = await db.update(reports).set(updateData).where(eq(reports.id, id)).returning();
+  const [report] = await db.update(reports).set({ status: data.status, updatedAt: new Date() }).where(and(eq(reports.id, id), eq(reports.authorId, user.id), eq(reports.status, "draft"))).returning();
   if (!report) throw new HTTPException(404, { message: "Report not found" });
-  
-  if (report.authorId !== user.id && user.role !== "clinician" && user.role !== "admin") {
-    throw new HTTPException(403, { message: "Access denied" });
-  }
-  
-  await logAudit(c, "report", "update", "success", "report", report.id.toString(), data);
+  await logAudit(c, "report", "archive", "success", "report", report.id.toString());
   return c.json({ report });
 });
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
-    return c.json({ error: err.message, message: err.message }, err.status);
+    const error = (err as HTTPException & { apiCode?: string }).apiCode ?? (err.status === 401 ? "unauthorized" : err.status === 403 ? "forbidden" : err.status === 404 ? "not_found" : err.status === 409 ? "conflict" : err.status === 413 ? "request_too_large" : err.status === 415 ? "unsupported_media_type" : err.status === 429 ? "rate_limited" : err.status === 503 ? "model_unavailable" : "request_failed");
+    return c.json({ error, message: err.message, requestId: c.get("requestId") }, err.status);
   }
-  console.error("Unhandled error:", err);
-  return c.json({ error: "internal_error", message: "An unexpected error occurred" }, 500);
+  console.error(JSON.stringify({ requestId: c.get("requestId"), error: "unhandled_request_error" }));
+  return c.json({ error: "internal_error", message: "An unexpected error occurred", requestId: c.get("requestId") }, 500);
 });
 
-app.notFound((c) => c.json({ error: "not_found", message: "Route not found" }, 404));
+app.notFound((c) => c.json({ error: "not_found", message: "Route not found", requestId: c.get("requestId") }, 404));
 
-export default app;
+const root = new Hono();
+root.route("/api", app);
+root.notFound((c) => {
+  const requestId = (c as any).get("requestId") as string | undefined ?? randomUUID();
+  c.header("X-Request-Id", requestId);
+  return c.json({ error: "not_found", message: "Route not found", requestId }, 404);
+});
+
+export default root;

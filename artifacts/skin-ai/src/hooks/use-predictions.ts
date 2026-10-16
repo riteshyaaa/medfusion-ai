@@ -7,15 +7,15 @@ import {
 } from "@workspace/api-client-react";
 
 // Wrapper for the prediction history query to provide clean imports
-export function useHistory() {
-  return useGetPredictionHistory();
+export function useHistory(page = 1) {
+  return useGetPredictionHistory({ page, limit: 20 });
 }
 
 // Wrapper for the single prediction query
 export function usePrediction(id: number) {
   return useGetPredictionById(id, {
     query: {
-      enabled: !!id,
+      enabled: Number.isSafeInteger(id) && id > 0,
       queryKey: [`/api/predictions/${id}`],
     }
   });

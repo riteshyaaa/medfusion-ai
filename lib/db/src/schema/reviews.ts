@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -14,7 +14,7 @@ export const reviews = pgTable("reviews", {
   rationale: text("rationale"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => [uniqueIndex("reviews_prediction_id_unique").on(table.predictionId), index("reviews_reviewer_id_idx").on(table.reviewerId)]);
 
 export const insertReviewSchema = createInsertSchema(reviews).omit({ id: true, createdAt: true });
 export type InsertReview = z.infer<typeof insertReviewSchema>;

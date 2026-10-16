@@ -11,8 +11,10 @@ export type PredictionResultStatus = typeof PredictionResultStatus[keyof typeof 
 
 export const PredictionResultStatus = {
   completed: 'completed',
+  simulated: 'simulated',
   model_unavailable: 'model_unavailable',
   invalid_input: 'invalid_input',
   abstained: 'abstained',
   failed: 'failed',
+  legacy_unverified: 'legacy_unverified',
 } as const;

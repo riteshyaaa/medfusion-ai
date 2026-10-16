@@ -9,7 +9,15 @@ import type { CreatePatientRequestAddress } from './createPatientRequestAddress.
 import type { CreatePatientRequestSex } from './createPatientRequestSex.ts';
 
 export interface CreatePatientRequest {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
   firstName: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
   lastName: string;
   dateOfBirth?: Date;
   sex?: CreatePatientRequestSex;

@@ -8,7 +8,8 @@
 
 export interface Upload {
   id: number;
-  storageKey: string;
+  /** @nullable */
+  caseId?: number | null;
   originalFileName: string;
   mimeType: string;
   sizeBytes: number;

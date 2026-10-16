@@ -7,10 +7,9 @@
  */
 
 export interface PredictRequest {
-  /** Base64 encoded image data */
-  imageBase64: string;
-  /** URL of the image to analyze (optional alternative to base64) */
-  imageUrl?: string;
-  /** Original filename of the uploaded image */
-  fileName?: string;
+  /**
+     * ID returned by POST /uploads, scoped to the current user
+     * @minimum 1
+     */
+  uploadId: number;
 }

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["test/**/*.ts"],
+  "references": [
+    { "path": "../../lib/db" },
+    { "path": "../../lib/api-zod" }
+  ]
+}

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DifferentialDiagnosis } from './differentialDiagnosis.ts';
+import type { PredictionResultScoreSemantics } from './predictionResultScoreSemantics.ts';
 import type { PredictionResultSeverity } from './predictionResultSeverity.ts';
 import type { PredictionResultStatus } from './predictionResultStatus.ts';
 
@@ -18,8 +19,13 @@ export interface PredictionResult {
   recommendations: string[];
   differentialDiagnoses: DifferentialDiagnosis[];
   preprocessingSteps: string[];
-  modelId: string;
-  modelVersion: string;
+  /** @nullable */
+  modelId: string | null;
+  /** @nullable */
+  modelVersion: string | null;
+  scoreSemantics: PredictionResultScoreSemantics;
+  /** @nullable */
+  preprocessingVersion?: string | null;
   status: PredictionResultStatus;
   createdAt: string;
 }

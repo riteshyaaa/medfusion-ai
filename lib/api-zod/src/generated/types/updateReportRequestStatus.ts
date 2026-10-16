@@ -10,8 +10,5 @@ export type UpdateReportRequestStatus = typeof UpdateReportRequestStatus[keyof t
 
 
 export const UpdateReportRequestStatus = {
-  draft: 'draft',
-  finalized: 'finalized',
   archived: 'archived',
-  amended: 'amended',
 } as const;

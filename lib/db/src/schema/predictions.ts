@@ -1,7 +1,8 @@
-import { pgTable, serial, text, real, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, timestamp, jsonb, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
+import { uploads } from "./uploads";
 
 export const predictionsTable = pgTable("predictions", {
   id: serial("id").primaryKey(),
@@ -12,11 +13,18 @@ export const predictionsTable = pgTable("predictions", {
   recommendations: jsonb("recommendations").$type<string[]>().notNull(),
   differentialDiagnoses: jsonb("differential_diagnoses").$type<{ disease: string; confidence: number }[]>().notNull(),
   preprocessingSteps: jsonb("preprocessing_steps").$type<string[]>().notNull(),
+  status: text("status").notNull().default("legacy_unverified"),
+  modelId: text("model_id"),
+  modelVersion: text("model_version"),
+  scoreSemantics: text("score_semantics").notNull().default("unverified"),
+  preprocessingVersion: text("preprocessing_version"),
+  uploadId: integer("upload_id").references(() => uploads.id, { onDelete: "set null" }),
+  // Retained for compatibility with any pre-migration database. New code never writes or returns this column.
   imageBase64: text("image_base64"),
   fileName: text("file_name"),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("predictions_user_id_created_at_idx").on(table.userId, table.createdAt)]);
 
 export const predictions = predictionsTable;
 

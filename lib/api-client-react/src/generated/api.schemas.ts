@@ -17,9 +17,20 @@ export const ReadinessStatusStatus = {
   not_ready: 'not_ready',
 } as const;
 
+export type ReadinessStatusChecksAiProvider = typeof ReadinessStatusChecksAiProvider[keyof typeof ReadinessStatusChecksAiProvider];
+
+
+export const ReadinessStatusChecksAiProvider = {
+  disabled: 'disabled',
+  unconfigured: 'unconfigured',
+  misconfigured: 'misconfigured',
+  configured: 'configured',
+} as const;
+
 export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
+  aiProvider?: ReadinessStatusChecksAiProvider;
 };
 
 export interface ReadinessStatus {
@@ -29,13 +40,17 @@ export interface ReadinessStatus {
 
 export interface RegisterRequest {
   email: string;
-  /** @minLength 8 */
+  /**
+     * @minLength 10
+     * @maxLength 200
+     */
   password: string;
   fullName?: string;
 }
 
 export interface LoginRequest {
   email: string;
+  /** @maxLength 200 */
   password: string;
 }
 
@@ -53,16 +68,14 @@ export interface User {
   email: string;
   fullName?: string;
   role: UserRole;
-  isActive: boolean;
   createdAt: string;
 }
 
 export interface AuthResponse {
   user: User;
-  sessionId: string;
 }
 
-export interface LogoutResponse {
+export interface LogoutResult {
   message: string;
 }
 
@@ -77,7 +90,8 @@ export interface UploadRequest {
 
 export interface Upload {
   id: number;
-  storageKey: string;
+  /** @nullable */
+  caseId?: number | null;
   originalFileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -91,22 +105,32 @@ export interface UploadResponse {
 }
 
 export interface PredictRequest {
-  /** Base64 encoded image data */
-  imageBase64: string;
-  /** URL of the image to analyze (optional alternative to base64) */
-  imageUrl?: string;
-  /** Original filename of the uploaded image */
-  fileName?: string;
+  /**
+     * ID returned by POST /uploads, scoped to the current user
+     * @minimum 1
+     */
+  uploadId: number;
 }
 
 export type PredictionResultSeverity = typeof PredictionResultSeverity[keyof typeof PredictionResultSeverity];
 
 
 export const PredictionResultSeverity = {
+  unassessed: 'unassessed',
   mild: 'mild',
   moderate: 'moderate',
   severe: 'severe',
   normal: 'normal',
+} as const;
+
+export type PredictionResultScoreSemantics = typeof PredictionResultScoreSemantics[keyof typeof PredictionResultScoreSemantics];
+
+
+export const PredictionResultScoreSemantics = {
+  simulated: 'simulated',
+  raw_model_score: 'raw_model_score',
+  calibrated_probability: 'calibrated_probability',
+  unverified: 'unverified',
 } as const;
 
 export type PredictionResultStatus = typeof PredictionResultStatus[keyof typeof PredictionResultStatus];
@@ -114,10 +138,12 @@ export type PredictionResultStatus = typeof PredictionResultStatus[keyof typeof 
 
 export const PredictionResultStatus = {
   completed: 'completed',
+  simulated: 'simulated',
   model_unavailable: 'model_unavailable',
   invalid_input: 'invalid_input',
   abstained: 'abstained',
   failed: 'failed',
+  legacy_unverified: 'legacy_unverified',
 } as const;
 
 export interface DifferentialDiagnosis {
@@ -134,11 +160,39 @@ export interface PredictionResult {
   recommendations: string[];
   differentialDiagnoses: DifferentialDiagnosis[];
   preprocessingSteps: string[];
-  modelId: string;
-  modelVersion: string;
+  /** @nullable */
+  modelId: string | null;
+  /** @nullable */
+  modelVersion: string | null;
+  scoreSemantics: PredictionResultScoreSemantics;
+  /** @nullable */
+  preprocessingVersion?: string | null;
   status: PredictionResultStatus;
   createdAt: string;
 }
+
+export type PredictionRecordScoreSemantics = typeof PredictionRecordScoreSemantics[keyof typeof PredictionRecordScoreSemantics];
+
+
+export const PredictionRecordScoreSemantics = {
+  simulated: 'simulated',
+  raw_model_score: 'raw_model_score',
+  calibrated_probability: 'calibrated_probability',
+  unverified: 'unverified',
+} as const;
+
+export type PredictionRecordStatus = typeof PredictionRecordStatus[keyof typeof PredictionRecordStatus];
+
+
+export const PredictionRecordStatus = {
+  completed: 'completed',
+  simulated: 'simulated',
+  model_unavailable: 'model_unavailable',
+  invalid_input: 'invalid_input',
+  abstained: 'abstained',
+  failed: 'failed',
+  legacy_unverified: 'legacy_unverified',
+} as const;
 
 export interface PredictionRecord {
   id: number;
@@ -149,11 +203,15 @@ export interface PredictionRecord {
   recommendations: string[];
   differentialDiagnoses: DifferentialDiagnosis[];
   preprocessingSteps: string[];
-  imageBase64?: string;
   fileName?: string;
-  modelId?: string;
-  modelVersion?: string;
-  status?: string;
+  /** @nullable */
+  modelId?: string | null;
+  /** @nullable */
+  modelVersion?: string | null;
+  scoreSemantics?: PredictionRecordScoreSemantics;
+  /** @nullable */
+  preprocessingVersion?: string | null;
+  status?: PredictionRecordStatus;
   createdAt: string;
 }
 
@@ -162,6 +220,37 @@ export interface PredictionHistoryResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface AIExplanationRequest {
+  /** @minimum 1 */
+  predictionId: number;
+  /** Must be true for this request. Server configuration must also permit external health-data processing. */
+  consentToExternalProcessing: boolean;
+}
+
+export type AIExplanationResponseExplanationProvider = typeof AIExplanationResponseExplanationProvider[keyof typeof AIExplanationResponseExplanationProvider];
+
+
+export const AIExplanationResponseExplanationProvider = {
+  nvidia: 'nvidia',
+  gemini: 'gemini',
+  openai: 'openai',
+} as const;
+
+export type AIExplanationResponseExplanation = {
+  provider: AIExplanationResponseExplanationProvider;
+  model: string;
+  /** @maxLength 1200 */
+  text: string;
+  generatedAt: string;
+};
+
+export interface AIExplanationResponse {
+  prediction: PredictionRecord;
+  explanation: AIExplanationResponseExplanation;
+  notice: string;
+  scoreNotice: string;
 }
 
 export type PatientAddress = { [key: string]: unknown };
@@ -206,7 +295,15 @@ export const CreatePatientRequestSex = {
 export type CreatePatientRequestAddress = { [key: string]: unknown };
 
 export interface CreatePatientRequest {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
   firstName: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
   lastName: string;
   dateOfBirth?: string;
   sex?: CreatePatientRequestSex;
@@ -370,7 +467,10 @@ export const SymptomAssessmentUrgencyLevel = {
   self_care: 'self_care',
 } as const;
 
-export type SymptomAssessmentGuidance = { [key: string]: unknown };
+export type SymptomAssessmentGuidance = {
+  recommendations: string[];
+  disclaimer: string;
+};
 
 export interface SymptomAssessment {
   id: number;
@@ -394,6 +494,13 @@ export interface SymptomAssessment {
 
 export interface SymptomAssessmentResponse {
   assessment: SymptomAssessment;
+}
+
+export interface SymptomAssessmentListResponse {
+  assessments: SymptomAssessment[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface CreateSymptomAssessmentRequest {
@@ -543,13 +650,10 @@ export const CreateReportRequestType = {
   follow_up: 'follow_up',
 } as const;
 
-export type CreateReportRequestContent = { [key: string]: unknown };
-
 export interface CreateReportRequest {
   caseId: number;
   title: string;
   type: CreateReportRequestType;
-  content: CreateReportRequestContent;
   predictionIds?: number[];
 }
 
@@ -557,23 +661,17 @@ export type UpdateReportRequestStatus = typeof UpdateReportRequestStatus[keyof t
 
 
 export const UpdateReportRequestStatus = {
-  draft: 'draft',
-  finalized: 'finalized',
   archived: 'archived',
-  amended: 'amended',
 } as const;
 
-export type UpdateReportRequestContent = { [key: string]: unknown };
-
 export interface UpdateReportRequest {
-  status?: UpdateReportRequestStatus;
-  content?: UpdateReportRequestContent;
-  predictionIds?: number[];
+  status: UpdateReportRequestStatus;
 }
 
 export interface ErrorResponse {
   error: string;
   message: string;
+  requestId?: string;
 }
 
 export type GetPredictionHistoryParams = {
@@ -624,6 +722,18 @@ export const ListCasesStatus = {
   closed: 'closed',
   on_hold: 'on_hold',
 } as const;
+
+export type ListSymptomAssessmentsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
 
 export type ListReportsParams = {
 /**

@@ -6,4 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type UpdateReportRequestContent = { [key: string]: unknown };
+export type ListSymptomAssessmentsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
