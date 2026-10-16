@@ -47,7 +47,7 @@ test("provider adapters use the configured official API shape and validate struc
   const expected: Record<AIProviderId, { endpoint: string; model: string; secretHeader: string }> = {
     openai: { endpoint: "/responses", model: "gpt-5.5", secretHeader: "authorization" },
     gemini: { endpoint: "/interactions", model: "gemini-3.8-flash", secretHeader: "x-goog-api-key" },
-    nvidia: { endpoint: "/chat/completions", model: "openai/gpt-oss-20b", secretHeader: "authorization" },
+    nvidia: { endpoint: "/chat/completions", model: "nvidia/nemotron-3-ultra-550b-a55b", secretHeader: "authorization" },
   };
   for (const providerId of ["openai", "gemini", "nvidia"] as const) {
     const env = envFor(providerId);
