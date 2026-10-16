@@ -36,12 +36,12 @@ type ConfigState =
   | { status: "configured"; config: ProviderConfig };
 
 const modelAllowlist: Record<AIProviderId, readonly string[]> = {
-  nvidia: ["nvidia/nemotron-3-ultra-550b-a55b", "openai/gpt-oss-20b"],
+  nvidia: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3.5-lightning-30b-a3b", "openai/gpt-oss-20b"],
   gemini: ["gemini-3.8-flash"],
   openai: ["gpt-5.5"],
 };
 const defaultModels: Record<AIProviderId, string> = {
-  nvidia: "nvidia/nemotron-3-ultra-550b-a55b",
+  nvidia: "nvidia/nemotron-3-super-120b-a12b",
   gemini: "gemini-3.8-flash",
   openai: "gpt-5.5",
 };

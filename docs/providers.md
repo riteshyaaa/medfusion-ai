@@ -21,7 +21,7 @@ Neither task classifies images, creates or revises numeric scores, accesses pati
 | --- | --- | --- | --- |
 | **openai** | **gpt-5.5** | Responses API **/v1/responses**; text-only request, **store=false**, strict JSON Schema output. | Provider structured output plus local strict Zod parsing. |
 | **gemini** | **gemini-3.8-flash** | Interactions API **/v1/interactions**; text-only request, **store=false**, structured **response_format**. | Provider structured output plus local strict Zod parsing. |
-| **nvidia** | **nvidia/nemotron-3-ultra-550b-a55b** (also allowlisted: **openai/gpt-oss-20b**) | NVIDIA-hosted Chat Completions at **https://integrate.api.nvidia.com/v1/chat/completions**. Nemotron-3-Ultra is NVIDIA's open-weight mixture-of-experts model served from the free Build trial endpoints. | Prompt requests JSON; local strict Zod parsing is authoritative. Hosted structured-output support was not assumed. |
+| **nvidia** | **nvidia/nemotron-3-super-120b-a12b** (also allowlisted: **nvidia/nemotron-3.5-lightning-30b-a3b**, **openai/gpt-oss-20b**) | NVIDIA-hosted Chat Completions at **https://integrate.api.nvidia.com/v1/chat/completions**. Nemotron-3-Super is NVIDIA's open-weight mixture-of-experts model served from the free Build trial endpoints. A free-key live check on 2026-10-17 confirmed chat inference on nemotron-3-super and nemotron-3.5-lightning; the listed models nvidia/nemotron-3-ultra-550b-a55b never returned a response on a trial key. These are reasoning models: completion output arrives in the message `content` field plus a separate `reasoning_content` field; the token budget must cover the reasoning pass. | Prompt requests JSON; local strict Zod parsing is authoritative. Hosted structured-output support was not assumed. |
 
 Provider models are an explicit allowlist, not user input. Update the list only after rechecking official API support, terms, account access, and structured-output behavior. Each request has a timeout, at most two retries for retryable transport/5xx/429 failures, bounded process concurrency, a 128 KiB provider-response cap, and an API rate limit. Credentials stay server-side.
 
@@ -78,6 +78,5 @@ Select one supported provider and set only that provider’s server key (**OPENA
 - [Gemini Interactions retention](https://ai.google.dev/gemini-api/docs/interactions-overview#data-storage-retention)
 - [Gemini API terms](https://ai.google.dev/gemini-api/terms)
 - [Gemini data logging and sharing](https://ai.google.dev/gemini-api/docs/logs-policy)
-- [NVIDIA-hosted nemotron-3-ultra-550b-a55b model and trial privacy notice](https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b)
 - [NVIDIA-hosted gpt-oss-20b model and trial privacy notice](https://build.nvidia.com/openai/gpt-oss-20b)
 - [NVIDIA NIM API reference](https://docs.nvidia.com/nim/large-language-models/latest/reference/api-reference.html)
