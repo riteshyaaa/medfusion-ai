@@ -75,8 +75,12 @@ models/*.pkl
 mlruns/
 mlartifacts/
 wandb/
-outputs/
 lightning_logs/
+
+# Small verified research checkpoints live under outputs/ml/ and are committed
+# deliberately for reproducibility; other outputs stay untracked.
+outputs/*
+!outputs/ml/
 
 # ---------- Jupyter ----------
 .ipynb_checkpoints/
