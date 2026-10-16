@@ -1,6 +1,11 @@
 # Optional provider explanations
 
-Provider capabilities and data-use notes were checked against official documentation on 2026-10-15. These integrations add one bounded task: produce a short educational explanation of an existing, approved Skin Analysis classifier result. They do not classify images, create or revise numeric scores, access symptoms or patient profiles, or make treatment recommendations.
+Provider capabilities and data-use notes were checked against official documentation on 2026-10-15. These integrations add two bounded tasks:
+
+1. Produce a short educational explanation of an existing, approved Skin Analysis classifier result.
+2. Restate already-extracted **Report Analysis** findings in plain language.
+
+Neither task classifies images, creates or revises numeric scores, accesses patient profiles, or makes treatment recommendations.
 
 ## Current state
 
@@ -22,6 +27,17 @@ Provider models are an explicit allowlist, not user input. Update the list only 
 
 The adapter sends only classifier model ID/version, score semantics, candidate labels, and candidate scores. OpenAI and Gemini receive a strict schema. NVIDIA does not receive provider-specific response_format because its hosted model support for that feature was not verified. All returned text must be valid JSON matching the local schema; text containing numeric characters or percentages is rejected so the provider cannot supply or restate classifier scores.
 
+## Report Analysis interpretation
+
+The same adapters back the Report Analysis interpretation task (POST **/api/documents/{id}/interpretations**). Differences from the classifier-explanation task:
+
+- **Input.** Only structured, user-reviewed findings are sent: label, value text, unit, reference range, page number, and a short source-line excerpt. The document file, page images, OCR bitmap data, patient identity, and free-form case notes are never sent. Corrected finding values take precedence over extracted ones, and rejected findings are excluded.
+- **Gates.** The route requires per-request **consentToExternalProcessing=true**, at least one eligible extracted finding, both server flags (**AI_DATA_SHARING_ENABLED** and **AI_HEALTH_DATA_TRANSFER_APPROVED**), and a configured provider. It does not require a skin model; it is not gated by the classifier approval state.
+- **Validation.** Beyond strict schema parsing, the response is rejected if any free-text field contains a number or percentage that is not present in the supplied findings, or if it makes a diagnosis/treatment claim (for example “you have”, “diagnosed with”, “this confirms”, “you should take”). Rejected output is discarded and never stored.
+- **Persistence.** Unlike the ephemeral classifier explanation, an accepted interpretation is persisted with its provider, model, timestamp, and validated sections, and is shown with an explicit “not a diagnosis” notice.
+
+The route is available in the Report Analysis UI.
+
 ## Data handling and provider terms
 
 **store=false** requests stateless behavior from OpenAI Responses and Gemini Interactions. It is not a general promise that the provider retains no data:
@@ -30,7 +46,7 @@ The adapter sends only classifier model ID/version, score semantics, candidate l
 - Gemini Interactions stores interaction objects by default (55 days for paid tier and 1 day for free tier in the current documentation); this adapter sets **store=false**. Google's terms differ between unpaid and paid services: unpaid-service prompts and responses may be used to improve products, while paid-service prompts and responses are not used for product improvement under the current terms. Review the actual account, billing tier, terms, and retention configuration before enabling transfer.
 - NVIDIA’s hosted Build model page states that trial input and output are recorded to provide the trial and improve NVIDIA products and services, and says not to upload confidential or personal information unless expressly permitted. Do not enable this adapter for health-related data on that trial path unless the applicable current terms expressly permit the intended use.
 
-These notes are not a compliance assessment. The server-side approval flag is an operator control; setting it does not establish consent, a lawful basis, a contractual safeguard, regulatory compliance, or suitability for identifiable health data. The route is not exposed in the UI yet.
+These notes are not a compliance assessment. The server-side approval flag is an operator control; setting it does not establish consent, a lawful basis, a contractual safeguard, regulatory compliance, or suitability for identifiable health data. The classifier-explanation route is not exposed in the UI; the Report Analysis interpretation route is, and it sends only the reviewed structured findings described above.
 
 ## Configuration
 

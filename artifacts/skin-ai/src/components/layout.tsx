@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, History, ShieldAlert, FileText, Stethoscope, LogOut } from "lucide-react";
+import { Activity, History, ShieldAlert, FileText, FileSearch, HeartPulse, Stethoscope, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogout } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,8 @@ export function Layout({ children }: LayoutProps) {
     { href: "/", label: "Overview", icon: Activity },
     { href: "/skin-analysis", label: "Skin Analysis", icon: Stethoscope },
     { href: "/symptom-assessment", label: "Symptom Assessment", icon: Activity },
+    { href: "/report-analysis", label: "Report Analysis", icon: FileSearch },
+    { href: "/cardiac-assessment", label: "Cardiac", icon: HeartPulse },
     { href: "/patients", label: "Patients", icon: History },
     { href: "/cases", label: "Cases", icon: FileText },
     { href: "/history", label: "History", icon: History },

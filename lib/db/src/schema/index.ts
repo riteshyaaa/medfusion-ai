@@ -7,5 +7,6 @@ export * from "./symptom_assessments";
 export * from "./reviews";
 export * from "./reports";
 export * from "./audit_events";
+export * from "./documents";
 export * from "./conversations";
 export * from "./messages";

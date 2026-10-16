@@ -27,6 +27,10 @@ tags:
     description: Clinical review operations
   - name: reports
     description: Report operations
+  - name: documents
+    description: Medical report document upload, OCR extraction, findings review, and consent-gated interpretation
+  - name: cardiac
+    description: Cardiac risk model status (no approved model artifact is currently available)
 paths:
   /healthz:
     get:
@@ -720,6 +724,11 @@ paths:
             minimum: 1
             maximum: 100
             default: 20
+        - name: caseId
+          in: query
+          description: Only return assessments linked to this owned case
+          schema:
+            type: integer
       responses:
         "200":
           description: Persisted symptom assessments
@@ -1059,6 +1068,421 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /documents:
+    post:
+      operationId: uploadDocument
+      tags: [documents]
+      summary: Upload a medical report document
+      description: Accepts a text-based PDF, scanned PDF, PNG, or JPEG report. Extraction runs asynchronously; poll the document until processingStatus leaves uploaded/processing.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadDocumentRequest"
+      responses:
+        "201":
+          description: Document accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResponse"
+        "400":
+          description: Invalid upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Document exceeds the size limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported file type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      operationId: listDocuments
+      tags: [documents]
+      summary: List the authenticated user's documents
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: caseId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [uploaded, processing, extracted, needs_review, ocr_unavailable, failed, unsupported]
+      responses:
+        "200":
+          description: Document summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentListResponse"
+        "400":
+          description: Invalid filters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}:
+    get:
+      operationId: getDocument
+      tags: [documents]
+      summary: Get a document with extracted findings and interpretations
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Document details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentDetailResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteDocument
+      tags: [documents]
+      summary: Delete a document, its findings, and stored file
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}/file:
+    get:
+      operationId: downloadDocument
+      tags: [documents]
+      summary: Download the original stored document file
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Original file bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}/reprocess:
+    post:
+      operationId: reprocessDocument
+      tags: [documents]
+      summary: Re-run extraction for a document
+      description: Clears prior extracted findings and re-runs text extraction or OCR.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reprocessing scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Processing already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}/findings/{findingId}:
+    patch:
+      operationId: updateDocumentFinding
+      tags: [documents]
+      summary: Confirm, correct, or reject an extracted finding
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: findingId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDocumentFindingRequest"
+      responses:
+        "200":
+          description: Finding updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentFindingResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document or finding not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}/interpretations:
+    post:
+      operationId: interpretDocument
+      tags: [documents]
+      summary: Generate a consent-gated interpretation of confirmed findings
+      description: Sends only structured findings (corrected values take precedence) to the configured provider. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules and rejected output is never stored.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterpretDocumentRequest"
+      responses:
+        "201":
+          description: Interpretation stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentInterpretationResponse"
+        "400":
+          description: Consent missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Document is not eligible or has no findings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Provider rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Provider output failed safety validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Provider unavailable or external processing disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cardiac/model-status:
+    get:
+      operationId: getCardiacModelStatus
+      tags: [cardiac]
+      summary: Cardiac model availability and feature contract
+      description: Returns the required input feature contract and whether an approved cardiac model artifact is available for inference.
+      responses:
+        "200":
+          description: Cardiac model status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacModelStatus"
+  /cases/{id}/workspace:
+    get:
+      operationId: getCaseWorkspace
+      tags: [cases]
+      summary: Consolidated workspace for a case
+      description: Returns the case with its uploads, model outputs, documents, symptom assessments, and reports. Outputs from different models are listed side by side, never merged into one score.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Case workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseWorkspaceResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Case not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /reports/{id}/export:
+    get:
+      operationId: exportReport
+      tags: [reports]
+      summary: Export a draft report as plain text
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Plain text report export
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1086,9 +1510,21 @@ components:
               type: boolean
             model:
               type: boolean
+            cardiacModel:
+              type: boolean
             aiProvider:
               type: string
               enum: [disabled, unconfigured, misconfigured, configured]
+            documentOcr:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [disabled, configured]
+                providerId:
+                  type: string
+                reason:
+                  type: string
       required:
         - status
         - checks
@@ -1926,6 +2362,338 @@ components:
           enum: [archived]
       required:
         - status
+    UploadDocumentRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+        caseId:
+          type: integer
+      required:
+        - file
+    Document:
+      type: object
+      properties:
+        id:
+          type: integer
+        caseId:
+          type: integer
+          nullable: true
+        originalFileName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        pageCount:
+          type: integer
+          nullable: true
+        documentType:
+          type: string
+          enum: [lab_report, medical_summary, discharge_summary, prescription, radiology_report, other, unknown]
+        documentTypeSource:
+          type: string
+          nullable: true
+        processingStatus:
+          type: string
+          enum: [uploaded, processing, extracted, needs_review, ocr_unavailable, failed, unsupported]
+        extractionMethod:
+          type: string
+          nullable: true
+        extractionErrorCode:
+          type: string
+          nullable: true
+        extractedAt:
+          type: string
+          nullable: true
+        findingCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - originalFileName
+        - mimeType
+        - sizeBytes
+        - documentType
+        - processingStatus
+        - createdAt
+        - updatedAt
+    DocumentFinding:
+      type: object
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        pageNumber:
+          type: integer
+          nullable: true
+        category:
+          type: string
+          enum: [lab_result, vital_sign, medication, diagnosis, impression, other]
+        label:
+          type: string
+        valueText:
+          type: string
+        numericValue:
+          type: number
+          nullable: true
+        unit:
+          type: string
+          nullable: true
+        referenceRange:
+          type: string
+          nullable: true
+        resultFlag:
+          type: string
+          nullable: true
+        confidence:
+          type: number
+          nullable: true
+        sourceText:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [candidate, confirmed, corrected, rejected]
+        correctedLabel:
+          type: string
+          nullable: true
+        correctedValueText:
+          type: string
+          nullable: true
+        correctedUnit:
+          type: string
+          nullable: true
+        correctedReferenceRange:
+          type: string
+          nullable: true
+        correctedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - documentId
+        - category
+        - label
+        - valueText
+        - status
+        - createdAt
+    DocumentInterpretation:
+      type: object
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        provider:
+          type: string
+        providerModel:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed]
+        errorCode:
+          type: string
+          nullable: true
+        sections:
+          type: object
+        createdAt:
+          type: string
+      required:
+        - id
+        - documentId
+        - provider
+        - providerModel
+        - status
+        - sections
+        - createdAt
+    DocumentDetail:
+      allOf:
+        - $ref: "#/components/schemas/Document"
+        - type: object
+          properties:
+            textPages:
+              type: array
+              items:
+                type: object
+                properties:
+                  page:
+                    type: integer
+                  text:
+                    type: string
+                  method:
+                    type: string
+                    enum: [text, ocr]
+            metadata:
+              type: object
+            findings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentFinding"
+            interpretations:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentInterpretation"
+    DocumentResponse:
+      type: object
+      properties:
+        document:
+          $ref: "#/components/schemas/Document"
+      required:
+        - document
+    DocumentDetailResponse:
+      type: object
+      properties:
+        document:
+          $ref: "#/components/schemas/DocumentDetail"
+      required:
+        - document
+    DocumentListResponse:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - documents
+        - total
+        - page
+        - limit
+    UpdateDocumentFindingRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [candidate, confirmed, corrected, rejected]
+        correctedLabel:
+          type: string
+        correctedValueText:
+          type: string
+        correctedUnit:
+          type: string
+        correctedReferenceRange:
+          type: string
+      required:
+        - status
+    DocumentFindingResponse:
+      type: object
+      properties:
+        finding:
+          $ref: "#/components/schemas/DocumentFinding"
+      required:
+        - finding
+    InterpretDocumentRequest:
+      type: object
+      properties:
+        consentToExternalProcessing:
+          type: boolean
+      required:
+        - consentToExternalProcessing
+    DocumentInterpretationResponse:
+      type: object
+      properties:
+        interpretation:
+          $ref: "#/components/schemas/DocumentInterpretation"
+        notice:
+          type: string
+      required:
+        - interpretation
+        - notice
+    CardiacModelStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        status:
+          type: string
+          enum: [model_unavailable]
+        reason:
+          type: string
+        contract:
+          type: object
+      required:
+        - available
+        - status
+        - reason
+        - contract
+    CaseWorkspaceResponse:
+      type: object
+      properties:
+        case:
+          $ref: "#/components/schemas/Case"
+        patient:
+          type: object
+          nullable: true
+        uploads:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceUploadItem"
+        predictions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PredictionRecord"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        symptomAssessments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomAssessment"
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Report"
+        limitations:
+          type: array
+          items:
+            type: string
+      required:
+        - case
+        - uploads
+        - predictions
+        - documents
+        - symptomAssessments
+        - reports
+    WorkspaceUploadItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        originalFileName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - originalFileName
+        - mimeType
+        - sizeBytes
+        - createdAt
     ErrorResponse:
       type: object
       properties:

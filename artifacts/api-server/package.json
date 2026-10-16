@@ -13,27 +13,29 @@
     "db:migrate": "pnpm --filter @workspace/db run migrate"
   },
   "dependencies": {
-    "hono": "^4.6.0",
     "@hono/node-server": "^1.13.0",
     "@hono/zod-validator": "^0.4.0",
-    "zod": "catalog:",
-    "drizzle-orm": "catalog:",
-    "pg": "catalog:",
-    "tsx": "catalog:",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
     "bcryptjs": "^2.4.3",
     "cookie": "^1.0.0",
-    "uuid": "^10.0.0",
+    "drizzle-orm": "catalog:",
+    "hono": "^4.6.0",
     "multer": "^1.4.5-lts.1",
-    "@workspace/db": "workspace:*",
-    "@workspace/api-zod": "workspace:*",
-    "sharp": "^0.33.0"
+    "pdfjs-dist": "^5.7.284",
+    "pg": "catalog:",
+    "sharp": "^0.33.0",
+    "tesseract.js": "^6.0.1",
+    "tsx": "catalog:",
+    "uuid": "^10.0.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "@types/pg": "catalog:",
     "@types/bcryptjs": "^2.4.0",
     "@types/cookie": "^0.6.0",
     "@types/multer": "^1.4.0",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "@types/uuid": "^9.0.0",
     "typescript": "catalog:"
   }

@@ -15,6 +15,17 @@ const urgencyStyle: Record<string, string> = {
   self_care: "border-slate-200 bg-slate-50 text-slate-800",
 };
 
+const quickStarters: Array<{ label: string; category: (typeof categories)[number] }> = [
+  { label: "Rash or skin change", category: "skin" },
+  { label: "Chest pain", category: "cardiovascular" },
+  { label: "Shortness of breath", category: "respiratory" },
+  { label: "Headache", category: "neurological" },
+  { label: "Fever", category: "general" },
+  { label: "Abdominal pain", category: "gastrointestinal" },
+  { label: "Joint pain", category: "musculoskeletal" },
+  { label: "Anxiety or low mood", category: "psychiatric" },
+];
+
 export default function SymptomAssessment() {
   const [primarySymptom, setPrimarySymptom] = useState("");
   const [category, setCategory] = useState<(typeof categories)[number]>("general");
@@ -61,6 +72,23 @@ export default function SymptomAssessment() {
         <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><div><h2 className="font-semibold">Urgent symptoms</h2><p className="mt-1 text-sm">If you believe you may be experiencing a medical emergency, contact local emergency services or seek immediate care now. Do not wait for or rely on this assessment.</p></div></div>
 
         <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div>
+            <p className="text-sm font-medium">Common starting points</p>
+            <p className="mt-1 text-xs text-slate-500">These only fill in suggested wording and a category. They are not a list of recognized conditions and do not select any diagnosis.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {quickStarters.map((starter) => (
+                <button
+                  key={starter.label}
+                  type="button"
+                  onClick={() => { setPrimarySymptom(starter.label); setCategory(starter.category); }}
+                  aria-pressed={primarySymptom === starter.label && category === starter.category}
+                  className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${primarySymptom === starter.label && category === starter.category ? "border-primary bg-primary text-white" : "border-slate-200 bg-white text-slate-600 hover:border-primary hover:text-primary"}`}
+                >
+                  {starter.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="space-y-1 text-sm font-medium md:col-span-2">Primary symptom<textarea value={primarySymptom} onChange={(event) => setPrimarySymptom(event.target.value)} required maxLength={1_000} rows={3} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Describe what you are experiencing" /></label>
             <label className="space-y-1 text-sm font-medium">Category<select value={category} onChange={(event) => setCategory(event.target.value as (typeof categories)[number])} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{categories.map((value) => <option key={value} value={value}>{value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></label>
@@ -73,10 +101,24 @@ export default function SymptomAssessment() {
           </div>
           {casesQuery.isError && <p role="status" className="text-sm text-slate-500">Cases could not be loaded; you can still save without linking one.</p>}
           {createAssessment.isError && <p role="alert" className="text-sm text-destructive">Assessment was not saved. Check the fields and retry.</p>}
-          <Button type="submit" disabled={createAssessment.isPending || !primarySymptom.trim()}>{createAssessment.isPending ? "Saving assessment…" : "Save and assess"}</Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={createAssessment.isPending || primarySymptom.trim().length < 3}>{createAssessment.isPending ? "Saving assessment…" : "Save and assess"}</Button>
+            <Button type="button" variant="ghost" onClick={() => { setPrimarySymptom(""); setAssociated(""); setOnset(""); setDuration(""); setSeverity(""); setProgression(""); setCategory("general"); setCaseId(""); createAssessment.reset(); }}>Clear form</Button>
+            <span className="text-xs text-slate-500">At least 3 characters are required. Your text is stored exactly as entered.</span>
+          </div>
         </form>
 
-        {latest && <section className={`mt-6 rounded-2xl border p-6 ${urgencyStyle[latest.urgencyLevel] ?? urgencyStyle.routine}`} aria-live="polite"><p className="text-xs font-semibold uppercase tracking-wide">Persisted rule-based result · record #{latest.id}</p><h2 className="mt-1 text-2xl font-bold">{latest.urgencyLevel.replace(/_/g, " ").toUpperCase()} guidance</h2><ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(latest.guidance.recommendations ?? []).map((recommendation, index) => <li key={index}>{recommendation}</li>)}</ul>{latest.redFlagsTriggered?.length ? <p className="mt-3 text-sm font-medium">Matched warning terms: {latest.redFlagsTriggered.join(", ")}</p> : null}<p className="mt-4 text-xs">{latest.guidance.disclaimer}</p></section>}
+        {latest && <section className={`mt-6 rounded-2xl border p-6 ${urgencyStyle[latest.urgencyLevel] ?? urgencyStyle.routine}`} aria-live="polite"><p className="text-xs font-semibold uppercase tracking-wide">Persisted rule-based result · record #{latest.id}</p><h2 className="mt-1 text-2xl font-bold">{latest.urgencyLevel.replace(/_/g, " ").toUpperCase()} guidance</h2><p className="mt-2 text-sm">This is a rule-based urgency level, not a disease prediction. No condition is named or scored. It reflects only the terms and fields you entered.</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(latest.guidance.recommendations ?? []).map((recommendation, index) => <li key={index}>{recommendation}</li>)}</ul>{latest.redFlagsTriggered?.length ? <p className="mt-3 text-sm font-medium">Matched warning terms in your text: {latest.redFlagsTriggered.join(", ")}</p> : <p className="mt-3 text-sm">No warning terms were matched in your text.</p>}
+          <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            <div><dt className="opacity-70">Primary symptom, as entered</dt><dd className="font-medium">{latest.primarySymptom}</dd></div>
+            <div><dt className="opacity-70">Category</dt><dd className="font-medium">{latest.symptomCategory.replace(/_/g, " ")}</dd></div>
+            <div><dt className="opacity-70">Reported severity</dt><dd className="font-medium">{latest.severity ? latest.severity.replace(/_/g, " ") : "Not recorded"}</dd></div>
+            <div><dt className="opacity-70">Onset</dt><dd className="font-medium">{latest.onset || "Not recorded"}</dd></div>
+            <div><dt className="opacity-70">Duration</dt><dd className="font-medium">{latest.duration || "Not recorded"}</dd></div>
+            <div><dt className="opacity-70">Progression</dt><dd className="font-medium">{latest.progression ? latest.progression.replace(/_/g, " ") : "Not recorded"}</dd></div>
+            {latest.associatedSymptoms?.length ? <div className="col-span-2 sm:col-span-3"><dt className="opacity-70">Other reported symptoms</dt><dd className="font-medium">{latest.associatedSymptoms.join(", ")}</dd></div> : null}
+          </dl>
+          <p className="mt-4 text-xs">{latest.guidance.disclaimer}</p></section>}
 
         <section className="mt-10 rounded-2xl border border-slate-200 bg-white overflow-hidden"><div className="flex items-center gap-2 p-5 border-b border-slate-200"><ClipboardList className="h-5 w-5 text-primary" /><h2 className="font-semibold">Saved assessments</h2></div>
           {assessmentsQuery.isLoading && <p role="status" className="p-6 text-sm text-slate-500">Loading saved assessments…</p>}

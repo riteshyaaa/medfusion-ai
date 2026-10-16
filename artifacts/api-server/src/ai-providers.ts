@@ -27,6 +27,8 @@ type ProviderConfig = {
   maxConcurrency: number;
 };
 
+export type { ProviderConfig };
+
 type ConfigState =
   | { status: "disabled" }
   | { status: "unconfigured" }
@@ -103,6 +105,11 @@ export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): Co
 
 export function getAIProviderStatus(env: NodeJS.ProcessEnv = process.env): ConfigState["status"] {
   return getProviderConfigState(env).status;
+}
+
+export function configuredProviderConfig(env: NodeJS.ProcessEnv = process.env): { status: ConfigState["status"]; config?: ProviderConfig } {
+  const state = getProviderConfigState(env);
+  return state.status === "configured" ? { status: state.status, config: state.config } : { status: state.status };
 }
 
 export function externalHealthDataTransferEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -237,8 +244,17 @@ function outputText(config: ProviderConfig, payload: unknown): string {
   throw new AIProviderError("provider_malformed_response");
 }
 
-function requestFor(config: ProviderConfig, input: SkinExplanationInput): { url: string; headers: HeadersInit; body: string } {
-  const prompt = requestPrompt(input);
+export type StructuredRequestOptions = {
+  system: string;
+  user: string;
+  schemaName: string;
+  jsonSchema: Record<string, unknown>;
+  maxOutputTokens: number;
+};
+
+export type ProviderRequestOptions = { fetchImpl?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> };
+
+function requestFor(config: ProviderConfig, options: StructuredRequestOptions): { url: string; headers: HeadersInit; body: string } {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   let path: string;
   let body: Record<string, unknown>;
@@ -248,31 +264,31 @@ function requestFor(config: ProviderConfig, input: SkinExplanationInput): { url:
     body = {
       model: config.model,
       store: false,
-      max_output_tokens: 700,
+      max_output_tokens: options.maxOutputTokens,
       input: [
-        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
-        { role: "user", content: [{ type: "input_text", text: prompt }] },
+        { role: "system", content: [{ type: "input_text", text: options.system }] },
+        { role: "user", content: [{ type: "input_text", text: options.user }] },
       ],
-      text: { format: { type: "json_schema", name: "medscope_skin_explanation", strict: true, schema: explanationJsonSchema } },
+      text: { format: { type: "json_schema", name: options.schemaName, strict: true, schema: options.jsonSchema } },
     };
   } else if (config.provider === "gemini") {
     path = "/interactions";
     headers["x-goog-api-key"] = config.apiKey;
     body = {
       model: config.model,
-      system_instruction: systemPrompt,
-      input: prompt,
+      system_instruction: options.system,
+      input: options.user,
       store: false,
-      response_format: [{ type: "text", mime_type: "application/json", schema: explanationJsonSchema }],
-      generation_config: { max_output_tokens: 700 },
+      response_format: [{ type: "text", mime_type: "application/json", schema: options.jsonSchema }],
+      generation_config: { max_output_tokens: options.maxOutputTokens },
     };
   } else {
     path = "/chat/completions";
     headers.Authorization = "Bearer " + config.apiKey;
     body = {
       model: config.model,
-      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }],
-      max_tokens: 700,
+      messages: [{ role: "system", content: options.system }, { role: "user", content: options.user }],
+      max_tokens: options.maxOutputTokens,
       temperature: 0,
     };
   }
@@ -305,60 +321,84 @@ function semaphoreFor(maximum: number): Semaphore {
   return semaphore;
 }
 
+async function executeStructuredRequest(
+  config: ProviderConfig,
+  request: { url: string; headers: HeadersInit; body: string },
+  providerOptions: ProviderRequestOptions = {},
+): Promise<unknown> {
+  const fetchImpl = providerOptions.fetchImpl ?? fetch;
+  const wait = providerOptions.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  return semaphoreFor(config.maxConcurrency).run(async () => {
+    for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetchImpl(request.url, { method: "POST", headers: request.headers, body: request.body, redirect: "error", signal: AbortSignal.timeout(config.timeoutMs) });
+      } catch (error) {
+        const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+        if (attempt < config.maxRetries) {
+          await wait(100 * (2 ** attempt));
+          continue;
+        }
+        throw new AIProviderError(timedOut ? "provider_timeout" : "provider_unavailable");
+      }
+      if (response.ok) {
+        return await readProviderJson(response);
+      }
+      if (response.status === 401 || response.status === 403) throw new AIProviderError("provider_invalid_credentials");
+      if (response.status === 429) {
+        if (attempt < config.maxRetries) {
+          await wait(100 * (2 ** attempt));
+          continue;
+        }
+        throw new AIProviderError("provider_rate_limited");
+      }
+      if (response.status >= 500) {
+        if (attempt < config.maxRetries) {
+          await wait(100 * (2 ** attempt));
+          continue;
+        }
+        throw new AIProviderError("provider_unavailable");
+      }
+      throw new AIProviderError("provider_request_rejected");
+    }
+    throw new AIProviderError("provider_unavailable");
+  });
+}
+
+export function decodeStructuredProviderText(config: ProviderConfig, responsePayload: unknown): unknown {
+  const rawText = outputText(config, responsePayload);
+  try {
+    return JSON.parse(rawText) as unknown;
+  } catch {
+    throw new AIProviderError("provider_malformed_response");
+  }
+}
+
+export function executeProviderStructuredRequest(
+  config: ProviderConfig,
+  options: StructuredRequestOptions,
+  providerOptions: ProviderRequestOptions = {},
+): Promise<unknown> {
+  return executeStructuredRequest(config, requestFor(config, options), providerOptions);
+}
+
 export type ExplanationProvider = { explain(input: SkinExplanationInput): Promise<SkinExplanation> };
 export function createExplanationProvider(
   config: ProviderConfig,
-  options: { fetchImpl?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> } = {},
+  options: ProviderRequestOptions = {},
 ): ExplanationProvider {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const wait = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   return {
     async explain(input) {
       const parsedInput = explanationInputSchema.safeParse(input);
       if (!parsedInput.success) throw new AIProviderError("provider_request_rejected");
-      const request = requestFor(config, parsedInput.data);
-      const responsePayload = await semaphoreFor(config.maxConcurrency).run(async () => {
-        for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
-          let response: Response;
-          try {
-            response = await fetchImpl(request.url, { method: "POST", headers: request.headers, body: request.body, redirect: "error", signal: AbortSignal.timeout(config.timeoutMs) });
-          } catch (error) {
-            const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-            if (attempt < config.maxRetries) {
-              await wait(100 * (2 ** attempt));
-              continue;
-            }
-            throw new AIProviderError(timedOut ? "provider_timeout" : "provider_unavailable");
-          }
-          if (response.ok) {
-            return await readProviderJson(response);
-          }
-          if (response.status === 401 || response.status === 403) throw new AIProviderError("provider_invalid_credentials");
-          if (response.status === 429) {
-            if (attempt < config.maxRetries) {
-              await wait(100 * (2 ** attempt));
-              continue;
-            }
-            throw new AIProviderError("provider_rate_limited");
-          }
-          if (response.status >= 500) {
-            if (attempt < config.maxRetries) {
-              await wait(100 * (2 ** attempt));
-              continue;
-            }
-            throw new AIProviderError("provider_unavailable");
-          }
-          throw new AIProviderError("provider_request_rejected");
-        }
-        throw new AIProviderError("provider_unavailable");
-      });
-      const rawText = outputText(config, responsePayload);
-      let decoded: unknown;
-      try {
-        decoded = JSON.parse(rawText);
-      } catch {
-        throw new AIProviderError("provider_malformed_response");
-      }
+      const responsePayload = await executeProviderStructuredRequest(config, {
+        system: systemPrompt,
+        user: requestPrompt(parsedInput.data),
+        schemaName: "medscope_skin_explanation",
+        jsonSchema: explanationJsonSchema,
+        maxOutputTokens: 700,
+      }, options);
+      const decoded = decodeStructuredProviderText(config, responsePayload);
       const parsed = explanationSchema.safeParse(decoded);
       if (!parsed.success || /[\d%]/.test(parsed.data?.explanation ?? "")) {
         throw new AIProviderError("provider_malformed_response");
@@ -370,7 +410,7 @@ export function createExplanationProvider(
 
 export function configuredExplanationProvider(
   env: NodeJS.ProcessEnv = process.env,
-  options: { fetchImpl?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> } = {},
+  options: ProviderRequestOptions = {},
 ): { status: ConfigState["status"]; provider?: ExplanationProvider } {
   const state = getProviderConfigState(env);
   if (state.status !== "configured") return { status: state.status };

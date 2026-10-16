@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ReadinessStatusChecksAiProvider } from './readinessStatusChecksAiProvider.ts';
+import type { ReadinessStatusChecksDocumentOcr } from './readinessStatusChecksDocumentOcr.ts';
 
 export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
+  cardiacModel?: boolean;
   aiProvider?: ReadinessStatusChecksAiProvider;
+  documentOcr?: ReadinessStatusChecksDocumentOcr;
 };

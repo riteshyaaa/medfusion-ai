@@ -7,6 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
 import SkinAnalysis from "@/pages/skin-analysis";
 import SymptomAssessment from "@/pages/symptom-assessment";
+import ReportAnalysis from "@/pages/report-analysis";
+import CardiacAssessment from "@/pages/cardiac-assessment";
 import Patients from "@/pages/patients";
 import Cases from "@/pages/cases";
 import History from "@/pages/history";
@@ -52,6 +54,8 @@ function AuthenticatedRoutes() {
       <Route path="/" component={Home} />
       <Route path="/skin-analysis" component={SkinAnalysis} />
       <Route path="/symptom-assessment" component={SymptomAssessment} />
+      <Route path="/report-analysis" component={ReportAnalysis} />
+      <Route path="/cardiac-assessment" component={CardiacAssessment} />
       <Route path="/patients" component={Patients} />
       <Route path="/patients/:id" component={PatientDetail} />
       <Route path="/cases" component={Cases} />

@@ -107,3 +107,28 @@ The safe interfaces, unavailable response, manifest verifier, and tests are in p
 - Phase 4 remains blocked by model promotion readiness. The current real checkpoint is verified but not approved, so it cannot serve user-facing inference.
 - Phase 5 release hardening remains pending its earlier gates.
 - This is an educational/research prototype. No clinical validation, regulatory compliance, or real-world diagnostic performance is claimed.
+
+## Phase 6: multimodal report analysis and cardiac status
+
+Implemented without adding any new model or fabricating output. The skin classifier and the cardiac module both remain unavailable by design.
+
+### Checklist
+
+- [x] Add `documents`, `document_findings`, and `document_interpretations` tables with a generated, applied Drizzle migration (`0002`).
+- [x] Add a local text-extraction pipeline: PDF text layer via `pdfjs-dist`, embedded-image OCR for scanned PDFs, and OCR for uploaded photographs via `tesseract.js`. Text is produced and stored for verification; OCR output is explicitly flagged as error-prone.
+- [x] Add a conservative finding extractor for lab results, vitals, qualitative serology/urinalysis, medications, and diagnosis/impression lines. Unreadable characters raise review warnings instead of being guessed. Fixed a real flag-parsing bug so values like `9.2 Low` map to value `9.2` + flag `low` rather than value `9.2 L` + unit `ow`.
+- [x] Add owner-scoped document routes: upload with declared-type/signature validation and DICOM rejection, list, detail, download, reprocess, delete, per-finding confirm/correct/reject, and consent-gated interpretation.
+- [x] Reuse the existing provider adapters for interpretation, sending only reviewed structured findings. Local validation rejects invented numbers/percentages, unknown findings, and diagnosis/treatment claims; rejected output is never stored.
+- [x] Add a status-only cardiac module and route (`GET /api/cardiac/model-status`) that reports the model unavailable and documents the future feature contract (UCI Cleveland subset).
+- [x] Add a per-case workspace route and a plain-text draft-report export route.
+- [x] Extend OpenAPI, regenerate the React Query/Zod clients, add the Report Analysis and Cardiac pages, extend navigation/routes, and integrate the workspace into the case detail page.
+- [x] Add focused unit tests (extraction, document type, interpretation validation) and an end-to-end document lifecycle integration test, plus updated readiness coverage.
+
+### Phase 6 commands and results
+
+- `pnpm --filter @workspace/api-spec run codegen` — passed; OpenAPI converted to generated clients after adding the document, cardiac, workspace, and export paths.
+- `pnpm --filter @workspace/api-server test` (with `DATABASE_URL`) — passed: 19 tests, 0 failures. Includes 8 extraction/interpretation unit tests and a document lifecycle test covering upload type/signature rejection, OCR extraction through an injected test provider, per-finding correction, cross-user 404s, no-consent 400, disabled-transfer 503, provider-unavailable 503, successful interpretation with a test double, corrupt-PDF failure, reprocess, workspace composition, and report export.
+- `pnpm run typecheck` — passed across libraries, API server, frontend, and seed script.
+- `pnpm run build` — passed across workspace packages and Vite. The existing large-bundle warning remains.
+
+**Gate 6 decision:** Pass for report upload/extraction/review, consent-gated interpretation, cardiac status honesty, case workspace, and report export, with local deterministic tests and no live provider, OCR-network, or model calls. No patient data is fabricated and no unavailable model is simulated outside `NODE_ENV=test`.

@@ -16,4 +16,8 @@ page?: number;
  * @maximum 100
  */
 limit?: number;
+/**
+ * Only return assessments linked to this owned case
+ */
+caseId?: number;
 };

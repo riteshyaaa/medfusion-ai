@@ -15,7 +15,7 @@ export class LocalPrivateStorage implements PrivateStorage {
   }
 
   private resolveKey(key: string): string {
-    if (!/^[0-9a-f-]{36}\.jpg$/.test(key)) {
+    if (!/^[0-9a-f-]{36}\.(?:jpg|pdf)$/.test(key)) {
       throw new Error("Invalid storage key");
     }
     const resolved = path.resolve(this.root, key);

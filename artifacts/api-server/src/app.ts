@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
-import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents } from "@workspace/db/schema";
+import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations } from "@workspace/db/schema";
 import { eq, desc, and, or, ilike, count, sql, inArray, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
@@ -17,6 +17,10 @@ import sharp from "sharp";
 import { LocalPrivateStorage } from "./storage";
 import { getTestInferenceProvider, hasApprovedSkinModel } from "./inference";
 import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
+import { getOcrStatus } from "./document-extraction";
+import { scheduleDocumentProcessing } from "./document-service";
+import { InterpretationValidationError, getDocumentInterpreter } from "./document-interpreter";
+import { cardiacModelStatus, hasApprovedCardiacModel } from "./cardiac";
 
 type Variables = {
   user: typeof users.$inferSelect;
@@ -31,6 +35,7 @@ const SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 40_000_000;
 const MAX_IMAGE_DIMENSION = 8_192;
+const MAX_DOCUMENT_FILE_SIZE = envLimit("DOCUMENT_MAX_FILE_SIZE", 20 * 1024 * 1024);
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000")
     .split(",")
@@ -104,7 +109,7 @@ app.use("*", async (c, next) => {
   console.info(JSON.stringify({ requestId: c.get("requestId"), method: c.req.method, status: c.res.status, durationMs: Date.now() - startedAt }));
 });
 app.use("*", secureHeaders());
-app.use("*", bodyLimit({ maxSize: 12 * 1024 * 1024, onError: (c) => c.json({ error: "request_too_large", message: "Request exceeds the allowed size.", requestId: c.get("requestId") }, 413) }));
+app.use("*", bodyLimit({ maxSize: MAX_DOCUMENT_FILE_SIZE + 1_048_576, onError: (c) => c.json({ error: "request_too_large", message: "Request exceeds the allowed size.", requestId: c.get("requestId") }, 413) }));
 app.use("*", cors({
   origin: (origin) => (origin && allowedOrigins.has(origin) ? origin : ""),
   credentials: true,
@@ -123,6 +128,7 @@ app.use("*", async (c, next) => {
 });
 app.use("/auth/*", rateLimit(envLimit("RATE_LIMIT_AUTH", 10), envLimit("RATE_LIMIT_AUTH_WINDOW_MS", 900_000)));
 app.use("/uploads", rateLimit(envLimit("RATE_LIMIT_UPLOAD", 20), envLimit("RATE_LIMIT_UPLOAD_WINDOW_MS", 60_000)));
+app.use("/documents", rateLimit(envLimit("RATE_LIMIT_DOCUMENT", 30), envLimit("RATE_LIMIT_DOCUMENT_WINDOW_MS", 60_000)));
 app.use("/predict", rateLimit(envLimit("RATE_LIMIT_PREDICT", 30), envLimit("RATE_LIMIT_PREDICT_WINDOW_MS", 60_000)));
 app.use("/ai/explanations", rateLimit(envLimit("AI_RATE_LIMIT", 10), envLimit("AI_RATE_LIMIT_WINDOW_MS", 60_000)));
 
@@ -273,13 +279,22 @@ app.get("/auth/me", async (c) => {
 app.get("/healthz", (c) => c.json({ status: "healthy" }));
 
 app.get("/readyz", async (c) => {
+  const checks = {
+    database: true,
+    model: hasApprovedSkinModel(),
+    cardiacModel: hasApprovedCardiacModel(),
+    aiProvider: getAIProviderStatus(),
+    documentOcr: getOcrStatus(),
+  };
   try {
     await db.execute(sql`SELECT 1`);
-    return c.json({ status: "ready", checks: { database: true, model: hasApprovedSkinModel(), aiProvider: getAIProviderStatus() } });
+    return c.json({ status: "ready", checks });
   } catch {
-    return c.json({ status: "not_ready", checks: { database: false, model: hasApprovedSkinModel(), aiProvider: getAIProviderStatus() } }, 503);
+    return c.json({ status: "not_ready", checks: { ...checks, database: false } }, 503);
   }
 });
+
+app.get("/cardiac/model-status", (c) => c.json(cardiacModelStatus()));
 
 const ALLOWED_MIME_FORMATS: Record<string, string> = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" };
 
@@ -467,16 +482,368 @@ app.get("/predictions/:id", requireAuth, async (c) => {
   return c.json(predictionView(pred));
 });
 
-const explanationRequestSchema = z.object({
-  predictionId: z.number().int().positive(),
-  consentToExternalProcessing: z.boolean(),
-});
-
-function codedError(status: 400 | 409 | 429 | 503, code: string, message: string): HTTPException {
+function codedError(status: 400 | 409 | 429 | 502 | 503, code: string, message: string): HTTPException {
   const error = new HTTPException(status, { message }) as HTTPException & { apiCode?: string };
   error.apiCode = code;
   return error;
 }
+
+const DOCUMENT_MIME_TYPES: Record<string, "pdf" | "image"> = {
+  "application/pdf": "pdf",
+  "image/png": "image",
+  "image/jpeg": "image",
+};
+
+function documentStorageExtension(mimeType: string): "pdf" | "jpg" {
+  return mimeType === "application/pdf" ? "pdf" : "jpg";
+}
+
+function contentMatchesMimeType(bytes: Buffer, mimeType: string): boolean {
+  if (mimeType === "application/pdf") return bytes.length >= 5 && bytes.subarray(0, 5).toString("latin1") === "%PDF-";
+  if (mimeType === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  return false;
+}
+
+type DocumentRow = typeof documents.$inferSelect;
+type DocumentFindingRow = typeof documentFindings.$inferSelect;
+type DocumentInterpretationRow = typeof documentInterpretations.$inferSelect;
+
+function documentSummaryView(document: DocumentRow, findingCount?: number) {
+  return {
+    id: document.id,
+    caseId: document.caseId,
+    originalFileName: document.originalFileName,
+    mimeType: document.mimeType,
+    sizeBytes: document.sizeBytes,
+    pageCount: document.pageCount,
+    documentType: document.documentType,
+    documentTypeSource: document.documentTypeSource,
+    processingStatus: document.processingStatus,
+    extractionMethod: document.extractionMethod,
+    extractionErrorCode: document.extractionErrorCode,
+    extractedAt: document.extractedAt,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+    ...(findingCount === undefined ? {} : { findingCount }),
+  };
+}
+
+function findingView(finding: DocumentFindingRow) {
+  return {
+    id: finding.id,
+    documentId: finding.documentId,
+    pageNumber: finding.pageNumber,
+    category: finding.category,
+    label: finding.label,
+    valueText: finding.valueText,
+    numericValue: finding.numericValue,
+    unit: finding.unit,
+    referenceRange: finding.referenceRange,
+    resultFlag: finding.resultFlag,
+    confidence: finding.confidence,
+    sourceText: finding.sourceText,
+    status: finding.status,
+    correctedLabel: finding.correctedLabel,
+    correctedValueText: finding.correctedValueText,
+    correctedUnit: finding.correctedUnit,
+    correctedReferenceRange: finding.correctedReferenceRange,
+    correctedAt: finding.correctedAt,
+    createdAt: finding.createdAt,
+  };
+}
+
+function interpretationView(interpretation: DocumentInterpretationRow) {
+  return {
+    id: interpretation.id,
+    documentId: interpretation.documentId,
+    provider: interpretation.provider,
+    providerModel: interpretation.providerModel,
+    status: interpretation.status,
+    errorCode: interpretation.errorCode,
+    sections: interpretation.sections,
+    createdAt: interpretation.createdAt,
+  };
+}
+
+app.post("/documents", requireAuth, async (c) => {
+  const user = c.get("user");
+  const formData = await c.req.formData();
+  const file = formData.get("file");
+  const caseIdValue = formData.get("caseId");
+  if (!file || !(file instanceof File)) {
+    throw new HTTPException(400, { message: "A document file is required" });
+  }
+  const mimeType = file.type;
+  if (!DOCUMENT_MIME_TYPES[mimeType]) {
+    throw new HTTPException(415, { message: "Only text-based PDF, scanned PDF, PNG, and JPEG documents are supported. DICOM and other medical imaging formats are not accepted here." });
+  }
+  if (file.size <= 0) throw new HTTPException(400, { message: "The document file is empty" });
+  if (file.size > MAX_DOCUMENT_FILE_SIZE) throw new HTTPException(413, { message: `Document exceeds the ${Math.floor(MAX_DOCUMENT_FILE_SIZE / (1024 * 1024))} MB limit` });
+
+  let caseId: number | undefined;
+  if (caseIdValue !== null) {
+    const parsed = z.coerce.number().int().positive().safeParse(caseIdValue);
+    if (!parsed.success) throw new HTTPException(400, { message: "Invalid case identifier" });
+    caseId = parsed.data;
+    const ownedCase = await db.query.cases.findFirst({ where: and(eq(cases.id, caseId), eq(cases.createdById, user.id)) });
+    if (!ownedCase) throw new HTTPException(404, { message: "Case not found" });
+  }
+
+  const input = Buffer.from(await file.arrayBuffer());
+  if (!contentMatchesMimeType(input, mimeType)) {
+    throw new HTTPException(415, { message: "File content does not match its declared format" });
+  }
+
+  let storedBytes: Buffer = input;
+  let storedMimeType = mimeType;
+  let pageCount: number | null = null;
+  let documentMetadata: { format?: string } | undefined;
+  if (DOCUMENT_MIME_TYPES[mimeType] === "image") {
+    let metadata: sharp.Metadata;
+    try {
+      metadata = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" }).metadata();
+      if (metadata.format !== (mimeType === "image/png" ? "png" : "jpeg")) {
+        throw new HTTPException(415, { message: "Image content does not match its declared format" });
+      }
+      if (!metadata.width || !metadata.height || metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION || metadata.width * metadata.height > MAX_IMAGE_PIXELS) {
+        throw new HTTPException(400, { message: "Image dimensions exceed the supported limit" });
+      }
+      storedBytes = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" }).rotate().jpeg({ quality: 92 }).toBuffer();
+    } catch (error) {
+      if (error instanceof HTTPException) throw error;
+      throw new HTTPException(400, { message: "Image could not be decoded" });
+    }
+    storedMimeType = "image/jpeg";
+    pageCount = 1;
+    documentMetadata = { format: "jpeg" };
+  }
+
+  const storageKey = `${randomUUID()}.${documentStorageExtension(storedMimeType)}`;
+  const safeFileName = file.name.replace(/[\\/\u0000-\u001f\u007f]/g, "_").slice(0, 180) || `document.${documentStorageExtension(storedMimeType)}`;
+  await storage.put(storageKey, storedBytes);
+  try {
+    const [document] = await db.insert(documents).values({
+      userId: user.id,
+      caseId,
+      storageKey,
+      originalFileName: safeFileName,
+      mimeType: storedMimeType,
+      sizeBytes: storedBytes.length,
+      pageCount,
+      checksum: createHash("sha256").update(storedBytes).digest("hex"),
+      metadata: documentMetadata,
+    }).returning();
+    await logAudit(c, "document", "upload", "success", "document", document.id.toString(), { mimeType: storedMimeType, sizeBytes: storedBytes.length });
+    scheduleDocumentProcessing(document.id, { storage });
+    return c.json({ document: documentSummaryView(document, 0) }, 201);
+  } catch (error) {
+    await storage.delete(storageKey);
+    throw error;
+  }
+});
+
+app.get("/documents", requireAuth, async (c) => {
+  const user = c.get("user");
+  const { page, limit } = parsePagination(c.req.query());
+  const filters = z.object({
+    caseId: z.coerce.number().int().positive().optional(),
+    status: z.enum(["uploaded", "processing", "extracted", "needs_review", "ocr_unavailable", "failed", "unsupported"]).optional(),
+  }).safeParse(c.req.query());
+  if (!filters.success) throw new HTTPException(400, { message: "Invalid document filters" });
+  const offset = (page - 1) * limit;
+
+  let whereClause = eq(documents.userId, user.id);
+  if (filters.data.caseId) whereClause = and(whereClause, eq(documents.caseId, filters.data.caseId))!;
+  if (filters.data.status) whereClause = and(whereClause, eq(documents.processingStatus, filters.data.status))!;
+
+  const [rows, totalResult] = await Promise.all([
+    db.query.documents.findMany({ where: whereClause, orderBy: [desc(documents.createdAt)], limit, offset }),
+    db.select({ count: count() }).from(documents).where(whereClause),
+  ]);
+  const findingCounts = rows.length === 0 ? [] : await db.select({ documentId: documentFindings.documentId, count: count() })
+    .from(documentFindings)
+    .where(inArray(documentFindings.documentId, rows.map((row) => row.id)))
+    .groupBy(documentFindings.documentId);
+  const countByDocument = new Map(findingCounts.map((entry) => [entry.documentId, entry.count]));
+
+  return c.json({
+    documents: rows.map((row) => documentSummaryView(row, countByDocument.get(row.id) ?? 0)),
+    total: totalResult[0]?.count || 0,
+    page,
+    limit,
+  });
+});
+
+app.get("/documents/:id", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  const [findings, interpretations] = await Promise.all([
+    db.query.documentFindings.findMany({ where: eq(documentFindings.documentId, id), orderBy: [documentFindings.id] }),
+    db.query.documentInterpretations.findMany({ where: and(eq(documentInterpretations.documentId, id), eq(documentInterpretations.userId, user.id)), orderBy: [desc(documentInterpretations.createdAt)] }),
+  ]);
+  return c.json({
+    document: {
+      ...documentSummaryView(document, findings.length),
+      textPages: document.textPages ?? [],
+      metadata: document.metadata ?? {},
+      findings: findings.map(findingView),
+      interpretations: interpretations.map(interpretationView),
+    },
+  });
+});
+
+app.get("/documents/:id/file", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  let bytes: Buffer;
+  try {
+    bytes = await storage.read(document.storageKey);
+  } catch {
+    throw new HTTPException(404, { message: "Stored document is unavailable" });
+  }
+  c.header("Content-Type", document.mimeType);
+  c.header("Content-Disposition", `inline; filename="${document.originalFileName.replace(/["\\\r\n]/g, "_")}"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(new Uint8Array(bytes));
+});
+
+app.post("/documents/:id/reprocess", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  if (document.processingStatus === "processing") throw new HTTPException(409, { message: "Document processing is already in progress" });
+  const [updated] = await db.update(documents).set({ processingStatus: "uploaded", extractionErrorCode: null, updatedAt: new Date() }).where(eq(documents.id, id)).returning();
+  await logAudit(c, "document", "reprocess", "success", "document", id.toString());
+  scheduleDocumentProcessing(id, { storage });
+  return c.json({ document: documentSummaryView(updated!) });
+});
+
+app.delete("/documents/:id", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  await db.delete(documents).where(and(eq(documents.id, id), eq(documents.userId, user.id)));
+  await storage.delete(document.storageKey).catch(() => undefined);
+  await logAudit(c, "document", "delete", "success", "document", id.toString());
+  return c.body(null, 204);
+});
+
+const updateFindingSchema = z.object({
+  status: z.enum(["confirmed", "corrected", "rejected", "candidate"]),
+  correctedLabel: z.string().trim().min(1).max(200).optional(),
+  correctedValueText: z.string().trim().min(1).max(120).optional(),
+  correctedUnit: z.string().trim().max(60).optional(),
+  correctedReferenceRange: z.string().trim().max(120).optional(),
+}).superRefine((value, ctx) => {
+  if (value.status === "corrected" && !value.correctedLabel && !value.correctedValueText && !value.correctedUnit && !value.correctedReferenceRange) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A corrected finding requires at least one corrected field" });
+  }
+});
+
+app.patch("/documents/:id/findings/:findingId", requireAuth, jsonBody(updateFindingSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const findingId = parseId(c.req.param("findingId"));
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  const data = c.req.valid("json");
+  const corrected = data.status === "corrected";
+  const [finding] = await db.update(documentFindings).set({
+    status: data.status,
+    correctedLabel: corrected ? data.correctedLabel ?? null : null,
+    correctedValueText: corrected ? data.correctedValueText ?? null : null,
+    correctedUnit: corrected ? data.correctedUnit ?? null : null,
+    correctedReferenceRange: corrected ? data.correctedReferenceRange ?? null : null,
+    correctedAt: corrected || data.status === "confirmed" ? new Date() : null,
+    updatedAt: new Date(),
+  }).where(and(eq(documentFindings.id, findingId), eq(documentFindings.documentId, id))).returning();
+  if (!finding) throw new HTTPException(404, { message: "Finding not found" });
+  await logAudit(c, "document", "finding_update", "success", "document_finding", finding.id.toString(), { status: data.status });
+  return c.json({ finding: findingView(finding) });
+});
+
+const interpretRequestSchema = z.object({
+  consentToExternalProcessing: z.boolean(),
+});
+
+app.post("/documents/:id/interpretations", requireAuth, jsonBody(interpretRequestSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const request = c.req.valid("json");
+  if (!request.consentToExternalProcessing) {
+    throw codedError(400, "external_data_consent_required", "Explicit consent is required before extracted findings are sent for external interpretation.");
+  }
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, id), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  if (!["extracted", "needs_review"].includes(document.processingStatus)) {
+    throw codedError(409, "document_not_eligible", "Only extracted or needs-review documents can be interpreted.");
+  }
+  const findings = await db.query.documentFindings.findMany({ where: eq(documentFindings.documentId, id), orderBy: [documentFindings.id] });
+  const usableFindings = findings.filter((finding) => finding.status !== "rejected").slice(0, 100);
+  if (usableFindings.length === 0) {
+    throw codedError(409, "no_findings", "No extracted findings are available for interpretation.");
+  }
+  if (!externalHealthDataTransferEnabled()) {
+    await logAudit(c, "document_interpretation", "generate", "failure", "document", id.toString(), { reason: "external_processing_disabled" });
+    throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+  }
+  const interpreter = getDocumentInterpreter();
+  if (interpreter.status !== "configured" && interpreter.status !== "test") {
+    await logAudit(c, "document_interpretation", "generate", "failure", "document", id.toString(), { reason: "provider_unavailable" });
+    throw codedError(503, "provider_unavailable", "The configured interpretation provider is unavailable.");
+  }
+  try {
+    const result = await interpreter.interpreter!.interpret({
+      documentType: document.documentType,
+      pageCount: document.pageCount,
+      extractionMethod: document.extractionMethod ?? "none",
+      findings: usableFindings.map((finding) => ({
+        label: finding.correctedLabel ?? finding.label,
+        valueText: finding.correctedValueText ?? finding.valueText,
+        unit: finding.correctedUnit ?? finding.unit,
+        referenceRange: finding.correctedReferenceRange ?? finding.referenceRange,
+        pageNumber: finding.pageNumber,
+        sourceText: finding.sourceText,
+      })),
+    });
+    const [interpretation] = await db.insert(documentInterpretations).values({
+      documentId: id,
+      userId: user.id,
+      provider: result.provider,
+      providerModel: result.model,
+      status: "completed",
+      sections: result.sections as unknown as Record<string, unknown>,
+    }).returning();
+    await logAudit(c, "document_interpretation", "generate", "success", "document", id.toString(), { provider: result.provider, providerModel: result.model });
+    return c.json({
+      interpretation: interpretationView(interpretation!),
+      notice: "Provider-generated educational text may be incomplete or inaccurate. It is not a diagnosis or treatment advice. Extracted values require user confirmation.",
+    }, 201);
+  } catch (error) {
+    if (error instanceof InterpretationValidationError) {
+      await logAudit(c, "document_interpretation", "generate", "error", "document", id.toString(), { reason: "invalid_provider_output" });
+      throw codedError(502, "provider_malformed_response", "The interpretation provider returned output that failed safety validation. Nothing was saved.");
+    }
+    const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+    const outcome = code === "provider_rate_limited" ? "failure" : "error";
+    await logAudit(c, "document_interpretation", "generate", outcome, "document", id.toString(), { reason: code });
+    if (code === "provider_rate_limited") throw codedError(429, "provider_rate_limited", "The interpretation provider is rate limited. Try again later.");
+    if (code === "provider_malformed_response") throw codedError(502, "provider_malformed_response", "The interpretation provider returned malformed output. Nothing was saved.");
+    throw codedError(503, "provider_unavailable", "The interpretation provider could not complete this request.");
+  }
+});
+
+const explanationRequestSchema = z.object({
+  predictionId: z.number().int().positive(),
+  consentToExternalProcessing: z.boolean(),
+});
 
 app.post("/ai/explanations", requireAuth, jsonBody(explanationRequestSchema), async (c) => {
   const user = c.get("user");
@@ -676,6 +1043,54 @@ app.get("/cases/:id", requireAuth, async (c) => {
   return c.json({ case: caseData });
 });
 
+app.get("/cases/:id/workspace", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, id), eq(cases.createdById, user.id)) });
+  if (!caseData) throw new HTTPException(404, { message: "Case not found" });
+  const patient = await db.query.patients.findFirst({ where: and(eq(patients.id, caseData.patientId), eq(patients.userId, user.id)) });
+
+  const caseUploads = await db.query.uploads.findMany({ where: and(eq(uploads.caseId, id), eq(uploads.userId, user.id)), orderBy: [desc(uploads.createdAt)] });
+  const uploadIds = caseUploads.map((upload) => upload.id);
+  const casePredictions = uploadIds.length === 0 ? [] : await db.select({ prediction: predictions })
+    .from(predictions)
+    .innerJoin(uploads, eq(predictions.uploadId, uploads.id))
+    .where(and(eq(predictions.userId, user.id), inArray(predictions.uploadId, uploadIds)))
+    .orderBy(desc(predictions.createdAt));
+  const caseDocuments = await db.query.documents.findMany({ where: and(eq(documents.caseId, id), eq(documents.userId, user.id)), orderBy: [desc(documents.createdAt)] });
+  const caseAssessments = await db.query.symptomAssessments.findMany({ where: and(eq(symptomAssessments.caseId, id), eq(symptomAssessments.userId, user.id)), orderBy: [desc(symptomAssessments.createdAt)] });
+  const caseReports = await db.query.reports.findMany({ where: and(eq(reports.caseId, id), eq(reports.authorId, user.id)), orderBy: [desc(reports.createdAt)] });
+
+  const documentFindingCounts = caseDocuments.length === 0 ? [] : await db.select({ documentId: documentFindings.documentId, count: count() })
+    .from(documentFindings)
+    .where(inArray(documentFindings.documentId, caseDocuments.map((document) => document.id)))
+    .groupBy(documentFindings.documentId);
+  const countByDocument = new Map(documentFindingCounts.map((entry) => [entry.documentId, entry.count]));
+
+  return c.json({
+    case: caseData,
+    patient: patient ? { id: patient.id, firstName: patient.firstName, lastName: patient.lastName } : null,
+    uploads: caseUploads.map((upload) => ({
+      id: upload.id,
+      originalFileName: upload.originalFileName,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      width: upload.width,
+      height: upload.height,
+      createdAt: upload.createdAt,
+    })),
+    predictions: casePredictions.map(({ prediction }) => predictionView(prediction)),
+    documents: caseDocuments.map((document) => documentSummaryView(document, countByDocument.get(document.id) ?? 0)),
+    symptomAssessments: caseAssessments,
+    reports: caseReports,
+    limitations: [
+      "Each item below shows what actually ran and when. Incompatible model outputs are never merged into a single score.",
+      "Skin model outputs are listed only when a verified inference provider produced them.",
+      "Extracted document findings require user confirmation and are not clinical conclusions.",
+    ],
+  });
+});
+
 app.patch("/cases/:id", requireAuth, jsonBody(updateCaseSchema), async (c) => {
   const user = c.get("user");
   const id = parseId(c.req.param("id"));
@@ -734,10 +1149,14 @@ function assessUrgency(data: z.infer<typeof createSymptomAssessmentSchema>): { u
 app.get("/symptom-assessments", requireAuth, async (c) => {
   const user = c.get("user");
   const { page, limit } = parsePagination(c.req.query());
+  const filters = z.object({ caseId: z.coerce.number().int().positive().optional() }).safeParse(c.req.query());
+  if (!filters.success) throw new HTTPException(400, { message: "Invalid symptom assessment filters" });
   const offset = (page - 1) * limit;
+  let whereClause = eq(symptomAssessments.userId, user.id);
+  if (filters.data.caseId) whereClause = and(whereClause, eq(symptomAssessments.caseId, filters.data.caseId))!;
   const [items, totalResult] = await Promise.all([
-    db.query.symptomAssessments.findMany({ where: eq(symptomAssessments.userId, user.id), orderBy: [desc(symptomAssessments.createdAt)], limit, offset }),
-    db.select({ count: count() }).from(symptomAssessments).where(eq(symptomAssessments.userId, user.id)),
+    db.query.symptomAssessments.findMany({ where: whereClause, orderBy: [desc(symptomAssessments.createdAt)], limit, offset }),
+    db.select({ count: count() }).from(symptomAssessments).where(whereClause),
   ]);
   return c.json({ assessments: items, total: totalResult[0]?.count || 0, page, limit });
 });
@@ -921,6 +1340,61 @@ app.get("/reports/:id", requireAuth, async (c) => {
   const report = await db.query.reports.findFirst({ where: and(eq(reports.id, id), eq(reports.authorId, user.id)) });
   if (!report) throw new HTTPException(404, { message: "Report not found" });
   return c.json({ report });
+});
+
+function renderReportText(report: typeof reports.$inferSelect): string {
+  const content = (report.content ?? {}) as Record<string, any>;
+  const lines: string[] = [];
+  lines.push(`MedScope AI draft report ${report.reportNumber}`);
+  lines.push(`${report.title} (${report.type.replace(/_/g, " ")})`);
+  lines.push(`Status: ${report.status} | Created: ${new Date(report.createdAt).toISOString()}`);
+  lines.push("");
+  lines.push("IMPORTANT: Research and education prototype. Not a diagnosis. Not a signed or clinically reviewed document.");
+  lines.push("");
+  if (content.case) {
+    lines.push("Case");
+    lines.push(`  Number: ${content.case.caseNumber ?? "n/a"}`);
+    lines.push(`  Type: ${content.case.type ?? "n/a"} | Status: ${content.case.status ?? "n/a"} | Priority: ${content.case.priority ?? "n/a"}`);
+    if (content.case.chiefComplaint) lines.push(`  Chief complaint, as entered: ${content.case.chiefComplaint}`);
+    lines.push("");
+  }
+  if (content.patient) {
+    lines.push(`Patient: ${content.patient.name ?? "n/a"} (record #${content.patient.id ?? "n/a"})`);
+    lines.push("");
+  }
+  if (Array.isArray(content.symptomAssessments) && content.symptomAssessments.length > 0) {
+    lines.push("Symptom assessments (rule-based guidance records)");
+    for (const assessment of content.symptomAssessments) {
+      lines.push(`  - ${assessment.createdAt ?? ""} [${assessment.urgencyLevel ?? "unknown"}] ${assessment.primarySymptom ?? ""} (${assessment.symptomCategory ?? ""})`);
+      for (const recommendation of assessment.guidance?.recommendations ?? []) lines.push(`      ${recommendation}`);
+    }
+    lines.push("");
+  }
+  if (Array.isArray(content.modelOutputs) && content.modelOutputs.length > 0) {
+    lines.push("Model outputs (each retains its own provenance)");
+    for (const output of content.modelOutputs) {
+      lines.push(`  - ${output.disease ?? "unverified"} | status: ${output.status ?? "n/a"} | semantics: ${output.scoreSemantics ?? "n/a"}`);
+      lines.push(`      model: ${output.modelId ?? "n/a"} ${output.modelVersion ?? ""} | saved: ${output.createdAt ?? ""}`);
+    }
+    lines.push("");
+  }
+  lines.push("Limitations");
+  for (const limitation of content.limitations ?? ["Draft assembled from saved application records."]) lines.push(`  - ${limitation}`);
+  lines.push("");
+  lines.push("This export contains only records owned by the requesting account. PDF signature and clinician review workflows are not implemented.");
+  return lines.join("\n");
+}
+
+app.get("/reports/:id/export", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const report = await db.query.reports.findFirst({ where: and(eq(reports.id, id), eq(reports.authorId, user.id)) });
+  if (!report) throw new HTTPException(404, { message: "Report not found" });
+  await logAudit(c, "report", "export", "success", "report", report.id.toString());
+  c.header("Content-Type", "text/plain; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="${report.reportNumber}.txt"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(renderReportText(report));
 });
 
 app.patch("/reports/:id", requireAuth, jsonBody(updateReportSchema), async (c) => {

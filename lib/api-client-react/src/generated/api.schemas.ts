@@ -27,10 +27,26 @@ export const ReadinessStatusChecksAiProvider = {
   configured: 'configured',
 } as const;
 
+export type ReadinessStatusChecksDocumentOcrStatus = typeof ReadinessStatusChecksDocumentOcrStatus[keyof typeof ReadinessStatusChecksDocumentOcrStatus];
+
+
+export const ReadinessStatusChecksDocumentOcrStatus = {
+  disabled: 'disabled',
+  configured: 'configured',
+} as const;
+
+export type ReadinessStatusChecksDocumentOcr = {
+  status?: ReadinessStatusChecksDocumentOcrStatus;
+  providerId?: string;
+  reason?: string;
+};
+
 export type ReadinessStatusChecks = {
   database?: boolean;
   model?: boolean;
+  cardiacModel?: boolean;
   aiProvider?: ReadinessStatusChecksAiProvider;
+  documentOcr?: ReadinessStatusChecksDocumentOcr;
 };
 
 export interface ReadinessStatus {
@@ -668,6 +684,253 @@ export interface UpdateReportRequest {
   status: UpdateReportRequestStatus;
 }
 
+export interface UploadDocumentRequest {
+  file: Blob | File;
+  caseId?: number;
+}
+
+export type DocumentDocumentType = typeof DocumentDocumentType[keyof typeof DocumentDocumentType];
+
+
+export const DocumentDocumentType = {
+  lab_report: 'lab_report',
+  medical_summary: 'medical_summary',
+  discharge_summary: 'discharge_summary',
+  prescription: 'prescription',
+  radiology_report: 'radiology_report',
+  other: 'other',
+  unknown: 'unknown',
+} as const;
+
+export type DocumentProcessingStatus = typeof DocumentProcessingStatus[keyof typeof DocumentProcessingStatus];
+
+
+export const DocumentProcessingStatus = {
+  uploaded: 'uploaded',
+  processing: 'processing',
+  extracted: 'extracted',
+  needs_review: 'needs_review',
+  ocr_unavailable: 'ocr_unavailable',
+  failed: 'failed',
+  unsupported: 'unsupported',
+} as const;
+
+export interface Document {
+  id: number;
+  /** @nullable */
+  caseId?: number | null;
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** @nullable */
+  pageCount?: number | null;
+  documentType: DocumentDocumentType;
+  /** @nullable */
+  documentTypeSource?: string | null;
+  processingStatus: DocumentProcessingStatus;
+  /** @nullable */
+  extractionMethod?: string | null;
+  /** @nullable */
+  extractionErrorCode?: string | null;
+  /** @nullable */
+  extractedAt?: string | null;
+  findingCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DocumentFindingCategory = typeof DocumentFindingCategory[keyof typeof DocumentFindingCategory];
+
+
+export const DocumentFindingCategory = {
+  lab_result: 'lab_result',
+  vital_sign: 'vital_sign',
+  medication: 'medication',
+  diagnosis: 'diagnosis',
+  impression: 'impression',
+  other: 'other',
+} as const;
+
+export type DocumentFindingStatus = typeof DocumentFindingStatus[keyof typeof DocumentFindingStatus];
+
+
+export const DocumentFindingStatus = {
+  candidate: 'candidate',
+  confirmed: 'confirmed',
+  corrected: 'corrected',
+  rejected: 'rejected',
+} as const;
+
+export interface DocumentFinding {
+  id: number;
+  documentId: number;
+  /** @nullable */
+  pageNumber?: number | null;
+  category: DocumentFindingCategory;
+  label: string;
+  valueText: string;
+  /** @nullable */
+  numericValue?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  referenceRange?: string | null;
+  /** @nullable */
+  resultFlag?: string | null;
+  /** @nullable */
+  confidence?: number | null;
+  /** @nullable */
+  sourceText?: string | null;
+  status: DocumentFindingStatus;
+  /** @nullable */
+  correctedLabel?: string | null;
+  /** @nullable */
+  correctedValueText?: string | null;
+  /** @nullable */
+  correctedUnit?: string | null;
+  /** @nullable */
+  correctedReferenceRange?: string | null;
+  /** @nullable */
+  correctedAt?: string | null;
+  createdAt: string;
+}
+
+export type DocumentInterpretationStatus = typeof DocumentInterpretationStatus[keyof typeof DocumentInterpretationStatus];
+
+
+export const DocumentInterpretationStatus = {
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export type DocumentInterpretationSections = { [key: string]: unknown };
+
+export interface DocumentInterpretation {
+  id: number;
+  documentId: number;
+  provider: string;
+  providerModel: string;
+  status: DocumentInterpretationStatus;
+  /** @nullable */
+  errorCode?: string | null;
+  sections: DocumentInterpretationSections;
+  createdAt: string;
+}
+
+export type DocumentDetailTextPagesItemMethod = typeof DocumentDetailTextPagesItemMethod[keyof typeof DocumentDetailTextPagesItemMethod];
+
+
+export const DocumentDetailTextPagesItemMethod = {
+  text: 'text',
+  ocr: 'ocr',
+} as const;
+
+export type DocumentDetailTextPagesItem = {
+  page?: number;
+  text?: string;
+  method?: DocumentDetailTextPagesItemMethod;
+};
+
+export type DocumentDetailMetadata = { [key: string]: unknown };
+
+export type DocumentDetail = Document & {
+  textPages?: DocumentDetailTextPagesItem[];
+  metadata?: DocumentDetailMetadata;
+  findings?: DocumentFinding[];
+  interpretations?: DocumentInterpretation[];
+};
+
+export interface DocumentResponse {
+  document: Document;
+}
+
+export interface DocumentDetailResponse {
+  document: DocumentDetail;
+}
+
+export interface DocumentListResponse {
+  documents: Document[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type UpdateDocumentFindingRequestStatus = typeof UpdateDocumentFindingRequestStatus[keyof typeof UpdateDocumentFindingRequestStatus];
+
+
+export const UpdateDocumentFindingRequestStatus = {
+  candidate: 'candidate',
+  confirmed: 'confirmed',
+  corrected: 'corrected',
+  rejected: 'rejected',
+} as const;
+
+export interface UpdateDocumentFindingRequest {
+  status: UpdateDocumentFindingRequestStatus;
+  correctedLabel?: string;
+  correctedValueText?: string;
+  correctedUnit?: string;
+  correctedReferenceRange?: string;
+}
+
+export interface DocumentFindingResponse {
+  finding: DocumentFinding;
+}
+
+export interface InterpretDocumentRequest {
+  consentToExternalProcessing: boolean;
+}
+
+export interface DocumentInterpretationResponse {
+  interpretation: DocumentInterpretation;
+  notice: string;
+}
+
+export type CardiacModelStatusStatus = typeof CardiacModelStatusStatus[keyof typeof CardiacModelStatusStatus];
+
+
+export const CardiacModelStatusStatus = {
+  model_unavailable: 'model_unavailable',
+} as const;
+
+export type CardiacModelStatusContract = { [key: string]: unknown };
+
+export interface CardiacModelStatus {
+  available: boolean;
+  status: CardiacModelStatusStatus;
+  reason: string;
+  contract: CardiacModelStatusContract;
+}
+
+/**
+ * @nullable
+ */
+export type CaseWorkspaceResponsePatient = { [key: string]: unknown } | null;
+
+export interface WorkspaceUploadItem {
+  id: number;
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** @nullable */
+  width?: number | null;
+  /** @nullable */
+  height?: number | null;
+  createdAt: string;
+}
+
+export interface CaseWorkspaceResponse {
+  case: Case;
+  /** @nullable */
+  patient?: CaseWorkspaceResponsePatient;
+  uploads: WorkspaceUploadItem[];
+  predictions: PredictionRecord[];
+  documents: Document[];
+  symptomAssessments: SymptomAssessment[];
+  reports: Report[];
+  limitations?: string[];
+}
+
 export interface ErrorResponse {
   error: string;
   message: string;
@@ -733,6 +996,10 @@ page?: number;
  * @maximum 100
  */
 limit?: number;
+/**
+ * Only return assessments linked to this owned case
+ */
+caseId?: number;
 };
 
 export type ListReportsParams = {
@@ -757,5 +1024,32 @@ export const ListReportsStatus = {
   finalized: 'finalized',
   archived: 'archived',
   amended: 'amended',
+} as const;
+
+export type ListDocumentsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+caseId?: number;
+status?: ListDocumentsStatus;
+};
+
+export type ListDocumentsStatus = typeof ListDocumentsStatus[keyof typeof ListDocumentsStatus];
+
+
+export const ListDocumentsStatus = {
+  uploaded: 'uploaded',
+  processing: 'processing',
+  extracted: 'extracted',
+  needs_review: 'needs_review',
+  ocr_unavailable: 'ocr_unavailable',
+  failed: 'failed',
+  unsupported: 'unsupported',
 } as const;
 

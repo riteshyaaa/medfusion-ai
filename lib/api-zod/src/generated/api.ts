@@ -26,7 +26,13 @@ export const ReadinessCheckResponse = zod.object({
   "checks": zod.object({
   "database": zod.boolean().optional(),
   "model": zod.boolean().optional(),
-  "aiProvider": zod.enum(['disabled', 'unconfigured', 'misconfigured', 'configured']).optional()
+  "cardiacModel": zod.boolean().optional(),
+  "aiProvider": zod.enum(['disabled', 'unconfigured', 'misconfigured', 'configured']).optional(),
+  "documentOcr": zod.object({
+  "status": zod.enum(['disabled', 'configured']).optional(),
+  "providerId": zod.string().optional(),
+  "reason": zod.string().optional()
+}).optional()
 })
 })
 
@@ -614,7 +620,8 @@ export const listSymptomAssessmentsQueryLimitMax = 100;
 
 export const ListSymptomAssessmentsQueryParams = zod.object({
   "page": zod.coerce.number().int().min(1).default(listSymptomAssessmentsQueryPageDefault),
-  "limit": zod.coerce.number().int().min(1).max(listSymptomAssessmentsQueryLimitMax).default(listSymptomAssessmentsQueryLimitDefault)
+  "limit": zod.coerce.number().int().min(1).max(listSymptomAssessmentsQueryLimitMax).default(listSymptomAssessmentsQueryLimitDefault),
+  "caseId": zod.coerce.number().int().optional().describe('Only return assessments linked to this owned case')
 })
 
 export const ListSymptomAssessmentsResponse = zod.object({
@@ -947,5 +954,409 @@ export const UpdateReportResponse = zod.object({
   "updatedAt": zod.string()
 })
 })
+
+
+/**
+ * Accepts a text-based PDF, scanned PDF, PNG, or JPEG report. Extraction runs asynchronously; poll the document until processingStatus leaves uploaded/processing.
+ * @summary Upload a medical report document
+ */
+export const UploadDocumentBody = zod.object({
+  "file": zod.instanceof(Blob),
+  "caseId": zod.number().int().optional()
+})
+
+export const UploadDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "pageCount": zod.number().int().nullish(),
+  "documentType": zod.enum(['lab_report', 'medical_summary', 'discharge_summary', 'prescription', 'radiology_report', 'other', 'unknown']),
+  "documentTypeSource": zod.string().nullish(),
+  "processingStatus": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']),
+  "extractionMethod": zod.string().nullish(),
+  "extractionErrorCode": zod.string().nullish(),
+  "extractedAt": zod.string().nullish(),
+  "findingCount": zod.number().int().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+})
+
+
+/**
+ * @summary List the authenticated user's documents
+ */
+export const listDocumentsQueryPageDefault = 1;
+
+export const listDocumentsQueryLimitDefault = 20;
+export const listDocumentsQueryLimitMax = 100;
+
+
+
+export const ListDocumentsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).default(listDocumentsQueryPageDefault),
+  "limit": zod.coerce.number().int().min(1).max(listDocumentsQueryLimitMax).default(listDocumentsQueryLimitDefault),
+  "caseId": zod.coerce.number().int().optional(),
+  "status": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']).optional()
+})
+
+export const ListDocumentsResponse = zod.object({
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "pageCount": zod.number().int().nullish(),
+  "documentType": zod.enum(['lab_report', 'medical_summary', 'discharge_summary', 'prescription', 'radiology_report', 'other', 'unknown']),
+  "documentTypeSource": zod.string().nullish(),
+  "processingStatus": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']),
+  "extractionMethod": zod.string().nullish(),
+  "extractionErrorCode": zod.string().nullish(),
+  "extractedAt": zod.string().nullish(),
+  "findingCount": zod.number().int().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+/**
+ * @summary Get a document with extracted findings and interpretations
+ */
+export const GetDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "pageCount": zod.number().int().nullish(),
+  "documentType": zod.enum(['lab_report', 'medical_summary', 'discharge_summary', 'prescription', 'radiology_report', 'other', 'unknown']),
+  "documentTypeSource": zod.string().nullish(),
+  "processingStatus": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']),
+  "extractionMethod": zod.string().nullish(),
+  "extractionErrorCode": zod.string().nullish(),
+  "extractedAt": zod.string().nullish(),
+  "findingCount": zod.number().int().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}).and(zod.object({
+  "textPages": zod.array(zod.object({
+  "page": zod.number().int().optional(),
+  "text": zod.string().optional(),
+  "method": zod.enum(['text', 'ocr']).optional()
+})).optional(),
+  "metadata": zod.object({
+
+}).passthrough().optional(),
+  "findings": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentId": zod.number().int(),
+  "pageNumber": zod.number().int().nullish(),
+  "category": zod.enum(['lab_result', 'vital_sign', 'medication', 'diagnosis', 'impression', 'other']),
+  "label": zod.string(),
+  "valueText": zod.string(),
+  "numericValue": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "referenceRange": zod.string().nullish(),
+  "resultFlag": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sourceText": zod.string().nullish(),
+  "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
+  "correctedLabel": zod.string().nullish(),
+  "correctedValueText": zod.string().nullish(),
+  "correctedUnit": zod.string().nullish(),
+  "correctedReferenceRange": zod.string().nullish(),
+  "correctedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})).optional(),
+  "interpretations": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentId": zod.number().int(),
+  "provider": zod.string(),
+  "providerModel": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "sections": zod.object({
+
+}).passthrough(),
+  "createdAt": zod.string()
+})).optional()
+}))
+})
+
+
+/**
+ * @summary Delete a document, its findings, and stored file
+ */
+export const DeleteDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DeleteDocumentResponse = zod.void()
+
+
+/**
+ * @summary Download the original stored document file
+ */
+export const DownloadDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const DownloadDocumentResponse = zod.unknown()
+
+
+/**
+ * Clears prior extracted findings and re-runs text extraction or OCR.
+ * @summary Re-run extraction for a document
+ */
+export const ReprocessDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ReprocessDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "pageCount": zod.number().int().nullish(),
+  "documentType": zod.enum(['lab_report', 'medical_summary', 'discharge_summary', 'prescription', 'radiology_report', 'other', 'unknown']),
+  "documentTypeSource": zod.string().nullish(),
+  "processingStatus": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']),
+  "extractionMethod": zod.string().nullish(),
+  "extractionErrorCode": zod.string().nullish(),
+  "extractedAt": zod.string().nullish(),
+  "findingCount": zod.number().int().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Confirm, correct, or reject an extracted finding
+ */
+export const UpdateDocumentFindingParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "findingId": zod.coerce.number().int()
+})
+
+export const UpdateDocumentFindingBody = zod.object({
+  "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
+  "correctedLabel": zod.string().optional(),
+  "correctedValueText": zod.string().optional(),
+  "correctedUnit": zod.string().optional(),
+  "correctedReferenceRange": zod.string().optional()
+})
+
+export const UpdateDocumentFindingResponse = zod.object({
+  "finding": zod.object({
+  "id": zod.number().int(),
+  "documentId": zod.number().int(),
+  "pageNumber": zod.number().int().nullish(),
+  "category": zod.enum(['lab_result', 'vital_sign', 'medication', 'diagnosis', 'impression', 'other']),
+  "label": zod.string(),
+  "valueText": zod.string(),
+  "numericValue": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "referenceRange": zod.string().nullish(),
+  "resultFlag": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sourceText": zod.string().nullish(),
+  "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
+  "correctedLabel": zod.string().nullish(),
+  "correctedValueText": zod.string().nullish(),
+  "correctedUnit": zod.string().nullish(),
+  "correctedReferenceRange": zod.string().nullish(),
+  "correctedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+})
+
+
+/**
+ * Sends only structured findings (corrected values take precedence) to the configured provider. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules and rejected output is never stored.
+ * @summary Generate a consent-gated interpretation of confirmed findings
+ */
+export const InterpretDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const InterpretDocumentBody = zod.object({
+  "consentToExternalProcessing": zod.boolean()
+})
+
+export const InterpretDocumentResponse = zod.object({
+  "interpretation": zod.object({
+  "id": zod.number().int(),
+  "documentId": zod.number().int(),
+  "provider": zod.string(),
+  "providerModel": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "sections": zod.object({
+
+}).passthrough(),
+  "createdAt": zod.string()
+}),
+  "notice": zod.string()
+})
+
+
+/**
+ * Returns the required input feature contract and whether an approved cardiac model artifact is available for inference.
+ * @summary Cardiac model availability and feature contract
+ */
+export const GetCardiacModelStatusResponse = zod.object({
+  "available": zod.boolean(),
+  "status": zod.enum(['model_unavailable']),
+  "reason": zod.string(),
+  "contract": zod.object({
+
+}).passthrough()
+})
+
+
+/**
+ * Returns the case with its uploads, model outputs, documents, symptom assessments, and reports. Outputs from different models are listed side by side, never merged into one score.
+ * @summary Consolidated workspace for a case
+ */
+export const GetCaseWorkspaceParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetCaseWorkspaceResponse = zod.object({
+  "case": zod.object({
+  "id": zod.number().int(),
+  "caseNumber": zod.string(),
+  "patientId": zod.number().int(),
+  "createdById": zod.number().int(),
+  "assignedToId": zod.number().int().optional(),
+  "type": zod.enum(['skin_analysis', 'symptom_assessment', 'follow_up', 'consultation']),
+  "status": zod.enum(['open', 'in_review', 'closed', 'on_hold']),
+  "priority": zod.enum(['low', 'medium', 'high', 'urgent']),
+  "chiefComplaint": zod.string().optional(),
+  "clinicalNotes": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "closedAt": zod.string().optional()
+}),
+  "patient": zod.object({
+
+}).passthrough().nullish(),
+  "uploads": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "width": zod.number().int().nullish(),
+  "height": zod.number().int().nullish(),
+  "createdAt": zod.string()
+})),
+  "predictions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "disease": zod.string(),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "severity": zod.string(),
+  "recommendations": zod.array(zod.string()),
+  "differentialDiagnoses": zod.array(zod.object({
+  "disease": zod.string(),
+  "confidence": zod.number()
+})),
+  "preprocessingSteps": zod.array(zod.string()),
+  "fileName": zod.string().optional(),
+  "modelId": zod.string().nullish(),
+  "modelVersion": zod.string().nullish(),
+  "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']).optional(),
+  "preprocessingVersion": zod.string().nullish(),
+  "status": zod.enum(['completed', 'simulated', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']).optional(),
+  "createdAt": zod.string()
+})),
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "caseId": zod.number().int().nullish(),
+  "originalFileName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "pageCount": zod.number().int().nullish(),
+  "documentType": zod.enum(['lab_report', 'medical_summary', 'discharge_summary', 'prescription', 'radiology_report', 'other', 'unknown']),
+  "documentTypeSource": zod.string().nullish(),
+  "processingStatus": zod.enum(['uploaded', 'processing', 'extracted', 'needs_review', 'ocr_unavailable', 'failed', 'unsupported']),
+  "extractionMethod": zod.string().nullish(),
+  "extractionErrorCode": zod.string().nullish(),
+  "extractedAt": zod.string().nullish(),
+  "findingCount": zod.number().int().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "symptomAssessments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "primarySymptom": zod.string(),
+  "symptomCategory": zod.string(),
+  "onset": zod.string().optional(),
+  "duration": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "progression": zod.string().optional(),
+  "associatedSymptoms": zod.array(zod.string()).optional(),
+  "medicalHistory": zod.array(zod.string()).optional(),
+  "medications": zod.array(zod.string()).optional(),
+  "allergies": zod.array(zod.string()).optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional(),
+  "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
+  "guidance": zod.object({
+  "recommendations": zod.array(zod.string()),
+  "disclaimer": zod.string()
+}),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "reports": zod.array(zod.object({
+  "id": zod.number().int(),
+  "reportNumber": zod.string(),
+  "caseId": zod.number().int(),
+  "authorId": zod.number().int(),
+  "reviewerId": zod.number().int().optional(),
+  "title": zod.string(),
+  "type": zod.enum(['skin_analysis', 'symptom_assessment', 'comprehensive', 'follow_up']),
+  "status": zod.enum(['draft', 'finalized', 'archived', 'amended']),
+  "content": zod.object({
+
+}).passthrough(),
+  "predictionIds": zod.array(zod.number().int()).optional(),
+  "reviewedAt": zod.string().optional(),
+  "finalizedAt": zod.string().optional(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "limitations": zod.array(zod.string()).optional()
+})
+
+
+/**
+ * @summary Export a draft report as plain text
+ */
+export const ExportReportParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ExportReportResponse = zod.string()
 
 
