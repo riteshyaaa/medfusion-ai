@@ -18,6 +18,18 @@ export const predictionsTable = pgTable("predictions", {
   modelVersion: text("model_version"),
   scoreSemantics: text("score_semantics").notNull().default("unverified"),
   preprocessingVersion: text("preprocessing_version"),
+  aiAssessment: jsonb("ai_assessment").$type<{
+    provider: string;
+    model: string;
+    observations: string[];
+    possibleConditions: Array<{ name: string; reason: string }>;
+    uncertainty: string;
+    severity: "mild" | "moderate" | "severe" | "uncertain";
+    urgency: "routine" | "prompt" | "urgent" | "emergency" | "uncertain";
+    nextSteps: string[];
+    consultClinicianWhen: string[];
+    preprocessingSteps: string[];
+  } | null>(),
   uploadId: integer("upload_id").references(() => uploads.id, { onDelete: "set null" }),
   // Retained for compatibility with any pre-migration database. New code never writes or returns this column.
   imageBase64: text("image_base64"),

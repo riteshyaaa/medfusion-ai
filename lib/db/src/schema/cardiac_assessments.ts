@@ -8,7 +8,7 @@ export const cardiacAssessments = pgTable("cardiac_assessments", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   caseId: integer("case_id").references(() => cases.id, { onDelete: "set null" }),
-  inputs: jsonb("inputs").$type<Record<string, string | number>>().notNull(),
+  inputs: jsonb("inputs").$type<Record<string, string | number | string[]>>().notNull(),
   riskScore: real("risk_score"),
   aboveThreshold: boolean("above_threshold"),
   label: text("label", { enum: ["disease", "no_disease"] }),
@@ -19,6 +19,17 @@ export const cardiacAssessments = pgTable("cardiac_assessments", {
   topFactors: jsonb("top_factors").$type<Array<{ feature: string; description: string; contribution: number; unit: string | null }>>().default([]),
   notice: text("notice").notNull(),
   diagnosticLimitations: jsonb("diagnostic_limitations").$type<string[]>().default([]),
+  aiAssessment: jsonb("ai_assessment").$type<{
+    status: "completed" | "skipped_urgent";
+    provider?: string;
+    model?: string;
+    summary?: string;
+    possibleExplanations?: Array<{ explanation: string; whyItMayFit: string }>;
+    uncertainty?: string;
+    suggestedNextSteps?: string[];
+    warningSigns: string[];
+    notice: string;
+  } | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index("cardiac_assessments_user_id_created_at_idx").on(table.userId, table.createdAt)]);
 

@@ -30,6 +30,17 @@ export const symptomAssessments = pgTable("symptom_assessments", {
     rankedConditions?: Array<{ condition: string; score: number; supportingSymptoms: string[]; nonSupportingSymptoms: string[] }>;
     unmatchedSymptoms?: string[];
     diagnosticLimitations?: string[];
+    aiAssessment?: {
+      status: "completed" | "skipped_urgent";
+      provider?: string;
+      model?: string;
+      summary?: string;
+      possibleExplanations?: Array<{ explanation: string; whyItMayFit: string }>;
+      uncertainty?: string;
+      suggestedNextSteps?: string[];
+      warningSigns: string[];
+      notice: string;
+    } | null;
   } | null>(),
   status: text("status", { enum: ["draft", "completed", "reviewed"] }).notNull().default("completed"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
