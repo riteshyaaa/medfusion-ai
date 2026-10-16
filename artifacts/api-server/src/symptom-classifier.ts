@@ -120,6 +120,26 @@ export function resetSymptomClassifierCache(): void {
   manifest = null;
 }
 
+export function getSymptomCatalogueIds(): string[] | null {
+  return bundle ? [...bundle.features] : null;
+}
+
+export function getSymptomAssociation(featureIds: string[]): Array<{ condition: string; strength: number }> | null {
+  if (!bundle) return null;
+  const featureIndex = new Map(bundle.features.map((feature, index) => [feature, index]));
+  const indices = featureIds
+    .map((id) => featureIndex.get(id))
+    .filter((value): value is number => value !== undefined);
+  if (indices.length === 0) return null;
+  const rows = bundle.classes.map((cls) => {
+    let strength = 0;
+    for (const index of indices) strength += bundle!.presentLogProb[cls][index] - bundle!.absentLogProb[cls][index];
+    return { condition: cls, strength };
+  });
+  rows.sort((left, right) => right.strength - left.strength);
+  return rows.filter((row) => row.strength > 0).slice(0, 8);
+}
+
 export async function getSymptomClassifierStatus(): Promise<SymptomClassifierStatus> {
   if (cache && Date.now() - cache.at < STATUS_CACHE_TTL_MS) return cache.status;
   let status: SymptomClassifierStatus;

@@ -416,3 +416,119 @@ export function configuredExplanationProvider(
   if (state.status !== "configured") return { status: state.status };
   return { status: state.status, provider: createExplanationProvider(state.config, options) };
 }
+
+export type SymptomConditionInput = {
+  primarySymptom: string;
+  symptomCategory: string;
+  severity?: string;
+  progression?: string;
+  selectedSymptoms?: string[];
+  redFlags?: string[];
+  urgencyLevel?: string;
+};
+export type AIConditionSuggestion = { condition: string; rationale: string };
+export type SymptomConditionAnalysis = {
+  provider: AIProviderId;
+  model: string;
+  topConditions: AIConditionSuggestion[];
+  note: string;
+};
+
+const symptomConditionSchema = z.object({
+  topConditions: z.array(z.object({
+    condition: z.string().trim().min(2).max(120).regex(/^[^\u0000-\u001f\u007f]+$/),
+    rationale: z.string().trim().min(1).max(600).regex(/^[^\u0000-\u001f\u007f]+$/),
+  }).strict()).min(1).max(3),
+  note: z.string().trim().min(1).max(300).regex(/^[^\u0000-\u001f\u007f]+$/),
+}).strict();
+
+const symptomConditionJsonSchema = {
+  type: "object",
+  properties: {
+    topConditions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { condition: { type: "string" }, rationale: { type: "string" } },
+        required: ["condition", "rationale"],
+        additionalProperties: false,
+      },
+    },
+    note: { type: "string" },
+  },
+  required: ["topConditions", "note"],
+  additionalProperties: false,
+};
+
+const symptomConditionPrompt = [
+  "You are helping a non-clinical person explore what commonly causes the symptoms they described.",
+  "List at most 3 generally recognized common conditions that are classically associated with the supplied symptom pattern, ranked from most to least typical.",
+  "Explain briefly why each is commonly associated, using general health-education knowledge.",
+  "Hard rules: never claim the person has any condition; no diagnosis, no certainty, no treatment or medication advice; never invent a probability, percentage, number, or statistic; only conditions already well known to the public.",
+  "Fields must be plain text with no line breaks.",
+  "Return only the JSON object required by the response schema.",
+].join(" ");
+
+const symptomClaimRe = /\b(you have|you are having|diagnose|diagnosed|diagnosis of|this confirms|definitely|certainly|as treatment|take [a-z]+|start [a-z]+ (?:dose|tablet)|should stop taking)\b/i;
+
+function describeSymptoms(input: SymptomConditionInput): string {
+  return JSON.stringify({
+    task: "Suggest up to 3 generally common conditions classically associated with this symptom pattern, for education only.",
+    courses: {
+      conditionCount: 3,
+      rationaleConstraint: "why this condition is classically associated with such symptoms; no diagnosis, no treatment, no numbers",
+    },
+    primarySymptom: input.primarySymptom,
+    symptomCategory: input.symptomCategory,
+    ...(input.severity ? { severity: input.severity } : {}),
+    ...(input.progression ? { progression: input.progression } : {}),
+    selectedCuratedSymptoms: input.selectedSymptoms ?? [],
+    matchedUrgencyFlags: input.redFlags ?? [],
+    urgencyLevel: input.urgencyLevel,
+  });
+}
+
+export type SymptomConditionProvider = { analyze(input: SymptomConditionInput): Promise<SymptomConditionAnalysis> };
+export function createSymptomConditionProvider(
+  config: ProviderConfig,
+  options: ProviderRequestOptions = {},
+): SymptomConditionProvider {
+  return {
+    async analyze(input) {
+      const responsePayload = await executeProviderStructuredRequest(config, {
+        system: symptomConditionPrompt,
+        user: describeSymptoms(input),
+        schemaName: "medscope_symptom_condition_exploration",
+        jsonSchema: symptomConditionJsonSchema,
+        maxOutputTokens: 1_600,
+      }, options);
+      const decoded = decodeStructuredProviderText(config, responsePayload);
+      const parsed = symptomConditionSchema.safeParse(decoded);
+      if (!parsed.success) throw new AIProviderError("provider_malformed_response");
+      const claimsDiagnosis = parsed.data.topConditions.some((row) => symptomClaimRe.test(row.rationale) || symptomClaimRe.test(row.condition))
+        || /\d/.test(parsed.data.note)
+        || parsed.data.topConditions.some((row) => /\d/.test(row.rationale));
+      if (claimsDiagnosis) throw new AIProviderError("provider_malformed_response");
+      const maxRows = parsed.data.topConditions.slice(0, 3).map((row) => ({
+        condition: row.condition.replace(/\s+/g, " "),
+        rationale: row.rationale.replace(/\s+/g, " "),
+      }));
+      if (maxRows.length === 0) throw new AIProviderError("provider_malformed_response");
+      return {
+        provider: config.provider,
+        model: config.model,
+        topConditions: maxRows,
+        note: parsed.data.note.replace(/\s+/g, " "),
+      };
+    },
+  };
+}
+
+export function configuredSymptomConditionProvider(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ProviderRequestOptions = {},
+): { status: ConfigState["status"]; provider?: SymptomConditionProvider } {
+  const state = getProviderConfigState(env);
+  if (state.status !== "configured") return { status: state.status };
+  return { status: state.status, provider: createSymptomConditionProvider(state.config, options) };
+}

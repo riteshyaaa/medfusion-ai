@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './aIConditionSuggestion.ts';
 export * from './aIExplanationRequest.ts';
 export * from './aIExplanationResponse.ts';
 export * from './aIExplanationResponseExplanation.ts';
@@ -129,11 +130,15 @@ export * from './reviewStatus.ts';
 export * from './skinInferenceStatus.ts';
 export * from './skinInferenceStatusMode.ts';
 export * from './skinInferenceStatusStatus.ts';
+export * from './symptomAiConditionsRequest.ts';
+export * from './symptomAIConditionsResponse.ts';
+export * from './symptomAIConditionsResponseAnalysis.ts';
 export * from './symptomAssessment.ts';
 export * from './symptomAssessmentClassification.ts';
 export * from './symptomAssessmentClassificationRankedConditionsItem.ts';
 export * from './symptomAssessmentClassificationStatus.ts';
 export * from './symptomAssessmentGuidance.ts';
+export * from './symptomAssessmentGuidancePossibleConditionsItem.ts';
 export * from './symptomAssessmentListResponse.ts';
 export * from './symptomAssessmentResponse.ts';
 export * from './symptomAssessmentUrgencyLevel.ts';

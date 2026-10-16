@@ -69,6 +69,8 @@ import type {
   ReportResponse,
   ReviewResponse,
   SkinInferenceStatus,
+  SymptomAIConditionsResponse,
+  SymptomAiConditionsRequest,
   SymptomAssessmentListResponse,
   SymptomAssessmentResponse,
   SymptomClassifierStatus,
@@ -2247,6 +2249,96 @@ export const useCreateSymptomAssessment = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getCreateSymptomAssessmentMutationOptions(options), queryClient);
+    }
+
+export const getCreateSymptomAiConditionsUrl = (id: number,) => {
+
+
+
+
+  return `/api/symptom-assessments/${id}/ai-conditions`
+}
+
+/**
+ * Ephemeral, education-only analysis. Requires operator AI-health-data flags and explicit consent; sends only the recorded, structured symptom fields. Never mutates the assessment.
+ * @summary Consent-gated AI exploration of commonly associated conditions
+ */
+export const createSymptomAiConditions = async (id: number,
+    symptomAiConditionsRequest: SymptomAiConditionsRequest, options?: Parameters<typeof customFetch>[1]): Promise<SymptomAIConditionsResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SymptomAIConditionsResponse>(getCreateSymptomAiConditionsUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(symptomAiConditionsRequest)
+  }
+);}
+
+
+
+
+
+export const getCreateSymptomAiConditionsMutationKey = () => ['createSymptomAiConditions'] as const;
+
+export const getCreateSymptomAiConditionsMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext> => {
+
+const mutationKey = getCreateSymptomAiConditionsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSymptomAiConditions>>, CreateSymptomAiConditionsMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createSymptomAiConditions(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSymptomAiConditionsMutationResult = NonNullable<Awaited<ReturnType<typeof createSymptomAiConditions>>>
+    export type CreateSymptomAiConditionsMutationBody = BodyType<SymptomAiConditionsRequest>
+    export type CreateSymptomAiConditionsMutationError = ErrorType<ErrorResponse>
+    export type CreateSymptomAiConditionsMutationVariables = {id: number;data: BodyType<SymptomAiConditionsRequest>}
+
+    /**
+ * @summary Consent-gated AI exploration of commonly associated conditions
+ */
+export const useCreateSymptomAiConditions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createSymptomAiConditions>>,
+        TError,
+        CreateSymptomAiConditionsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateSymptomAiConditionsMutationOptions(options), queryClient);
     }
 
 export const getGetSymptomAssessmentUrl = (id: number,) => {

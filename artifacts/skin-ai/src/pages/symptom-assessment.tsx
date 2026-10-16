@@ -1,8 +1,8 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateSymptomAssessment, useGetSymptomClassifierStatus, useListCases, useListSymptomAssessments } from "@workspace/api-client-react";
-import { AlertTriangle, ArrowLeft, ClipboardList, Search, X } from "lucide-react";
+import { useCreateSymptomAssessment, useCreateSymptomAiConditions, useGetSymptomClassifierStatus, useListCases, useListSymptomAssessments } from "@workspace/api-client-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/layout";
@@ -37,6 +37,7 @@ export default function SymptomAssessment() {
   const [caseId, setCaseId] = useState("");
   const [symptomSearch, setSymptomSearch] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [aiConsent, setAiConsent] = useState(false);
   const queryClient = useQueryClient();
   const assessmentsQuery = useListSymptomAssessments({ page: 1, limit: 10 });
   const casesQuery = useListCases({ page: 1, limit: 100 });
@@ -60,8 +61,11 @@ export default function SymptomAssessment() {
       await queryClient.invalidateQueries({ queryKey: ["/api/symptom-assessments"] });
       setPrimarySymptom("");
       setAssociated("");
+      setAiConsent(false);
+      aiConditions.reset();
     },
   } });
+  const aiConditions = useCreateSymptomAiConditions();
 
   const toggleSymptom = (display: string) => {
     const id = catalogueLookup.get(display);
@@ -210,6 +214,9 @@ export default function SymptomAssessment() {
             {latest.associatedSymptoms?.length ? <div className="col-span-2 sm:col-span-3"><dt className="opacity-70">Other reported symptoms (free text)</dt><dd className="font-medium">{latest.associatedSymptoms.join(", ")}</dd></div> : null}
             {latest.selectedSymptoms?.length ? <div className="col-span-2 sm:col-span-3"><dt className="opacity-70">Catalogue symptoms selected for the classifier</dt><dd className="font-medium">{latest.selectedSymptoms.map((id) => idToDisplay.get(id) ?? id).join(", ")}</dd></div> : null}
           </dl>
+          {latest.guidance?.watchFor?.length ? <div className="mt-4 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Watch for (deterioration signals)</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.watchFor.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+          {latest.guidance?.seekCareIf?.length ? <div className="mt-3 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Seek in-person care if</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.seekCareIf.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
+          {latest.guidance?.possibleConditions?.length ? <div className="mt-3 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Commonly associated conditions (from the labelled training data)</p><p className="mt-1 text-xs text-slate-500">Research association, not a diagnosis. The full classifier ranking is below.</p><ol className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.possibleConditions.map((row, index) => <li key={index}><span className="font-medium">{row.name}</span></li>)}</ol></div> : null}
           <p className="mt-4 text-xs">{latest.guidance.disclaimer}</p></section>}
 
         {latest && classification && (
@@ -243,6 +250,46 @@ export default function SymptomAssessment() {
               </>
             )}
             {classification.status !== "completed" && <p className="mt-3 text-sm">No ranked conditions were produced for this record {classification.status === "insufficient_input" ? "because no catalogue symptom matched the classifier vocabulary" : "because the classifier is not installed"}. The urgency guidance above still applies.</p>}
+          </section>
+        )}
+
+        {latest && (
+          <section className="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-6" aria-live="polite">
+            <div className="flex flex-wrap items-center gap-2">
+              <Sparkles className="h-5 w-5 text-indigo-700" />
+              <h2 className="text-lg font-bold text-indigo-900">AI second option: commonly associated conditions</h2>
+              <span className="rounded-full bg-indigo-200 px-3 py-0.5 text-xs font-bold text-indigo-900">Consent-gated · external AI</span>
+            </div>
+            <p className="mt-2 text-sm text-indigo-900">
+              Optionally, a hosted AI model suggests up to 3 generally common conditions classically associated with this symptom pattern — education only, never a diagnosis, and never a probability. The rule-based assessment above always remains the decision-support baseline and is never replaced by this result.
+            </p>
+            <p className="mt-2 text-sm text-indigo-900">What is sent to the external provider: your primary symptom text, category, severity/progression, the curated symptom labels selected, and matched urgency flags. Symptom text you consented to send leaves this application.</p>
+            <label className="mt-3 flex items-center gap-2 text-sm font-medium text-indigo-900">
+              <input type="checkbox" checked={aiConsent} onChange={(event) => { setAiConsent(event.target.checked); }} className="h-4 w-4 rounded border-slate-300" />
+              I consent to sending the fields above to the external AI provider for analysis.
+            </label>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button type="button" disabled={!aiConsent || aiConditions.isPending || latest.urgencyLevel === "emergency"} onClick={() => aiConditions.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}>
+                {aiConditions.isPending ? "Analyzing symptoms…" : "Analyze symptoms with AI"}
+              </Button>
+              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Disabled for emergency-pattern records — the emergency guidance above is the only relevant action." : "Nothing is stored: the result is ephemeral and disappears when you reload."}</span>
+            </div>
+            {aiConditions.isError && <p role="alert" className="mt-3 text-sm text-destructive">The AI result was not produced. Nothing was stored. Check the message and retry later.</p>}
+            {aiConditions.data?.analysis && (
+              <div className="mt-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Top commonly associated conditions · provider {aiConditions.data.analysis.provider} · model {aiConditions.data.analysis.model}</p>
+                <ol className="space-y-2">
+                  {aiConditions.data.analysis.topConditions.map((row, index) => (
+                    <li key={row.condition} className="rounded-lg bg-white p-3 border border-indigo-200">
+                      <p className="text-sm font-semibold text-slate-800">{index + 1}. {row.condition}</p>
+                      <p className="mt-1 text-sm text-slate-600">{row.rationale}</p>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-xs text-indigo-800">{aiConditions.data.analysis.note}</p>
+                <p className="rounded-lg bg-indigo-100 border border-indigo-200 p-3 text-xs text-indigo-900">{aiConditions.data.analysis.instructionNotice}</p>
+              </div>
+            )}
           </section>
         )}
 

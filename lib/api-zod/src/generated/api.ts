@@ -671,7 +671,13 @@ export const ListSymptomAssessmentsResponse = zod.object({
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
   "guidance": zod.object({
   "recommendations": zod.array(zod.string()),
-  "disclaimer": zod.string()
+  "disclaimer": zod.string(),
+  "watchFor": zod.array(zod.string()).optional(),
+  "seekCareIf": zod.array(zod.string()).optional(),
+  "possibleConditions": zod.array(zod.object({
+  "name": zod.string(),
+  "basis": zod.string()
+})).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
   "classification": zod.object({
@@ -739,7 +745,13 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
   "guidance": zod.object({
   "recommendations": zod.array(zod.string()),
-  "disclaimer": zod.string()
+  "disclaimer": zod.string(),
+  "watchFor": zod.array(zod.string()).optional(),
+  "seekCareIf": zod.array(zod.string()).optional(),
+  "possibleConditions": zod.array(zod.object({
+  "name": zod.string(),
+  "basis": zod.string()
+})).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
   "classification": zod.object({
@@ -759,6 +771,32 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
+})
+})
+
+
+/**
+ * Ephemeral, education-only analysis. Requires operator AI-health-data flags and explicit consent; sends only the recorded, structured symptom fields. Never mutates the assessment.
+ * @summary Consent-gated AI exploration of commonly associated conditions
+ */
+export const CreateSymptomAiConditionsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const CreateSymptomAiConditionsBody = zod.object({
+  "consentToExternalProcessing": zod.literal(true)
+})
+
+export const CreateSymptomAiConditionsResponse = zod.object({
+  "analysis": zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "topConditions": zod.array(zod.object({
+  "condition": zod.string(),
+  "rationale": zod.string()
+})),
+  "note": zod.string(),
+  "instructionNotice": zod.string()
 })
 })
 
@@ -787,7 +825,13 @@ export const GetSymptomAssessmentResponse = zod.object({
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
   "guidance": zod.object({
   "recommendations": zod.array(zod.string()),
-  "disclaimer": zod.string()
+  "disclaimer": zod.string(),
+  "watchFor": zod.array(zod.string()).optional(),
+  "seekCareIf": zod.array(zod.string()).optional(),
+  "possibleConditions": zod.array(zod.object({
+  "name": zod.string(),
+  "basis": zod.string()
+})).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
   "classification": zod.object({
@@ -1603,7 +1647,13 @@ export const GetCaseWorkspaceResponse = zod.object({
   "urgencyLevel": zod.enum(['emergency', 'urgent', 'routine', 'self_care']),
   "guidance": zod.object({
   "recommendations": zod.array(zod.string()),
-  "disclaimer": zod.string()
+  "disclaimer": zod.string(),
+  "watchFor": zod.array(zod.string()).optional(),
+  "seekCareIf": zod.array(zod.string()).optional(),
+  "possibleConditions": zod.array(zod.object({
+  "name": zod.string(),
+  "basis": zod.string()
+})).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
   "classification": zod.object({

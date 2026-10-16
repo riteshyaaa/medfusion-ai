@@ -5,8 +5,12 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { SymptomAssessmentGuidancePossibleConditionsItem } from './symptomAssessmentGuidancePossibleConditionsItem.ts';
 
 export type SymptomAssessmentGuidance = {
   recommendations: string[];
   disclaimer: string;
+  watchFor?: string[];
+  seekCareIf?: string[];
+  possibleConditions?: SymptomAssessmentGuidancePossibleConditionsItem[];
 };

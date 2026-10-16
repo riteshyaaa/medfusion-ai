@@ -20,7 +20,7 @@ export const symptomAssessments = pgTable("symptom_assessments", {
   allergies: jsonb("allergies").$type<string[]>().default([]),
   redFlagsTriggered: jsonb("red_flags_triggered").$type<string[]>().default([]),
   urgencyLevel: text("urgency_level", { enum: ["emergency", "urgent", "routine", "self_care"] }).notNull(),
-  guidance: jsonb("guidance").$type<{ recommendations: string[]; disclaimer: string }>(),
+  guidance: jsonb("guidance").$type<{ recommendations: string[]; disclaimer: string; watchFor?: string[]; seekCareIf?: string[]; possibleConditions?: Array<{ name: string; basis: string }> }>(),
   selectedSymptoms: jsonb("selected_symptoms").$type<string[]>().default([]),
   classification: jsonb("classification").$type<{
     status: "completed" | "not_available" | "insufficient_input";

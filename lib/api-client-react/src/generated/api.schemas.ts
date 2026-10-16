@@ -598,9 +598,17 @@ export const SymptomAssessmentUrgencyLevel = {
   self_care: 'self_care',
 } as const;
 
+export type SymptomAssessmentGuidancePossibleConditionsItem = {
+  name: string;
+  basis: string;
+};
+
 export type SymptomAssessmentGuidance = {
   recommendations: string[];
   disclaimer: string;
+  watchFor?: string[];
+  seekCareIf?: string[];
+  possibleConditions?: SymptomAssessmentGuidancePossibleConditionsItem[];
 };
 
 export type SymptomAssessmentClassificationStatus = typeof SymptomAssessmentClassificationStatus[keyof typeof SymptomAssessmentClassificationStatus];
@@ -655,6 +663,27 @@ export interface SymptomAssessment {
   status: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SymptomAiConditionsRequest {
+  consentToExternalProcessing: true;
+}
+
+export interface AIConditionSuggestion {
+  condition: string;
+  rationale: string;
+}
+
+export type SymptomAIConditionsResponseAnalysis = {
+  provider: string;
+  model: string;
+  topConditions: AIConditionSuggestion[];
+  note: string;
+  instructionNotice: string;
+};
+
+export interface SymptomAIConditionsResponse {
+  analysis: SymptomAIConditionsResponseAnalysis;
 }
 
 export interface SymptomAssessmentResponse {

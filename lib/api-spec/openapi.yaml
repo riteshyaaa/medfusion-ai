@@ -773,6 +773,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /symptom-assessments/{id}/ai-conditions:
+    post:
+      operationId: createSymptomAiConditions
+      tags: [symptom-assessments]
+      summary: Consent-gated AI exploration of commonly associated conditions
+      description: >
+        Ephemeral, education-only analysis. Requires operator AI-health-data flags
+        and explicit consent; sends only the recorded, structured symptom fields.
+        Never mutates the assessment.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SymptomAiConditionsRequest"
+      responses:
+        "200":
+          description: AI condition exploration result (ephemeral)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAIConditionsResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Health-data transfer not approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: AI provider failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: AI provider unconfigured or disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /symptom-assessments/{id}:
     get:
       operationId: getSymptomAssessment
@@ -2359,10 +2419,27 @@ components:
                 type: string
             disclaimer:
               type: string
+            watchFor:
+              type: array
+              items:
+                type: string
+            seekCareIf:
+              type: array
+              items:
+                type: string
+            possibleConditions:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  basis:
+                    type: string
+                required: [name, basis]
           required:
             - recommendations
             - disclaimer
-          additionalProperties: false
         selectedSymptoms:
           type: array
           items:
@@ -2428,6 +2505,41 @@ components:
         - status
         - createdAt
         - updatedAt
+    SymptomAiConditionsRequest:
+      type: object
+      required: [consentToExternalProcessing]
+      properties:
+        consentToExternalProcessing:
+          type: boolean
+          enum: [true]
+    AIConditionSuggestion:
+      type: object
+      properties:
+        condition:
+          type: string
+        rationale:
+          type: string
+      required: [condition, rationale]
+    SymptomAIConditionsResponse:
+      type: object
+      properties:
+        analysis:
+          type: object
+          properties:
+            provider:
+              type: string
+            model:
+              type: string
+            topConditions:
+              type: array
+              items:
+                $ref: "#/components/schemas/AIConditionSuggestion"
+            note:
+              type: string
+            instructionNotice:
+              type: string
+          required: [provider, model, topConditions, note, instructionNotice]
+      required: [analysis]
     SymptomAssessmentResponse:
       type: object
       properties:
