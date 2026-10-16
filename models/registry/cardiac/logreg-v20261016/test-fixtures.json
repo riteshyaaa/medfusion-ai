@@ -1,0 +1,38 @@
+{
+  "highRiskSample": {
+    "row": {
+      "age": 58,
+      "sex": "male",
+      "chestPainType": "asymptomatic",
+      "restingBloodPressure": 140,
+      "serumCholesterol": 260,
+      "fastingBloodSugarOver120": "no",
+      "restingEcg": "st_t_abnormality",
+      "maxHeartRate": 130,
+      "exerciseAngina": "yes",
+      "stDepression": 3.2,
+      "stSlope": "flat",
+      "majorVessels": 2,
+      "thalassemia": "reversible_defect"
+    },
+    "riskScore": 0.9970969242581661
+  },
+  "lowRiskSample": {
+    "row": {
+      "age": 40,
+      "sex": "female",
+      "chestPainType": "typical_angina",
+      "restingBloodPressure": 110,
+      "serumCholesterol": 180,
+      "fastingBloodSugarOver120": "no",
+      "restingEcg": "normal",
+      "maxHeartRate": 175,
+      "exerciseAngina": "no",
+      "stDepression": 0,
+      "stSlope": "upsloping",
+      "majorVessels": 0,
+      "thalassemia": "normal"
+    },
+    "riskScore": 0.0028402028341846966
+  }
+}
