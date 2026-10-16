@@ -1,0 +1,87 @@
+You are a senior full-stack AI engineer. Work directly in the currently open Replit project, which has already been imported. Your goal is to make its AI-powered analysis features work end to end while preserving the project’s existing design and working functionality.
+
+FEATURES IN SCOPE
+- Skin Analysis
+- Symptom Assessment
+- Report Analysis
+- Cardiac Assessment
+
+START BY INSPECTING THE PROJECT
+- Identify the frontend, backend, database, current AI code, existing feature flows, and configured Replit workflows.
+- Determine what each of the four features already does and what is missing for a real end-to-end experience.
+- Follow the project’s existing framework, file structure, API patterns, and UI conventions. Do not replace the stack or create a parallel backend.
+- Briefly summarize the implementation approach, then proceed without pausing for approval unless a required integration or decision is genuinely unavailable.
+
+AI PROVIDER
+- Use Replit’s managed AI Integrations OpenAI-compatible proxy for server-side AI calls when it is available.
+- Check the project’s existing integration configuration. Use existing environment-variable references for the proxy; never read, print, expose, or hardcode secret values.
+- Do not ask me to paste an API key into chat and do not invent a “dummy” credential.
+- Use a vision-capable model for image analysis. If the existing configuration supports `gpt-5.2`, use it; otherwise use a model actually available through the configured integration. Do not silently switch models if a provider error occurs.
+- If the integration is not configured, stop before building fake AI behavior and explain how to connect the Replit AI Integration.
+- Keep all provider calls on the server. Never place AI credentials or direct provider requests in browser code.
+- Use real model responses in the product. A mocked provider is acceptable only for automated tests or a clearly marked demo mode.
+
+IMPLEMENTATION APPROACH
+- Create or reuse a shared server-side AI service/provider layer, with separate prompts and validated output schemas for the four feature types.
+- Validate all incoming data and model responses with the project’s existing validation approach.
+- Handle provider timeouts, malformed responses, unsupported inputs, and rate or size limits with clear user-facing errors. Never silently fabricate analysis.
+- Preserve the existing app navigation, visual language, and user flows. Make every analysis action, upload, submit, history, and detail interaction work.
+- Include appropriate loading, empty, success, and error states.
+- Keep analyses distinguishable by type in results, history, and stored data.
+- Update API contracts and regenerate generated client code if this project uses an OpenAPI/code-generation workflow.
+- Reuse the existing database and persistence patterns. Do not add a new database or authentication system unless the project already requires it.
+
+FEATURE BEHAVIOR
+
+1. Skin Analysis
+- Accept supported skin-image inputs from the existing UI.
+- Send the image to the vision-capable model with a focused prompt.
+- Return structured results such as visible observations, possible conditions, uncertainty, severity/urgency, practical next steps, and when to consult a clinician.
+- Treat the result as an informational assessment, not a confirmed diagnosis.
+- Only claim preprocessing such as resizing, normalization, or noise reduction if the code actually performs it.
+
+2. Symptom Assessment
+- Use the existing symptom-assessment flow, or build the missing pieces needed to make it functional.
+- Collect only relevant information, such as symptoms, body area, onset, duration, progression, severity, and related context.
+- Return a structured summary, possible explanations, uncertainty, suggested next steps, and warning signs.
+- Do not present the result as a definitive diagnosis.
+
+3. Report Analysis
+- Support the file types that the app can genuinely process.
+- Implement real text extraction for uploaded documents and OCR where image-based reports are supported. Do not imply that the model read text that was never extracted or supplied.
+- Summarize the report in plain language, preserve units and reference ranges, and distinguish report facts from AI interpretation.
+- Never invent missing, unreadable, or unclear values. Tell the user when part of a document could not be read.
+- Validate file type and size on both the client and server.
+
+4. Cardiac Assessment
+- Implement the app’s existing cardiac-assessment inputs and intended flow.
+- Present results as informational triage/risk support, not as a diagnosis or proof that someone is safe.
+- Check for urgent warning symptoms deterministically on the server before calling the model. If present, immediately show clear guidance to contact local emergency services; do not wait for an AI response.
+- Only claim to interpret ECGs or other cardiac tests if the app genuinely accepts and processes those inputs.
+
+SAFETY AND PRIVACY
+- Prominently explain that the analyses are informational and do not replace professional medical care.
+- Do not let an AI response delay urgent care.
+- Do not log uploaded file contents, Base64 images, or unnecessary health information.
+- Minimize retention of health data and uploaded files. Follow existing persistence behavior, and explain any new data being stored.
+- Do not present an AI-generated confidence score as a medically calibrated probability. Label it clearly or omit it.
+
+TRAINING AND TEST DATA
+- Do not train or fine-tune a model unless inspection shows that it is truly necessary. Prompting a multimodal model with server-side validation should be the default.
+- Synthetic or dummy data may be used for automated tests and clearly labeled demos only. Never show synthetic results as real patient analyses, save them as real history, or claim they improve clinical accuracy.
+- Do not describe a model as trained unless an actual training process and suitable authorized data exist. If a training experiment appears necessary, explain why and its limitations before proceeding.
+
+VERIFICATION
+- Add focused tests for the new server-side AI service and each feature’s request/response validation. Use mocked model responses in tests; do not send real health data to the provider during testing.
+- Run the relevant type checks, build checks, or other project checks for the code you changed.
+- Restart affected Replit workflows and confirm the app and API start correctly.
+- Fix errors caused by your changes before finishing.
+
+FINAL SUMMARY
+Report:
+1. What now works for each of the four features.
+2. Which AI integration and model are actually configured.
+3. What document/image extraction or preprocessing is genuinely implemented.
+4. What information is persisted and any remaining privacy or safety limitations.
+5. Which checks you ran and their results.
+Do not claim clinical validation, model training, or functionality that the code does not provide.

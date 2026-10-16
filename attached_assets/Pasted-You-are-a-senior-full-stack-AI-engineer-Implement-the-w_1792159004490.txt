@@ -1,0 +1,85 @@
+You are a senior full-stack AI engineer. Implement the work in the currently open Replit project.
+
+REFERENCE REPOSITORY
+https://github.com/riteshyaaa/medfusion-ai
+
+GOAL
+The current project is a working skin-analysis app with a modern upload/camera → analysis progress → results → history/detail experience. The reference repository contains that style of skin-analysis flow plus additional features.
+
+First inspect both the current project and the reference repository. Treat the repository as the source of truth for the extra feature scope and existing user flows—do not invent repository features. Then integrate these modules into the current app while preserving its working features and established visual flow:
+
+1. Skin Analysis
+2. Symptom Assessment
+3. Report Analysis
+4. Cardiac Assessment
+
+The user expects working end-to-end behavior, not just a plan, mockups, or placeholder screens. Implement the UI, backend calls, validation, persistence, and result views needed for each feature. Keep the experience visually consistent with the current skin-analysis app.
+
+BEFORE EDITING
+- Inspect the existing app, API, database schema, workflows, OpenAPI contract, and the reference repository.
+- Identify which existing features and data models can be reused.
+- Follow the project’s current architecture and conventions. Do not replace working infrastructure or add a second backend.
+- If the GitHub repository cannot be accessed, explain what access or source files are needed rather than guessing about its implementation.
+- Briefly summarize the implementation approach, then proceed with the work.
+
+AI INTEGRATION
+- Use the project’s existing Replit AI Integrations configuration and OpenAI-compatible proxy. Never put API keys in source code, expose them to the browser, ask me to paste a key into chat, or use a fabricated credential.
+- The current skin-analysis backend calls model `gpt-5.2` through the Replit AI Integrations proxy. Reuse that configured integration/model when available, and keep all model calls on the server.
+- Use separate, carefully scoped prompts for skin images, symptoms, uploaded reports, and cardiac assessments.
+- Require structured JSON output and validate every model response against server-side schemas before saving or returning it. Handle malformed output, timeouts, provider errors, and unsupported uploads visibly; do not silently invent a result.
+- Never claim that an image was resized, normalized, denoised, or otherwise processed unless the code actually performs that operation.
+- Model-generated confidence values are not calibrated medical probabilities. Label them clearly or omit them if they would mislead users.
+
+FEATURE EXPECTATIONS
+
+Skin Analysis:
+- Preserve existing upload and camera capture.
+- Return a cautious summary of visible findings, possible conditions, uncertainty, urgency/severity, practical next steps, and when to consult a clinician.
+- Do not present the result as a confirmed diagnosis.
+
+Symptom Assessment:
+- Provide a guided intake for symptoms, body area, onset/duration, progression, severity, and relevant context. Collect only information needed for the assessment.
+- Return a structured summary, possible explanations, uncertainty, suggested next steps, and clear signs that require urgent care.
+- Do not claim to diagnose the user.
+
+Report Analysis:
+- Inspect the reference repository to determine its intended report formats and flows.
+- Support the appropriate document/image inputs. Extract text or values from files using real parsing/OCR code when required; do not pretend the model read content that was never extracted.
+- Summarize the report, explain findings in plain language, preserve units and reference ranges, identify abnormal values only when the source supports that, and distinguish source facts from AI interpretation.
+- If a value or section is unreadable or missing, say so instead of filling it in.
+
+Cardiac Assessment:
+- Implement the reference repository’s intended cardiac assessment flow after inspecting it.
+- Present this as informational risk/triage support, not a diagnosis or a guarantee that someone is safe.
+- Detect emergency warning symptoms with deterministic server-side checks before relying on the AI response. For possible emergencies, clearly direct the user to their local emergency service immediately; do not wait for an AI result.
+- Do not claim to interpret an ECG or other cardiac test unless the input and implementation genuinely support that capability.
+
+SAFETY, PRIVACY, AND DATA
+- Clearly state that these features are informational and do not replace a qualified clinician.
+- Do not let an AI answer delay urgent care. Use plain, prominent escalation guidance for red-flag symptoms.
+- Do not log uploaded image/document contents, Base64 data, or unnecessary health details.
+- Validate upload type and size on both client and server. Avoid retaining uploaded files or sensitive health data longer than needed; follow the project’s existing persistence behavior and explain any new retention.
+- Keep reports and image content isolated by analysis type in the UI and database so users do not confuse results.
+
+DEVELOPMENT / TEST DATA
+- Do not train or fine-tune a model unless the project demonstrably requires it and there is an appropriate, authorized dataset and explicit user approval. Prompting a multimodal model plus validation is sufficient for this initial implementation.
+- Synthetic/dummy data may be used only for tests, local demos, or clearly labeled sample screens. Never present synthetic results as real analyses, save them as real user history, or claim that a model was trained on them.
+- If the AI integration is unavailable, do not silently fall back to fake results. Provide a clear error and keep any optional demo mode explicitly labeled as DEMO.
+
+IMPLEMENTATION QUALITY
+- Follow existing OpenAPI/code-generation conventions if the project uses them; regenerate generated client code after changing the API contract.
+- Reuse existing components and design tokens where practical. Make navigation among the four modules clear without disrupting the skin-analysis flow.
+- Include meaningful loading, success, empty, and error states. Ensure history/detail views identify the analysis type.
+- Preserve existing authentication and data-access controls; do not add local password/JWT authentication.
+- Avoid unnecessary dependencies, broad rewrites, or duplicate schemas.
+- Add focused validation/tests for the new behavior, using mocked model responses for automated tests rather than sending real health data.
+- Run the relevant type checks and checks for the changed app/API. Restart the affected workflows and confirm they start correctly.
+
+At the end, report:
+1. What was implemented for each module.
+2. Which model and AI integration are actually configured.
+3. What is truly processed versus what is only requested in prompts.
+4. Any limits, safety considerations, or setup steps that remain.
+5. Which checks you ran and whether they passed.
+
+Do not claim clinical validation, model training, or functional behavior unless the code actually supports it.
