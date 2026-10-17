@@ -46,7 +46,7 @@ function rawResponse(provider: AIProviderId, text: string, status = 200): Respon
 
 test("provider adapters use the configured official API shape and validate structured output", async () => {
   const expected: Record<AIProviderId, { endpoint: string; model: string; secretHeader: string }> = {
-    openai: { endpoint: "/responses", model: "gpt-5.5", secretHeader: "authorization" },
+    openai: { endpoint: "/responses", model: "gpt-5.2", secretHeader: "authorization" },
     gemini: { endpoint: "/interactions", model: "gemini-3.8-flash", secretHeader: "x-goog-api-key" },
     nvidia: { endpoint: "/chat/completions", model: "nvidia/nemotron-3-super-120b-a12b", secretHeader: "authorization" },
   };

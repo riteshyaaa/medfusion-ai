@@ -58,6 +58,17 @@ export type SymptomClassification = {
   rankedConditions?: RankedCondition[];
   unmatchedSymptoms?: string[];
   diagnosticLimitations?: string[];
+  aiAssessment?: {
+    status: "completed" | "skipped_urgent";
+    provider?: string;
+    model?: string;
+    summary?: string;
+    possibleExplanations?: Array<{ explanation: string; whyItMayFit: string }>;
+    uncertainty?: string;
+    suggestedNextSteps?: string[];
+    warningSigns: string[];
+    notice: string;
+  } | null;
 };
 
 const MAX_RANK_DISPLAY = 8;

@@ -1398,19 +1398,13 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
   
   await getSymptomClassifierStatus();
   const ruleGuidance = assessSymptomGuidance(data);
-  let classification = urgency === "emergency"
-    ? {
-        status: "not_available" as const,
-        modelId: null,
-        modelVersion: null,
-        notice: "Condition ranking and AI interpretation were skipped because the server matched an urgent warning symptom.",
-      }
-    : classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
+  const emergencyPattern = ruleGuidance.urgencyLevel === "emergency";
+  let classification = classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
   let aiAssessment: NonNullable<typeof symptomAssessments.$inferSelect.classification>["aiAssessment"] = null;
-  if (urgency === "emergency") {
+  if (emergencyPattern) {
     aiAssessment = {
       status: "skipped_urgent",
-      warningSigns: redFlags,
+      warningSigns: ruleGuidance.redFlagsTriggered,
       notice: "Urgent warning symptoms matched. No AI model was called. Contact local emergency services or seek immediate care now; do not wait for this application.",
     };
   } else if (data.consentToExternalProcessing) {
@@ -1451,8 +1445,10 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
   }
   classification = { ...classification, aiAssessment };
   
+  const { consentToExternalProcessing: _ignoredConsent, ...assessmentRecord } = data;
+  void _ignoredConsent;
   const [assessment] = await db.insert(symptomAssessments).values({
-    ...data,
+    ...assessmentRecord,
     userId: user.id,
     redFlagsTriggered: ruleGuidance.redFlagsTriggered,
     urgencyLevel: ruleGuidance.urgencyLevel,
@@ -1467,8 +1463,7 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
     classification,
   }).returning();
   
-  await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency: ruleGuidance.urgencyLevel });
-  await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency, aiAnalysis: aiAssessment?.status ?? "not_requested" });
+  await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency: ruleGuidance.urgencyLevel, aiAnalysis: aiAssessment?.status ?? "not_requested", redFlagCount: ruleGuidance.redFlagsTriggered.length });
   
   return c.json({ assessment }, 201);
 });
@@ -1804,7 +1799,7 @@ app.onError((err, c) => {
     const error = (err as HTTPException & { apiCode?: string }).apiCode ?? (err.status === 401 ? "unauthorized" : err.status === 403 ? "forbidden" : err.status === 404 ? "not_found" : err.status === 409 ? "conflict" : err.status === 413 ? "request_too_large" : err.status === 415 ? "unsupported_media_type" : err.status === 429 ? "rate_limited" : err.status === 503 ? "model_unavailable" : "request_failed");
     return c.json({ error, message: err.message, requestId: c.get("requestId") }, err.status);
   }
-  console.error(JSON.stringify({ requestId: c.get("requestId"), error: "unhandled_request_error", name: err?.name, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack.split("\n").slice(0, 5).join(" | ") : undefined }));
+  console.error(JSON.stringify({ requestId: c.get("requestId"), error: "unhandled_request_error", name: err?.name, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? (err.stack ?? "").split("\n").slice(0, 5).join(" | ") : undefined }));
   return c.json({ error: "internal_error", message: "An unexpected error occurred", requestId: c.get("requestId") }, 500);
 });
 
