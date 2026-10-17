@@ -36,6 +36,13 @@
       "when": 1792139010804,
       "tag": "0004_narrow_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792214234731,
+      "tag": "0005_clear_cassandra_nova",
+      "breakpoints": true
     }
   ]
 }

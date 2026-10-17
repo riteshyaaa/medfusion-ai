@@ -1804,7 +1804,7 @@ app.onError((err, c) => {
     const error = (err as HTTPException & { apiCode?: string }).apiCode ?? (err.status === 401 ? "unauthorized" : err.status === 403 ? "forbidden" : err.status === 404 ? "not_found" : err.status === 409 ? "conflict" : err.status === 413 ? "request_too_large" : err.status === 415 ? "unsupported_media_type" : err.status === 429 ? "rate_limited" : err.status === 503 ? "model_unavailable" : "request_failed");
     return c.json({ error, message: err.message, requestId: c.get("requestId") }, err.status);
   }
-  console.error(JSON.stringify({ requestId: c.get("requestId"), error: "unhandled_request_error" }));
+  console.error(JSON.stringify({ requestId: c.get("requestId"), error: "unhandled_request_error", name: err?.name, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack.split("\n").slice(0, 5).join(" | ") : undefined }));
   return c.json({ error: "internal_error", message: "An unexpected error occurred", requestId: c.get("requestId") }, 500);
 });
 
