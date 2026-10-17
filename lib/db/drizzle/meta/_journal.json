@@ -43,6 +43,13 @@
       "when": 1792214234731,
       "tag": "0005_clear_cassandra_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792246161264,
+      "tag": "0006_dazzling_gambit",
+      "breakpoints": true
     }
   ]
 }

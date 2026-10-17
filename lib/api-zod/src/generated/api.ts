@@ -180,7 +180,8 @@ export const DeleteUploadResponse = zod.void()
 
 
 export const PredictSkinDiseaseBody = zod.object({
-  "uploadId": zod.number().int().min(1).describe('ID returned by POST /uploads, scoped to the current user')
+  "uploadId": zod.number().int().min(1).describe('ID returned by POST /uploads, scoped to the current user'),
+  "consentToExternalProcessing": zod.boolean().optional().describe('When true and the AI provider is configured, the image is analyzed by the external AI model under the operator transfer gates and this explicit consent.')
 })
 
 export const PredictSkinDiseaseResponse = zod.object({
@@ -199,7 +200,22 @@ export const PredictSkinDiseaseResponse = zod.object({
   "modelVersion": zod.string().nullable(),
   "scoreSemantics": zod.enum(['simulated', 'raw_model_score', 'calibrated_probability', 'unverified']),
   "preprocessingVersion": zod.string().nullish(),
-  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified']),
+  "aiAssessment": zod.object({
+  "provider": zod.string().optional(),
+  "model": zod.string().optional(),
+  "observations": zod.array(zod.string()).optional(),
+  "possibleConditions": zod.array(zod.object({
+  "name": zod.string(),
+  "reason": zod.string()
+})).optional(),
+  "uncertainty": zod.string().optional(),
+  "severity": zod.string().optional(),
+  "urgency": zod.string().optional(),
+  "nextSteps": zod.array(zod.string()).optional(),
+  "consultClinicianWhen": zod.array(zod.string()).optional(),
+  "preprocessingSteps": zod.array(zod.string()).optional()
+}).nullish(),
+  "status": zod.enum(['completed', 'simulated', 'research_only', 'model_unavailable', 'invalid_input', 'abstained', 'failed', 'legacy_unverified', 'ai_informational']),
   "createdAt": zod.string()
 })
 
@@ -772,6 +788,132 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
+})
+
+
+/**
+ * @summary List saved AI evaluations for a symptom assessment
+ */
+export const ListSymptomAiEvaluationsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListSymptomAiEvaluationsResponse = zod.object({
+  "evaluations": zod.array(zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "consentAt": zod.string(),
+  "result": zod.object({
+  "summary": zod.string().optional(),
+  "reportedSymptoms": zod.array(zod.string()).optional(),
+  "possibleConsiderations": zod.array(zod.object({
+  "name": zod.string(),
+  "whyDiscussed": zod.string()
+})).optional(),
+  "supportingInformation": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "urgencyContext": zod.string().optional(),
+  "limitations": zod.string().optional(),
+  "followUpQuestions": zod.array(zod.string()).optional(),
+  "disclaimer": zod.string().optional(),
+  "urgencyLevel": zod.string().optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional()
+}).nullish(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * Requires operator AI-health-data flags and explicit consent. The evaluation is built only from the persisted, server-validated assessment and is stored as a new history record.
+ * @summary Consent-gated AI educational evaluation of a saved assessment
+ */
+export const CreateSymptomAiEvaluationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const CreateSymptomAiEvaluationBody = zod.object({
+  "consentToExternalProcessing": zod.literal(true)
+})
+
+export const CreateSymptomAiEvaluationResponse = zod.object({
+  "evaluation": zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "consentAt": zod.string(),
+  "result": zod.object({
+  "summary": zod.string().optional(),
+  "reportedSymptoms": zod.array(zod.string()).optional(),
+  "possibleConsiderations": zod.array(zod.object({
+  "name": zod.string(),
+  "whyDiscussed": zod.string()
+})).optional(),
+  "supportingInformation": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "urgencyContext": zod.string().optional(),
+  "limitations": zod.string().optional(),
+  "followUpQuestions": zod.array(zod.string()).optional(),
+  "disclaimer": zod.string().optional(),
+  "urgencyLevel": zod.string().optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional()
+}).nullish(),
+  "createdAt": zod.string()
+}),
+  "previousEvaluationId": zod.number().int().optional()
+})
+
+
+/**
+ * @summary Run a new AI evaluation, preserving the previous result
+ */
+export const ReevaluateSymptomAiEvaluationParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "evaluationId": zod.coerce.number().int()
+})
+
+export const ReevaluateSymptomAiEvaluationBody = zod.object({
+  "consentToExternalProcessing": zod.literal(true)
+})
+
+export const ReevaluateSymptomAiEvaluationResponse = zod.object({
+  "evaluation": zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "consentAt": zod.string(),
+  "result": zod.object({
+  "summary": zod.string().optional(),
+  "reportedSymptoms": zod.array(zod.string()).optional(),
+  "possibleConsiderations": zod.array(zod.object({
+  "name": zod.string(),
+  "whyDiscussed": zod.string()
+})).optional(),
+  "supportingInformation": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "urgencyContext": zod.string().optional(),
+  "limitations": zod.string().optional(),
+  "followUpQuestions": zod.array(zod.string()).optional(),
+  "disclaimer": zod.string().optional(),
+  "urgencyLevel": zod.string().optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional()
+}).nullish(),
+  "createdAt": zod.string()
+}),
+  "previousEvaluationId": zod.number().int().optional()
 })
 
 

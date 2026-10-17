@@ -6,12 +6,14 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { useListSymptomAssessments, useListCardiacAssessments } from "@workspace/api-client-react";
+import { AIEvaluationModal, type AIEvaluationModalAssessment } from "@/components/ai-evaluation-modal";
 
 type HistoryTab = "skin" | "symptoms" | "cardiac";
 
 export default function History() {
   const [page, setPage] = useState(1);
   const [tab, setTab] = useState<HistoryTab>("skin");
+  const [evaluationFor, setEvaluationFor] = useState<AIEvaluationModalAssessment | null>(null);
   const { data, isLoading, error, refetch } = useHistory(page);
   const symptomQuery = useListSymptomAssessments({ page: 1, limit: 20 });
   const cardiacQuery = useListCardiacAssessments({ page: 1, limit: 20 });
@@ -65,6 +67,7 @@ export default function History() {
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{item.urgencyLevel.replace(/_/g, " ")}</span>
                 </div>
               </div>
+              <div className="mt-3"><Button type="button" variant="outline" className="h-8 px-3 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>AI Evaluation</Button></div>
               <p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}{"caseId" in item && item.caseId ? ` · case #${item.caseId}` : ""}</p>
             </article>
           ))}
@@ -86,6 +89,8 @@ export default function History() {
           ))}
         </section>}
       </div>
+    
+      <AIEvaluationModal assessment={evaluationFor} onClose={() => setEvaluationFor(null)} />
     </Layout>
   );
 }

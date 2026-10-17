@@ -4,12 +4,15 @@ import {
   AIProviderError,
   configuredExplanationProvider,
   configuredSymptomConditionProvider,
+  configuredVisionConfig,
   externalHealthDataTransferEnabled,
   getAIProviderStatus,
   getProviderConfigState,
+  getVisionConfigState,
   type AIProviderId,
   type SkinExplanationInput,
 } from "../src/ai-providers";
+import { createClinicalAIProvider } from "../src/clinical-ai";
 
 const fakeInput: SkinExplanationInput = {
   modelId: "synthetic-model",
@@ -247,4 +250,97 @@ test("symptom condition provider rejects fabricated numbers and diagnosis claims
   assert.ok(claims.provider);
   await assert.rejects(claims.provider.analyze({ primarySymptom: "sneezing", symptomCategory: "respiratory" }),
     (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
+});
+
+const validSkinResult = JSON.stringify({
+  observations: ["A circular brownish lesion with smooth borders is visible on the forearm."],
+  possibleConditions: [
+    { name: "Common benign nevus", reason: "Even brown coloration and smooth borders are classically described for ordinary moles." },
+  ],
+  uncertainty: "Photograph quality limits border and color assessment.",
+  severity: "uncertain",
+  urgency: "routine",
+  nextSteps: ["Monitor the lesion over time for changes in size, shape, or color."],
+  consultClinicianWhen: ["The border becomes irregular or the colors start to vary."],
+});
+
+test("vision config repeats the verified image-capable allowlist and rejects unlisted models", () => {
+  const defaulted = getVisionConfigState(envFor("nvidia"));
+  assert.equal(defaulted.status, "configured");
+  assert.equal(defaulted.config?.visionModel, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  assert.equal(defaulted.config?.provider, "nvidia");
+
+  const override = getVisionConfigState(envFor("nvidia", { AI_SKIN_VISION_MODEL: "meta/llama-3.2-11b-vision-instruct" }));
+  assert.equal(override.status, "configured");
+  assert.equal(override.config?.visionModel, "meta/llama-3.2-11b-vision-instruct");
+
+  assert.equal(getVisionConfigState(envFor("nvidia", { AI_SKIN_VISION_MODEL: "unapproved-model" })).status, "misconfigured");
+  assert.equal(getVisionConfigState({ AI_PROVIDER: "nvidia" } as NodeJS.ProcessEnv).status, "unconfigured");
+  const configured = configuredVisionConfig(envFor("nvidia"));
+  assert.equal(configured.status, "configured");
+  assert.ok(configured.config);
+});
+
+test("nvidia skin analysis sends one image_url content part to the verified vision model", async () => {
+  const vision = configuredVisionConfig(envFor("nvidia"));
+  assert.ok(vision.config);
+  let requestUrl = "";
+  let requestBody: Record<string, unknown> = {};
+  const provider = createClinicalAIProvider(vision.config, {
+    fetchImpl: async (url, init) => {
+      requestUrl = String(url);
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return rawResponse("nvidia", validSkinResult);
+    },
+  });
+  const result = await provider.analyzeSkin("data:image/png;base64,iVBORw0KGgo=");
+  assert.equal(result.provider, "nvidia");
+  assert.equal(result.model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  assert.ok(requestUrl.endsWith("/chat/completions"));
+  assert.equal(requestBody.model, "nvidia/nemotron-3.5-super-vl-120b-a12b");
+  const messages = requestBody.messages as Array<{ role: string; content: unknown }>;
+  assert.ok(Array.isArray(messages) && messages.length >= 2);
+  assert.equal(typeof messages[0].content, "string");
+  const userContent = messages[messages.length - 1].content as Array<{ type: string; image_url?: { url: string } }>;
+  assert.ok(Array.isArray(userContent));
+  assert.ok(userContent.some((part) => part.type === "text"));
+  const imageParts = userContent.filter((part) => part.type === "image_url");
+  assert.equal(imageParts.length, 1);
+  assert.equal(imageParts[0].image_url?.url, "data:image/png;base64,iVBORw0KGgo=");
+});
+
+test("skin analysis rejects malformed, diagnosing, or score-bearing model output", async () => {
+  const vision = configuredVisionConfig(envFor("nvidia"));
+  assert.ok(vision.config);
+  const malformed = createClinicalAIProvider(vision.config, { fetchImpl: async () => rawResponse("nvidia", "not-json") });
+  await assert.rejects(malformed.analyzeSkin("data:image/png;base64,iVBORw0KGgo="),
+    (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
+
+  const invented = JSON.stringify({
+    observations: ["The lesion has a 92% chance of being malignant."],
+    possibleConditions: [],
+    uncertainty: "Low resolution.",
+    severity: "uncertain",
+    urgency: "routine",
+    nextSteps: ["See a clinician."],
+    consultClinicianWhen: ["It grows quickly."],
+  });
+  const diagnosing = createClinicalAIProvider(vision.config, { fetchImpl: async () => rawResponse("nvidia", invented) });
+  await assert.rejects(diagnosing.analyzeSkin("data:image/png;base64,iVBORw0KGgo="),
+    (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
+});
+
+test("skin analysis rejects non-image payloads before any HTTP request", async () => {
+  const vision = configuredVisionConfig(envFor("nvidia"));
+  assert.ok(vision.config);
+  let calls = 0;
+  const provider = createClinicalAIProvider(vision.config, {
+    fetchImpl: async () => {
+      calls += 1;
+      return rawResponse("nvidia", validSkinResult);
+    },
+  });
+  await assert.rejects(provider.analyzeSkin("data:text/html;base64,PGh0bWw+"),
+    (error: unknown) => error instanceof AIProviderError && error.code === "provider_request_rejected");
+  assert.equal(calls, 0);
 });

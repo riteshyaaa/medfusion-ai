@@ -12,4 +12,6 @@ export interface PredictRequest {
      * @minimum 1
      */
   uploadId: number;
+  /** When true and the AI provider is configured, the image is analyzed by the external AI model under the operator transfer gates and this explicit consent. */
+  consentToExternalProcessing?: boolean;
 }

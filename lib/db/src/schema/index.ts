@@ -11,3 +11,4 @@ export * from "./documents";
 export * from "./conversations";
 export * from "./messages";
 export * from "./cardiac_assessments";
+export * from "./symptom_ai_evaluations";

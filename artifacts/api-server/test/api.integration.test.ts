@@ -671,3 +671,97 @@ test("record pages consume generated API hooks instead of mock arrays", async ()
     assert.doesNotMatch(page, /mockPatients|fakePatients|demoPatients|mockCases|fakeCases|demoCases/);
   }
 });
+
+test("saved symptom AI evaluations are consent-gated, owner-scoped, keep failed attempts, and preserve history on re-evaluate", async () => {
+  const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
+  const { AIProviderError } = await import("../src/ai-providers");
+  const owner = await register(`eval-owner-${randomUUID()}@example.test`, { role: "admin" });
+  const cookieOwner = owner.cookie;
+  const stranger = await register(`eval-stranger-${randomUUID()}@example.test`);
+
+  const created = await jsonRequest("/symptom-assessments", "POST", { primarySymptom: "mild sore throat", symptomCategory: "respiratory" }, cookieOwner);
+  assert.equal(created.status, 201);
+  const assessmentId = (await created.json() as { assessment: { id: number; urgencyLevel: string; redFlagsTriggered: string[] } }).assessment.id;
+
+  const noTransferGate = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+  assert.equal(noTransferGate.status, 403);
+  assert.equal((await noTransferGate.json() as { message: string }).message.includes("External AI processing is disabled"), true);
+  const emptyList = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, cookieOwner);
+  assert.equal(emptyList.status, 200);
+  assert.equal((await emptyList.json() as { evaluations: unknown[] }).evaluations.length, 0);
+  assert.equal((await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, stranger.cookie)).status, 404);
+
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  try {
+    const noProvider = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(noProvider.status, 503);
+
+    const evaluationResult = {
+      summary: "Reported mild sore throat as the principal symptom only.",
+      reportedSymptoms: ["mild sore throat"],
+      possibleConsiderations: [{ name: "Common viral throat irritation", whyDiscussed: "Sore throat without reported fever is a pattern commonly discussed in education for throat viruses." }],
+      supportingInformation: "Only the principal symptom was reported.",
+      missingInformation: "Duration, temperature, and swallowing difficulty were not reported.",
+      urgencyContext: "Rule-based urgency routine; no emergency red flags were matched.",
+      limitations: "Educational content only and never a diagnosis.",
+      followUpQuestions: ["How many days has the throat discomfort lasted?"],
+      disclaimer: "Educational information only, not a diagnosis.",
+    };
+    let providerBehavior: "ok" | "fail" = "ok";
+    setTestClinicalAIProvider({
+      async analyzeSkin() { throw new Error("not used"); },
+      async analyzeSymptoms() { throw new Error("not used"); },
+      async analyzeCardiac() { throw new Error("not used"); },
+      async evaluateSymptoms(input) {
+        assert.equal(input.primarySymptom, "mild sore throat");
+        assert.equal(input.urgencyLevel, "routine");
+        if (providerBehavior === "fail") throw new AIProviderError("provider_unavailable");
+        return { provider: "test", model: "test-double", result: { ...evaluationResult } };
+      },
+    });
+
+    const first = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(first.status, 201);
+    const firstBody = await first.json() as { evaluation: { id: number; provider: string; model: string; status: string; result: { summary: string; urgencyLevel: string; redFlagsTriggered: string[] } } };
+    assert.equal(firstBody.evaluation.provider, "test");
+    assert.equal(firstBody.evaluation.model, "test-double");
+    assert.equal(firstBody.evaluation.status, "completed");
+    assert.equal(firstBody.evaluation.result.summary, evaluationResult.summary);
+    assert.equal(firstBody.evaluation.result.urgencyLevel, "routine");
+    assert.deepEqual(firstBody.evaluation.result.redFlagsTriggered, []);
+    const listAfterFirst = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, cookieOwner);
+    assert.deepEqual((await listAfterFirst.json() as { evaluations: Array<{ id: number; status: string }> }).evaluations.map((row) => row.id), [firstBody.evaluation.id]);
+
+    const strangerRun = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations/${firstBody.evaluation.id}/re-evaluate`, "POST", { consentToExternalProcessing: true }, stranger.cookie);
+    assert.equal(strangerRun.status, 404);
+
+    providerBehavior = "fail";
+    const failed = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations/${firstBody.evaluation.id}/re-evaluate`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(failed.status, 502);
+    assert.equal((await failed.json() as { message: string }).message.includes("temporarily unavailable"), true);
+    const afterFailure = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, cookieOwner);
+    const rowsAfterFailure = (await afterFailure.json() as { evaluations: Array<{ id: number; status: string; errorCode: string | null }> }).evaluations;
+    assert.deepEqual(rowsAfterFailure.map((row) => row.status), ["failed", "completed"]);
+    assert.equal(rowsAfterFailure.find((row) => row.status === "failed")?.errorCode, "provider_unavailable");
+
+    providerBehavior = "ok";
+    const second = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations/${firstBody.evaluation.id}/re-evaluate`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(second.status, 201);
+    const secondBody = await second.json() as { evaluation: { id: number; status: string; provider: string }; previousEvaluationId: number };
+    assert.equal(secondBody.evaluation.status, "completed");
+    assert.equal(secondBody.evaluation.provider, "test");
+    assert.equal(secondBody.previousEvaluationId, firstBody.evaluation.id);
+    const listFinal = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, cookieOwner);
+    const rowsFinal = (await listFinal.json() as { evaluations: Array<{ id: number; status: string }> }).evaluations;
+    assert.deepEqual(rowsFinal.map((row) => [row.status, row.id]), [
+      ["completed", secondBody.evaluation.id],
+      ["failed", rowsAfterFailure.find((row) => row.status === "failed")?.id],
+      ["completed", firstBody.evaluation.id],
+    ]);
+  } finally {
+    setTestClinicalAIProvider(undefined);
+    delete process.env.AI_DATA_SHARING_ENABLED;
+    delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  }
+});

@@ -773,6 +773,158 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /symptom-assessments/{id}/ai-evaluations:
+    get:
+      operationId: listSymptomAiEvaluations
+      tags: [symptom-assessments]
+      summary: List saved AI evaluations for a symptom assessment
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Saved AI evaluations (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAiEvaluationListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createSymptomAiEvaluation
+      tags: [symptom-assessments]
+      summary: Consent-gated AI educational evaluation of a saved assessment
+      description: >
+        Requires operator AI-health-data flags and explicit consent. The
+        evaluation is built only from the persisted, server-validated
+        assessment and is stored as a new history record.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SymptomEvaluationConsent"
+      responses:
+        "201":
+          description: Evaluation completed and saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAiEvaluationResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Health-data transfer not approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: AI provider failure (stored as failed evaluation record)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: AI provider unconfigured or disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /symptom-assessments/{id}/ai-evaluations/{evaluationId}/re-evaluate:
+    post:
+      operationId: reevaluateSymptomAiEvaluation
+      tags: [symptom-assessments]
+      summary: Run a new AI evaluation, preserving the previous result
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: evaluationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SymptomEvaluationConsent"
+      responses:
+        "201":
+          description: New evaluation created; previous result preserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomAiEvaluationResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Health-data transfer not approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment or evaluation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: AI provider failure (stored as failed evaluation record)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: AI provider unconfigured or disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /symptom-assessments/{id}/ai-conditions:
     post:
       operationId: createSymptomAiConditions
@@ -1940,6 +2092,9 @@ components:
           type: integer
           minimum: 1
           description: ID returned by POST /uploads, scoped to the current user
+        consentToExternalProcessing:
+          type: boolean
+          description: When true and the AI provider is configured, the image is analyzed by the external AI model under the operator transfer gates and this explicit consent.
       required:
         - uploadId
     PredictionResult:
@@ -1980,9 +2135,49 @@ components:
         preprocessingVersion:
           type: string
           nullable: true
+        aiAssessment:
+          nullable: true
+          type: object
+          properties:
+            provider:
+              type: string
+            model:
+              type: string
+            observations:
+              type: array
+              items:
+                type: string
+            possibleConditions:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  reason:
+                    type: string
+                required: [name, reason]
+            uncertainty:
+              type: string
+            severity:
+              type: string
+            urgency:
+              type: string
+            nextSteps:
+              type: array
+              items:
+                type: string
+            consultClinicianWhen:
+              type: array
+              items:
+                type: string
+            preprocessingSteps:
+              type: array
+              items:
+                type: string
         status:
           type: string
-          enum: [completed, simulated, research_only, model_unavailable, invalid_input, abstained, failed, legacy_unverified]
+          enum: [completed, simulated, research_only, model_unavailable, invalid_input, abstained, failed, legacy_unverified, ai_informational]
         createdAt:
           type: string
       required:
@@ -2520,6 +2715,101 @@ components:
         rationale:
           type: string
       required: [condition, rationale]
+    SymptomEvaluationConsent:
+      type: object
+      required: [consentToExternalProcessing]
+      properties:
+        consentToExternalProcessing:
+          type: boolean
+          enum: [true]
+    SymptomAiEvaluation:
+      type: object
+      properties:
+        id:
+          type: integer
+        assessmentId:
+          type: integer
+        provider:
+          type: string
+        model:
+          type: string
+        promptVersion:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed]
+        errorCode:
+          type: string
+          nullable: true
+        consentAt:
+          type: string
+        result:
+          nullable: true
+          type: object
+          properties:
+            summary:
+              type: string
+            reportedSymptoms:
+              type: array
+              items:
+                type: string
+            possibleConsiderations:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  whyDiscussed:
+                    type: string
+                required: [name, whyDiscussed]
+            supportingInformation:
+              type: string
+            missingInformation:
+              type: string
+            urgencyContext:
+              type: string
+            limitations:
+              type: string
+            followUpQuestions:
+              type: array
+              items:
+                type: string
+            disclaimer:
+              type: string
+            urgencyLevel:
+              type: string
+            redFlagsTriggered:
+              type: array
+              items:
+                type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - assessmentId
+        - provider
+        - model
+        - promptVersion
+        - status
+        - consentAt
+        - createdAt
+    SymptomAiEvaluationResponse:
+      type: object
+      properties:
+        evaluation:
+          $ref: "#/components/schemas/SymptomAiEvaluation"
+        previousEvaluationId:
+          type: integer
+      required: [evaluation]
+    SymptomAiEvaluationListResponse:
+      type: object
+      properties:
+        evaluations:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomAiEvaluation"
+      required: [evaluations]
     SymptomAIConditionsResponse:
       type: object
       properties:

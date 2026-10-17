@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
-import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments } from "@workspace/db/schema";
+import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, symptomAiEvaluations, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments } from "@workspace/db/schema";
 import { eq, desc, and, or, ilike, count, sql, inArray, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
@@ -582,10 +582,14 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
   const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, uploadId), eq(uploads.userId, user.id)) });
   if (!upload) throw new HTTPException(404, { message: "Upload not found" });
 
-  const ai = getClinicalAIProvider();
+  // The consent branch always resolves the image-capable (vision) model from
+  // the verified allowlist; text-only fallbacks must not silently receive images.
+  const ai = consentToExternalProcessing
+    ? getClinicalAIProvider(undefined, { useVisionModel: true })
+    : getClinicalAIProvider();
   if (consentToExternalProcessing && ai.provider) {
     if (!externalHealthDataTransferEnabled()) {
-      throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+      throw codedError(503, "external_processing_disabled", "External AI health-data processing is disabled by server configuration.");
     }
     let imageDataUrl: string;
     try {
@@ -615,7 +619,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       differentialDiagnoses: [],
       preprocessingSteps,
       status: "ai_informational",
-      modelId: "replit-managed-openai",
+      modelId: analyzed.provider,
       modelVersion: analyzed.model,
       scoreSemantics: "not_applicable",
       preprocessingVersion: "sharp-jpeg-resize-v1",
@@ -627,8 +631,10 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     await logAudit(c, "prediction", "create", "success", "prediction", prediction.id.toString(), { status: "ai_informational", provider: analyzed.provider, model: analyzed.model });
     return c.json(predictionView(prediction), 201);
   }
-  if (consentToExternalProcessing && !ai.provider) {
-    throw codedError(503, "provider_unavailable", "The Replit AI provider is not configured for skin analysis.");
+  if (consentToExternalProcessing) {
+    if (ai.status === "disabled") throw codedError(503, "provider_unavailable", "No AI provider is configured on the server. AI-assisted skin analysis is unavailable; the scheduled model analysis can still be used.");
+    if (ai.status === "unconfigured") throw codedError(503, "provider_unavailable", "The configured AI provider credentials are missing. AI-assisted skin analysis is unavailable; the scheduled model analysis can still be used.");
+    throw codedError(503, "provider_unavailable", "The configured AI provider is misconfigured or does not permit image analysis. AI-assisted skin analysis is unavailable; the scheduled model analysis can still be used.");
   }
 
   const statusLookup = await getSkinInferenceStatus();
@@ -1532,6 +1538,180 @@ app.post("/symptom-assessments/:id/ai-conditions", requireAuth, jsonBody(symptom
       throw new HTTPException(502, { message: message[error.code] ?? "AI provider request failed." });
     }
     throw error;
+  }
+});
+
+const symptomEvaluationConsentSchema = z.object({ consentToExternalProcessing: z.literal(true) });
+
+function symptomEvaluationView(row: typeof symptomAiEvaluations.$inferSelect) {
+  return {
+    id: row.id,
+    assessmentId: row.assessmentId,
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.promptVersion,
+    status: row.status,
+    errorCode: row.errorCode,
+    consentAt: row.consentAt,
+    result: row.result,
+    createdAt: row.createdAt,
+  };
+}
+
+async function loadOwnedAssessment(id: number, userId: number) {
+  const assessment = await db.query.symptomAssessments.findFirst({ where: and(eq(symptomAssessments.id, id), eq(symptomAssessments.userId, userId)) });
+  if (!assessment) throw new HTTPException(404, { message: "Symptom assessment not found" });
+  return assessment;
+}
+
+function symptomEvaluationInput(assessment: NonNullable<Awaited<ReturnType<typeof loadOwnedAssessment>>>) {
+  const guidance = (assessment.guidance ?? {}) as {
+    recommendations?: string[];
+    watchFor?: string[];
+    seekCareIf?: string[];
+    possibleConditions?: Array<{ name: string; basis: string }>;
+    disclaimer?: string;
+  };
+  return {
+    primarySymptom: assessment.primarySymptom,
+    symptomCategory: assessment.symptomCategory,
+    ...(assessment.onset ? { onset: assessment.onset } : {}),
+    ...(assessment.duration ? { duration: assessment.duration } : {}),
+    ...(assessment.severity ? { severity: assessment.severity } : {}),
+    ...(assessment.progression ? { progression: assessment.progression } : {}),
+    associatedSymptoms: assessment.associatedSymptoms ?? [],
+    selectedSymptoms: assessment.selectedSymptoms ?? [],
+    medicalHistory: assessment.medicalHistory ?? [],
+    medications: assessment.medications ?? [],
+    allergies: assessment.allergies ?? [],
+    urgencyLevel: assessment.urgencyLevel,
+    redFlags: assessment.redFlagsTriggered ?? [],
+    guidance: {
+      recommendations: guidance.recommendations ?? [],
+      watchFor: guidance.watchFor ?? [],
+      seekCareIf: guidance.seekCareIf ?? [],
+      possibleConditions: guidance.possibleConditions ?? [],
+      disclaimer: guidance.disclaimer ?? "",
+    },
+  };
+}
+
+const providerErrorMessage: Record<string, string> = {
+  provider_timeout: "The AI provider did not respond in time. No completed evaluation was stored. Please retry.",
+  provider_rate_limited: "The AI provider is rate limiting requests right now. No completed evaluation was stored. Please retry later.",
+  provider_invalid_credentials: "The AI provider rejected the server credentials. No completed evaluation was stored.",
+  provider_unavailable: "The AI provider is temporarily unavailable. No completed evaluation was stored. Please retry.",
+  provider_malformed_response: "The AI provider returned an unsafe or malformed response. No completed evaluation was stored; the failed attempt is kept on the record for audit.",
+  provider_request_rejected: "The AI provider rejected this request. No completed evaluation was stored.",
+};
+
+app.post("/symptom-assessments/:id/ai-evaluations", requireAuth, jsonBody(symptomEvaluationConsentSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  if (!externalHealthDataTransferEnabled()) {
+    throw new HTTPException(403, { message: "External AI processing is disabled: the operator has not approved AI health-data transfer. Nothing was sent." });
+  }
+  const consentAt = new Date();
+  const consentEventId = randomUUID();
+  const assessment = await loadOwnedAssessment(id, user.id);
+  const ai = getClinicalAIProvider();
+  if (ai.status === "disabled") throw new HTTPException(503, { message: "No AI provider is configured on the server." });
+  if (ai.status === "unconfigured") throw new HTTPException(503, { message: "The AI provider is selected on the server but its credentials are missing." });
+  if (ai.status === "misconfigured" || !ai.provider) throw new HTTPException(503, { message: "The AI provider is misconfigured or does not permit this feature." });
+  await logAudit(c, "symptom_ai_evaluation", "consent", "success", "symptom_assessment", assessment.id.toString(), { consentEventId });
+  try {
+    const analyzed = await ai.provider.evaluateSymptoms(symptomEvaluationInput(assessment));
+    const [evaluation] = await db.insert(symptomAiEvaluations).values({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: analyzed.provider,
+      model: analyzed.model,
+      promptVersion: "symptom-eval-v1",
+      status: "completed",
+      result: { ...analyzed.result, urgencyLevel: assessment.urgencyLevel, redFlagsTriggered: assessment.redFlagsTriggered ?? [] },
+      consentAt,
+      consentEventId,
+    }).returning();
+    await logAudit(c, "symptom_ai_evaluation", "create", "success", "symptom_ai_evaluation", evaluation.id.toString(), { provider: analyzed.provider, model: analyzed.model, consentEventId });
+    return c.json({ evaluation: symptomEvaluationView(evaluation) }, 201);
+  } catch (error) {
+    const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+    await db.insert(symptomAiEvaluations).values({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: "unknown",
+      model: "unknown",
+      promptVersion: "symptom-eval-v1",
+      status: "failed",
+      errorCode: code,
+      consentAt,
+      consentEventId,
+    });
+    await logAudit(c, "symptom_ai_evaluation", "create", "failure", "symptom_assessment", assessment.id.toString(), { reason: code, consentEventId });
+    throw new HTTPException(502, { message: providerErrorMessage[code] ?? "AI evaluation failed. Nothing was stored." });
+  }
+});
+
+app.get("/symptom-assessments/:id/ai-evaluations", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  await loadOwnedAssessment(id, user.id);
+  const rows = await db.query.symptomAiEvaluations.findMany({
+    where: and(eq(symptomAiEvaluations.assessmentId, id), eq(symptomAiEvaluations.userId, user.id)),
+    orderBy: [desc(symptomAiEvaluations.createdAt), desc(symptomAiEvaluations.id)],
+  });
+  return c.json({ evaluations: rows.map(symptomEvaluationView) });
+});
+
+app.post("/symptom-assessments/:id/ai-evaluations/:evaluationId/re-evaluate", requireAuth, jsonBody(symptomEvaluationConsentSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const evaluationId = parseId(c.req.param("evaluationId"));
+  if (!externalHealthDataTransferEnabled()) {
+    throw new HTTPException(403, { message: "External AI processing is disabled: the operator has not approved AI health-data transfer. Nothing was sent." });
+  }
+  const consentAt = new Date();
+  const consentEventId = randomUUID();
+  const assessment = await loadOwnedAssessment(id, user.id);
+  const previous = await db.query.symptomAiEvaluations.findFirst({
+    where: and(eq(symptomAiEvaluations.id, evaluationId), eq(symptomAiEvaluations.assessmentId, id), eq(symptomAiEvaluations.userId, user.id)),
+  });
+  if (!previous) throw new HTTPException(404, { message: "Saved evaluation not found" });
+  const ai = getClinicalAIProvider();
+  if (ai.status === "disabled") throw new HTTPException(503, { message: "No AI provider is configured on the server." });
+  if (ai.status === "unconfigured") throw new HTTPException(503, { message: "The AI provider is selected on the server but its credentials are missing." });
+  if (ai.status === "misconfigured" || !ai.provider) throw new HTTPException(503, { message: "The AI provider is misconfigured or does not permit this feature." });
+  await logAudit(c, "symptom_ai_evaluation", "consent", "success", "symptom_assessment", assessment.id.toString(), { consentEventId, reEvaluate: true });
+  try {
+    const analyzed = await ai.provider.evaluateSymptoms(symptomEvaluationInput(assessment));
+    const [evaluation] = await db.insert(symptomAiEvaluations).values({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: analyzed.provider,
+      model: analyzed.model,
+      promptVersion: "symptom-eval-v1",
+      status: "completed",
+      result: { ...analyzed.result, urgencyLevel: assessment.urgencyLevel, redFlagsTriggered: assessment.redFlagsTriggered ?? [] },
+      consentAt,
+      consentEventId,
+    }).returning();
+    await logAudit(c, "symptom_ai_evaluation", "create", "success", "symptom_ai_evaluation", evaluation.id.toString(), { provider: analyzed.provider, model: analyzed.model, consentEventId, previousEvaluationId: previous.id });
+    return c.json({ evaluation: symptomEvaluationView(evaluation), previousEvaluationId: previous.id }, 201);
+  } catch (error) {
+    const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+    await db.insert(symptomAiEvaluations).values({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: "unknown",
+      model: "unknown",
+      promptVersion: "symptom-eval-v1",
+      status: "failed",
+      errorCode: code,
+      consentAt,
+      consentEventId,
+    });
+    await logAudit(c, "symptom_ai_evaluation", "create", "failure", "symptom_assessment", assessment.id.toString(), { reason: code, consentEventId, previousEvaluationId: previous.id });
+    throw new HTTPException(502, { message: providerErrorMessage[code] ?? "AI evaluation failed. Nothing was stored." });
   }
 });
 

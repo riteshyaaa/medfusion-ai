@@ -5,6 +5,8 @@ import type { CaseStatus } from "@workspace/api-client-react";
 import { ArrowLeft, CalendarClock, ClipboardList, FileText, HeartPulse, ImageIcon, ScrollText, Sparkles, Stethoscope, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout";
+import { AIEvaluationModal, type AIEvaluationModalAssessment } from "@/components/ai-evaluation-modal";
+import { useState } from "react";
 
 function title(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -15,6 +17,7 @@ function timestamp(value: string | null | undefined) {
 }
 
 export default function CaseDetail() {
+  const [evaluationFor, setEvaluationFor] = useState<AIEvaluationModalAssessment | null>(null);
   const [, params] = useRoute("/cases/:id");
   const id = Number(params?.id);
   const validId = Number.isSafeInteger(id) && id > 0;
@@ -105,6 +108,11 @@ export default function CaseDetail() {
                         ))}
                       </ul>
                     )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {workspace.symptomAssessments.map((item) => (
+                        <Button key={`ai-eval-${item.id}`} type="button" variant="outline" className="h-8 px-3 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>AI Evaluation · record #{item.id}</Button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <h3 className="flex items-center gap-2 font-medium text-slate-800"><HeartPulse className="w-4 h-4 text-primary" />Cardiac assessments ({(workspace.cardiacAssessments ?? []).length})</h3>
@@ -143,6 +151,8 @@ export default function CaseDetail() {
           </>
         )}
       </div>
+    
+      <AIEvaluationModal assessment={evaluationFor} onClose={() => setEvaluationFor(null)} />
     </Layout>
   );
 }

@@ -239,6 +239,8 @@ export interface PredictRequest {
      * @minimum 1
      */
   uploadId: number;
+  /** When true and the AI provider is configured, the image is analyzed by the external AI model under the operator transfer gates and this explicit consent. */
+  consentToExternalProcessing?: boolean;
 }
 
 export type PredictionResultSeverity = typeof PredictionResultSeverity[keyof typeof PredictionResultSeverity];
@@ -262,6 +264,27 @@ export const PredictionResultScoreSemantics = {
   unverified: 'unverified',
 } as const;
 
+export type PredictionResultAiAssessmentPossibleConditionsItem = {
+  name: string;
+  reason: string;
+};
+
+/**
+ * @nullable
+ */
+export type PredictionResultAiAssessment = {
+  provider?: string;
+  model?: string;
+  observations?: string[];
+  possibleConditions?: PredictionResultAiAssessmentPossibleConditionsItem[];
+  uncertainty?: string;
+  severity?: string;
+  urgency?: string;
+  nextSteps?: string[];
+  consultClinicianWhen?: string[];
+  preprocessingSteps?: string[];
+} | null;
+
 export type PredictionResultStatus = typeof PredictionResultStatus[keyof typeof PredictionResultStatus];
 
 
@@ -274,6 +297,7 @@ export const PredictionResultStatus = {
   abstained: 'abstained',
   failed: 'failed',
   legacy_unverified: 'legacy_unverified',
+  ai_informational: 'ai_informational',
 } as const;
 
 export interface DifferentialDiagnosis {
@@ -297,6 +321,8 @@ export interface PredictionResult {
   scoreSemantics: PredictionResultScoreSemantics;
   /** @nullable */
   preprocessingVersion?: string | null;
+  /** @nullable */
+  aiAssessment?: PredictionResultAiAssessment;
   status: PredictionResultStatus;
   createdAt: string;
 }
@@ -672,6 +698,64 @@ export interface SymptomAiConditionsRequest {
 export interface AIConditionSuggestion {
   condition: string;
   rationale: string;
+}
+
+export interface SymptomEvaluationConsent {
+  consentToExternalProcessing: true;
+}
+
+export type SymptomAiEvaluationStatus = typeof SymptomAiEvaluationStatus[keyof typeof SymptomAiEvaluationStatus];
+
+
+export const SymptomAiEvaluationStatus = {
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export type SymptomAiEvaluationResultPossibleConsiderationsItem = {
+  name: string;
+  whyDiscussed: string;
+};
+
+/**
+ * @nullable
+ */
+export type SymptomAiEvaluationResult = {
+  summary?: string;
+  reportedSymptoms?: string[];
+  possibleConsiderations?: SymptomAiEvaluationResultPossibleConsiderationsItem[];
+  supportingInformation?: string;
+  missingInformation?: string;
+  urgencyContext?: string;
+  limitations?: string;
+  followUpQuestions?: string[];
+  disclaimer?: string;
+  urgencyLevel?: string;
+  redFlagsTriggered?: string[];
+} | null;
+
+export interface SymptomAiEvaluation {
+  id: number;
+  assessmentId: number;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  status: SymptomAiEvaluationStatus;
+  /** @nullable */
+  errorCode?: string | null;
+  consentAt: string;
+  /** @nullable */
+  result?: SymptomAiEvaluationResult;
+  createdAt: string;
+}
+
+export interface SymptomAiEvaluationResponse {
+  evaluation: SymptomAiEvaluation;
+  previousEvaluationId?: number;
+}
+
+export interface SymptomAiEvaluationListResponse {
+  evaluations: SymptomAiEvaluation[];
 }
 
 export type SymptomAIConditionsResponseAnalysis = {

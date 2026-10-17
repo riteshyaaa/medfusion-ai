@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ActivitySquare, ChevronRight, Flame, Layers, ListChecks, Stethoscope } from "lucide-react";
+import { ActivitySquare, ChevronRight, Flame, Layers, ListChecks, Sparkles, Stethoscope } from "lucide-react";
 import { SeverityBadge } from "./ui/severity-badge";
 
 type DisplayResult = {
@@ -16,6 +16,16 @@ type DisplayResult = {
   scoreSemantics?: string;
   preprocessingVersion?: string | null;
   status?: string;
+  aiAssessment?: {
+    provider?: string;
+    model?: string;
+    observations?: string[];
+    possibleConditions?: Array<{ name: string; reason: string }>;
+    uncertainty?: string;
+    urgency?: string;
+    nextSteps?: string[];
+    consultClinicianWhen?: string[];
+  } | null;
   createdAt: string;
 };
 
@@ -29,6 +39,8 @@ const percent = (value: number) => (Number.isFinite(value) ? (value * 100).toFix
 export function ResultsCard({ result, onReset }: ResultsCardProps) {
   const simulated = result.status === "simulated" || result.scoreSemantics === "simulated";
   const unverified = result.status === "legacy_unverified" || result.scoreSemantics === "unverified";
+  const aiInformational = result.status === "ai_informational" && Boolean(result.aiAssessment);
+  const aiResult = aiInformational ? result.aiAssessment : undefined;
   const confidencePercent = percent(result.confidence);
   const maxDifferential = Math.max(0.001, ...result.differentialDiagnoses.map((row) => row.confidence));
 
@@ -40,13 +52,23 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
           <div className="min-w-[240px]">
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <SeverityBadge severity={simulated || unverified ? "unassessed" : result.severity} />
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs font-semibold text-white/90"><Flame className="h-3.5 w-3.5" />Analysis Complete</span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs font-semibold text-white/90">
+                {aiInformational ? <><Sparkles className="h-3.5 w-3.5" />NVIDIA-powered AI-assisted skin-image analysis</> : <><Flame className="h-3.5 w-3.5" />Analysis Complete</>}
+              </span>
             </div>
             <h2 className="text-3xl md:text-4xl font-display font-bold text-teal-300">{simulated ? "Simulated test output" : unverified ? "Unverified legacy record" : result.disease}</h2>
             {simulated && <p className="mt-2 text-sm text-amber-200">This record was created by an explicit test double. Its values are not a real analysis.</p>}
             {unverified && <p className="mt-2 text-sm text-amber-200">Model provenance was not recorded for this legacy row, so its output is hidden.</p>}
+            {aiInformational && <p className="mt-2 text-sm text-teal-200">The external NVIDIA vision model described what it sees in this image, as user consented to external processing. This is an AI image conversation — not a clinically validated diagnosis or a probability.</p>}
           </div>
-          {!simulated && !unverified && (
+          {aiInformational ? (
+            <div className="rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
+              <p className="text-xs uppercase tracking-wider text-white/60 font-bold">No score is shown</p>
+              <p className="text-sm text-white/80 mt-1">This review produces textual observations only — never a probability or confidence score.</p>
+              {aiResult?.urgency === "emergency" && <p className="mt-2 text-sm font-semibold text-amber-200">The review flagged an urgent pattern: seek emergency care immediately.</p>}
+            </div>
+          ) : (
+          !simulated && !unverified && (
             <div className="flex items-center gap-4 rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
               <div className="relative grid place-items-center">
                 <svg viewBox="0 0 72 72" className="h-20 w-20 -rotate-90">
@@ -61,7 +83,7 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
               </div>
               <div><p className="text-xs uppercase tracking-wider text-white/60 font-bold">AI Confidence Score</p><p className="text-sm text-white/80 mt-1">Leading candidate among {1 + result.differentialDiagnoses.length} conditions</p></div>
             </div>
-          )}
+          ))}
         </div>
       </div>
 
@@ -76,12 +98,38 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
             <div className="flex items-center gap-2 text-primary font-bold mb-4"><ListChecks className="w-5 h-5" /><h3>Recommendations</h3></div>
             {!simulated && !unverified && <ul className="space-y-3">{result.recommendations.map((recommendation, index) => <motion.li key={index} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.08 * index }} className="flex items-start gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100"><ChevronRight className="w-5 h-5 text-primary shrink-0 mt-0.5" /><span className="text-slate-700 text-sm">{recommendation}</span></motion.li>)}</ul>}
           </section>
+
+          {aiInformational && aiResult && (
+            <>
+              <section>
+                <div className="flex items-center gap-2 text-primary font-bold mb-3"><Stethoscope className="w-5 h-5" /><h3>What the AI described in this image</h3></div>
+                <ul className="space-y-2">{(aiResult.observations ?? []).map((row, index) => <li key={index} className="flex items-start gap-2 text-slate-700 text-sm"><ChevronRight className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />{row}</li>)}</ul>
+                {aiResult.uncertainty && <p className="mt-2 text-xs text-slate-500">Uncertainty noted by the review: {aiResult.uncertainty}</p>}
+              </section>
+              <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
+                <h3 className="font-bold text-foreground mb-3">Possible conditions to discuss with a clinician</h3>
+                {(aiResult.possibleConditions ?? []).length === 0 ? <p className="text-sm text-slate-500">The review did not list specific conditions to discuss.</p> : (
+                  <ul className="space-y-3">{(aiResult.possibleConditions ?? []).map((condition, index) => (
+                    <li key={index}>
+                      <p className="text-sm font-semibold text-slate-800">{condition.name}</p>
+                      <p className="text-sm text-slate-600">{condition.reason}</p>
+                    </li>
+                  ))}</ul>
+                )}
+                <p className="mt-3 text-xs text-slate-500">These are order-free talking points, not ranked probabilities or a diagnosis.</p>
+              </section>
+              <section>
+                <div className="flex items-center gap-2 text-primary font-bold mb-3"><ListChecks className="w-5 h-5" /><h3>When to consult a clinician</h3></div>
+                <ul className="space-y-2">{(aiResult.consultClinicianWhen ?? []).map((row, index) => <li key={index} className="flex items-start gap-2 text-slate-700 text-sm"><ChevronRight className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />{row}</li>)}</ul>
+              </section>
+            </>
+          )}
         </div>
 
         <div className="space-y-8">
           <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
             <h3 className="font-bold text-foreground mb-4">Differential Diagnoses</h3>
-            {simulated || unverified ? <p className="text-sm text-slate-500">{simulated ? "Hidden for this simulated record." : "Hidden because model provenance was not recorded."}</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate conditions were returned.</p> : (
+            {simulated || unverified ? <p className="text-sm text-slate-500">{simulated ? "Hidden for this simulated record." : "Hidden because model provenance was not recorded."}</p> : aiInformational ? <p className="text-sm text-slate-500">Differential bars are not produced for AI-assisted visual reviews — see "Possible conditions to discuss with a clinician" instead.</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate conditions were returned.</p> : (
               <ul className="space-y-3">{result.differentialDiagnoses.map((candidate, index) => (
                 <li key={index} className="text-sm">
                   <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-700 font-medium">{candidate.disease}</span><span className="font-mono text-slate-500">{percent(candidate.confidence)}%</span></div>
@@ -111,7 +159,7 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
         </div>
       </div>
 
-      <div className="px-8 pb-2"><details className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><summary className="cursor-pointer text-xs font-semibold text-slate-500">How this result is produced, and its limits</summary><p className="mt-2 text-xs text-slate-500 leading-relaxed">The confidence score and the differential percentages come from the AI model's ranking of this single image. The ranking is not a probability of having the condition, and image-based analysis cannot reliably rule out skin cancer. Photographic appearance varies with skin tone, lighting, and image quality. Please treat this summary as information to share with a dermatologist, not as a confirmed diagnosis.</p></details></div>
+      <div className="px-8 pb-2"><details className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><summary className="cursor-pointer text-xs font-semibold text-slate-500">How this result is produced, and its limits</summary>{aiInformational ? <p className="mt-2 text-xs text-slate-500 leading-relaxed">This record was produced by the external NVIDIA vision model after you explicitly consented to sending the release-free prepared image for review. The text describes what the model observed: it is an AI image conversation, not a clinically validated diagnostic classifier, and it produces no probability that any condition is present. Image-based analysis cannot reliably rule out skin cancer, and photographic appearance varies with skin tone, lighting, and image quality. Please treat these observations as talking points to share with a dermatologist, never as a confirmed diagnosis.</p> : <p className="mt-2 text-xs text-slate-500 leading-relaxed">The confidence score and the differential percentages come from the AI model's ranking of this single image. The ranking is not a probability of having the condition, and image-based analysis cannot reliably rule out skin cancer. Photographic appearance varies with skin tone, lighting, and image quality. Please treat this summary as information to share with a dermatologist, not as a confirmed diagnosis.</p>}</details></div>
 
       <div className="p-6 bg-slate-50 border-t border-slate-100 text-center"><button type="button" onClick={onReset} className="px-8 py-3 rounded-xl font-semibold bg-white text-slate-700 border-2 border-slate-200 hover:border-primary hover:text-primary shadow-sm hover:shadow-md transition-all">Return to analysis</button></div>
     </motion.div>

@@ -16,6 +16,7 @@ export default function SkinAnalysis() {
   const modelStatus = useGetSkinModelStatus();
   const status = modelStatus.data;
   const researchAvailable = Boolean(status?.available && status.mode === "research_only");
+  const [useExternalAI, setUseExternalAI] = useState(false);
 
   const handleUpload = async (uploadedFile: File) => {
     setIsUploading(true);
@@ -28,6 +29,7 @@ export default function SkinAnalysis() {
         {
           data: {
             uploadId: uploaded.upload.id,
+            ...(useExternalAI ? { consentToExternalProcessing: true } : {}),
           },
         },
         {
@@ -85,11 +87,31 @@ export default function SkinAnalysis() {
               {researchAvailable
                 ? "Upload an image and our AI analysis ranks the most likely conditions, with a clinical description, recommendations, and differential diagnoses."
                 : "Upload an image for server-side validation. No verified and enabled skin model is currently available, so this prototype will not return a condition result."}
+              {useExternalAI && <span className="block mt-2 text-indigo-700 font-medium" style={{ fontSize: "0.95rem" }}>Consent mode: the uploaded image will be sent to the external NVIDIA AI model for visual analysis after validation.</span>}
             </p>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 p-2 md:p-6 border border-slate-100">
             <UploadZone onUpload={handleUpload} isAnalyzing={isPending || isUploading} />
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Analysis mode</p>
+            <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useExternalAI}
+                onChange={(event) => setUseExternalAI(event.target.checked)}
+                className="mt-0.5 h-4 w-4"
+                disabled={isPending || isUploading}
+              />
+              <span>
+                <span className="font-semibold">NVIDIA-powered AI-assisted skin-image analysis</span>
+                <span className="block text-slate-500 text-xs mt-1">
+                  Sends the prepared image to the external NVIDIA vision model you consent to use, for observations and possible conditions to discuss with a clinician. This is an AI image conversation, not a clinically validated diagnostic classifier. Requires explicit consent below; the checkbox must be ticked before the image leaves the platform. The separate scheduled model analysis (uncalibrated local model) stays available either way.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">

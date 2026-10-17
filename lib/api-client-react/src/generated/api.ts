@@ -71,9 +71,12 @@ import type {
   SkinInferenceStatus,
   SymptomAIConditionsResponse,
   SymptomAiConditionsRequest,
+  SymptomAiEvaluationListResponse,
+  SymptomAiEvaluationResponse,
   SymptomAssessmentListResponse,
   SymptomAssessmentResponse,
   SymptomClassifierStatus,
+  SymptomEvaluationConsent,
   UpdateCaseRequest,
   UpdateDocumentFindingRequest,
   UpdatePatientRequest,
@@ -2249,6 +2252,288 @@ export const useCreateSymptomAssessment = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getCreateSymptomAssessmentMutationOptions(options), queryClient);
+    }
+
+export const getListSymptomAiEvaluationsUrl = (id: number,) => {
+
+
+
+
+  return `/api/symptom-assessments/${id}/ai-evaluations`
+}
+
+/**
+ * @summary List saved AI evaluations for a symptom assessment
+ */
+export const listSymptomAiEvaluations = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<SymptomAiEvaluationListResponse> => {
+
+  return customFetch<SymptomAiEvaluationListResponse>(getListSymptomAiEvaluationsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSymptomAiEvaluationsQueryKey = (id: number,) => {
+    return [
+    `/api/symptom-assessments/${id}/ai-evaluations`
+    ] as const;
+    }
+
+
+export const getListSymptomAiEvaluationsQueryOptions = <TData = Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSymptomAiEvaluationsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSymptomAiEvaluations>>> = ({ signal }) => listSymptomAiEvaluations(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListSymptomAiEvaluationsQueryResult = NonNullable<Awaited<ReturnType<typeof listSymptomAiEvaluations>>>
+export type ListSymptomAiEvaluationsQueryError = ErrorType<ErrorResponse>
+
+
+export function useListSymptomAiEvaluations<TData = Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSymptomAiEvaluations>>,
+          TError,
+          Awaited<ReturnType<typeof listSymptomAiEvaluations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSymptomAiEvaluations<TData = Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSymptomAiEvaluations>>,
+          TError,
+          Awaited<ReturnType<typeof listSymptomAiEvaluations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSymptomAiEvaluations<TData = Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List saved AI evaluations for a symptom assessment
+ */
+
+export function useListSymptomAiEvaluations<TData = Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomAiEvaluations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListSymptomAiEvaluationsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSymptomAiEvaluationUrl = (id: number,) => {
+
+
+
+
+  return `/api/symptom-assessments/${id}/ai-evaluations`
+}
+
+/**
+ * Requires operator AI-health-data flags and explicit consent. The evaluation is built only from the persisted, server-validated assessment and is stored as a new history record.
+ * @summary Consent-gated AI educational evaluation of a saved assessment
+ */
+export const createSymptomAiEvaluation = async (id: number,
+    symptomEvaluationConsent: SymptomEvaluationConsent, options?: Parameters<typeof customFetch>[1]): Promise<SymptomAiEvaluationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SymptomAiEvaluationResponse>(getCreateSymptomAiEvaluationUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(symptomEvaluationConsent)
+  }
+);}
+
+
+
+
+
+export const getCreateSymptomAiEvaluationMutationKey = () => ['createSymptomAiEvaluation'] as const;
+
+export const getCreateSymptomAiEvaluationMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiEvaluation>>, TError,CreateSymptomAiEvaluationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiEvaluation>>, TError,CreateSymptomAiEvaluationMutationVariables, TContext> => {
+
+const mutationKey = getCreateSymptomAiEvaluationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSymptomAiEvaluation>>, CreateSymptomAiEvaluationMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createSymptomAiEvaluation(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSymptomAiEvaluationMutationResult = NonNullable<Awaited<ReturnType<typeof createSymptomAiEvaluation>>>
+    export type CreateSymptomAiEvaluationMutationBody = BodyType<SymptomEvaluationConsent>
+    export type CreateSymptomAiEvaluationMutationError = ErrorType<ErrorResponse>
+    export type CreateSymptomAiEvaluationMutationVariables = {id: number;data: BodyType<SymptomEvaluationConsent>}
+
+    /**
+ * @summary Consent-gated AI educational evaluation of a saved assessment
+ */
+export const useCreateSymptomAiEvaluation = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiEvaluation>>, TError,CreateSymptomAiEvaluationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createSymptomAiEvaluation>>,
+        TError,
+        CreateSymptomAiEvaluationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateSymptomAiEvaluationMutationOptions(options), queryClient);
+    }
+
+export const getReevaluateSymptomAiEvaluationUrl = (id: number,
+    evaluationId: number,) => {
+
+
+
+
+  return `/api/symptom-assessments/${id}/ai-evaluations/${evaluationId}/re-evaluate`
+}
+
+/**
+ * @summary Run a new AI evaluation, preserving the previous result
+ */
+export const reevaluateSymptomAiEvaluation = async (id: number,
+    evaluationId: number,
+    symptomEvaluationConsent: SymptomEvaluationConsent, options?: Parameters<typeof customFetch>[1]): Promise<SymptomAiEvaluationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<SymptomAiEvaluationResponse>(getReevaluateSymptomAiEvaluationUrl(id,evaluationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(symptomEvaluationConsent)
+  }
+);}
+
+
+
+
+
+export const getReevaluateSymptomAiEvaluationMutationKey = () => ['reevaluateSymptomAiEvaluation'] as const;
+
+export const getReevaluateSymptomAiEvaluationMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>, TError,ReevaluateSymptomAiEvaluationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>, TError,ReevaluateSymptomAiEvaluationMutationVariables, TContext> => {
+
+const mutationKey = getReevaluateSymptomAiEvaluationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>, ReevaluateSymptomAiEvaluationMutationVariables> = (props) => {
+          const {id,evaluationId,data} = props ?? {};
+
+          return  reevaluateSymptomAiEvaluation(id,evaluationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReevaluateSymptomAiEvaluationMutationResult = NonNullable<Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>>
+    export type ReevaluateSymptomAiEvaluationMutationBody = BodyType<SymptomEvaluationConsent>
+    export type ReevaluateSymptomAiEvaluationMutationError = ErrorType<ErrorResponse>
+    export type ReevaluateSymptomAiEvaluationMutationVariables = {id: number;evaluationId: number;data: BodyType<SymptomEvaluationConsent>}
+
+    /**
+ * @summary Run a new AI evaluation, preserving the previous result
+ */
+export const useReevaluateSymptomAiEvaluation = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>, TError,ReevaluateSymptomAiEvaluationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reevaluateSymptomAiEvaluation>>,
+        TError,
+        ReevaluateSymptomAiEvaluationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReevaluateSymptomAiEvaluationMutationOptions(options), queryClient);
     }
 
 export const getCreateSymptomAiConditionsUrl = (id: number,) => {

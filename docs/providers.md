@@ -25,6 +25,20 @@ Neither task classifies images, creates or revises numeric scores, accesses pati
 
 Provider models are an explicit allowlist, not user input. Update the list only after rechecking official API support, terms, account access, and structured-output behavior. Each request has a timeout, at most two retries for retryable transport/5xx/429 failures, bounded process concurrency, a 128 KiB provider-response cap, and an API rate limit. Credentials stay server-side.
 
+## Image-capable (vision) models for consented skin-image analysis
+
+When a user explicitly consents (POST **/api/predict** with `consentToExternalProcessing: true`) **and** the operator transfer gates are set, the prepared image (EXIF-rotated, resized within 1024×1024, JPEG re-encoded) is sent to an **image-capable** model from a separate verified allowlist. Text-only fallback models silently receiving images is prevented by construction: the consent route resolves its model through `AI_SKIN_VISION_MODEL` or the per-provider default below.
+
+| Provider setting | Verified image-capable models | Default when `AI_SKIN_VISION_MODEL` is empty |
+| --- | --- | --- |
+| **nvidia** | **nvidia/nemotron-3.5-super-vl-120b-a12b**, meta/llama-3.2-11b-vision-instruct, meta/llama-3.2-90b-vision-instruct, microsoft/phi-3-vision-128k-instruct | **nvidia/nemotron-3.5-super-vl-120b-a12b** |
+| **openai** | gpt-5.2, gpt-5.4, gpt-4.1, gpt-4o, o4-mini, o3 | gpt-5.2 |
+| **gemini** | gemini-3.8-flash | gemini-3.8-flash |
+
+A free NVIDIA Build key live check on 2026-10-17 sent a real PNG through a multimodal `messages: [{type: "text"}, {type: "image_url", image_url: {url: "data:image/png;base64,..."}}]` content array on `/v1/chat/completions` and confirmed image understanding on **nvidia/nemotron-3.5-super-vl-120b-a12b** and **meta/llama-3.2-11b-vision-instruct**; `google/gemma-3-12b-it` returned 404 on that account. Nemotron vision models are reasoning models: the JSON answer arrives in message `content` while the reasoning pass is in the separate `reasoning_content` field, so the token budget must cover both.
+
+This consented review is distinctly labeled in the UI as an AI image conversation ("NVIDIA-powered AI-assisted skin-image analysis"): it produces structured observations, possible conditions to discuss, and follow-up steps — never probabilities, scores, or diagnoses. Local strict Zod parsing rejects any output containing numeric scores/percentages or diagnosis claims before anything is stored. Set `AI_SKIN_VISION_MODEL=` only to a model from the table above.
+
 The adapter sends only classifier model ID/version, score semantics, candidate labels, and candidate scores. OpenAI and Gemini receive a strict schema. NVIDIA does not receive provider-specific response_format because its hosted model support for that feature was not verified. All returned text must be valid JSON matching the local schema; text containing numeric characters or percentages is rejected so the provider cannot supply or restate classifier scores.
 
 ## Report Analysis interpretation
@@ -55,6 +69,7 @@ Copy **.env.example** to a local .env only when needed; never commit .env or cre
 ~~~dotenv
 AI_PROVIDER=none
 AI_MODEL=
+AI_SKIN_VISION_MODEL=
 AI_DATA_SHARING_ENABLED=false
 AI_HEALTH_DATA_TRANSFER_APPROVED=false
 AI_REQUEST_TIMEOUT_MS=15000

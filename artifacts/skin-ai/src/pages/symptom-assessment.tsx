@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCreateSymptomAssessment, useCreateSymptomAiConditions, useGetSymptomClassifierStatus, useListCases, useListSymptomAssessments } from "@workspace/api-client-react";
+import { AIEvaluationModal, type AIEvaluationModalAssessment } from "@/components/ai-evaluation-modal";
 import { AlertTriangle, ArrowLeft, ClipboardList, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,7 @@ export default function SymptomAssessment() {
   const [symptomSearch, setSymptomSearch] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [aiConsent, setAiConsent] = useState(false);
+  const [evaluationFor, setEvaluationFor] = useState<AIEvaluationModalAssessment | null>(null);
   const queryClient = useQueryClient();
   const assessmentsQuery = useListSymptomAssessments({ page: 1, limit: 10 });
   const casesQuery = useListCases({ page: 1, limit: 100 });
@@ -272,7 +274,8 @@ export default function SymptomAssessment() {
               <Button type="button" disabled={!aiConsent || aiConditions.isPending || latest.urgencyLevel === "emergency"} onClick={() => aiConditions.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}>
                 {aiConditions.isPending ? "Analyzing symptoms…" : "Analyze symptoms with AI"}
               </Button>
-              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Disabled for emergency-pattern records — the emergency guidance above is the only relevant action." : "Nothing is stored: the result is ephemeral and disappears when you reload."}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>AI Evaluation of this saved record</Button>
+              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Saved AI evaluation is available for emergency records too; the warning stays at the top." : "The AI Evaluation result is saved to the record; nothing is stored for the conditions explorer above."}</span>
             </div>
             {aiConditions.isError && <p role="alert" className="mt-3 text-sm text-destructive">The AI result was not produced. Nothing was stored. Check the message and retry later.</p>}
             {aiConditions.data?.analysis && (
@@ -297,10 +300,12 @@ export default function SymptomAssessment() {
           {assessmentsQuery.isLoading && <p role="status" className="p-6 text-sm text-slate-500">Loading saved assessments…</p>}
           {assessmentsQuery.isError && <div className="p-6"><p role="alert" className="text-sm text-slate-600">Saved assessments could not be loaded.</p><Button variant="outline" className="mt-2" onClick={() => void assessmentsQuery.refetch()}>Retry</Button></div>}
           {!assessmentsQuery.isLoading && !assessmentsQuery.isError && previous.length === 0 && !latest && <p className="p-6 text-sm text-slate-500">No saved assessments yet.</p>}
-          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified (research)</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load & edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
+          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified (research)</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>AI Evaluation</Button><Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load & edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
         </section>
         <p className="mt-6 text-sm text-slate-500">The rules are not clinical guidelines and may miss important context. They do not provide medical advice or a reliable risk estimate. The condition ranking is a research demonstration on self-reported data and must not be treated as a diagnosis or as calibrated probabilities.</p>
       </div>
+    
+      <AIEvaluationModal assessment={evaluationFor} onClose={() => setEvaluationFor(null)} />
     </Layout>
   );
 }

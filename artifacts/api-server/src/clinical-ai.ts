@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AIProviderError,
   configuredProviderConfig,
+  configuredVisionConfig,
   decodeStructuredProviderText,
   executeProviderStructuredRequest,
   type ProviderRequestOptions,
@@ -33,6 +34,23 @@ export const symptomAIResultSchema = z.object({
   suggestedNextSteps: z.array(z.string().trim().min(1).max(300)).max(8),
   warningSigns: z.array(z.string().trim().min(1).max(300)).max(8),
 }).strict();
+
+const evalFieldName = z.string().trim().min(1).max(400).regex(/^[^\u0000-\u001f\u007f]+$/);
+export const symptomEvaluationSchema = z.object({
+  summary: evalFieldName,
+  reportedSymptoms: z.array(evalFieldName).min(1).max(12),
+  possibleConsiderations: z.array(z.object({
+    name: z.string().trim().min(2).max(120).regex(/^[^\u0000-\u001f\u007f]+$/),
+    whyDiscussed: evalFieldName,
+  }).strict()).min(0).max(4),
+  supportingInformation: evalFieldName,
+  missingInformation: evalFieldName,
+  urgencyContext: evalFieldName,
+  limitations: evalFieldName,
+  followUpQuestions: z.array(z.string().trim().min(1).max(300).regex(/^[^\u0000-\u001f\u007f]+$/)).min(1).max(6),
+  disclaimer: evalFieldName,
+}).strict();
+export type SymptomEvaluationResult = z.infer<typeof symptomEvaluationSchema>;
 
 export const cardiacAIResultSchema = z.object({
   summary: z.string().trim().min(1).max(800),
@@ -80,6 +98,23 @@ const symptomJsonSchema = {
     warningSigns: { type: "array", items: { type: "string" } },
   },
   required: ["summary", "possibleExplanations", "uncertainty", "suggestedNextSteps", "warningSigns"],
+  additionalProperties: false,
+};
+
+const symptomEvaluationJsonSchema = {
+  type: "object",
+  properties: {
+    summary: { type: "string" },
+    reportedSymptoms: { type: "array", items: { type: "string" } },
+    possibleConsiderations: { type: "array", items: { type: "object", properties: { name: { type: "string" }, whyDiscussed: { type: "string" } }, required: ["name", "whyDiscussed"], additionalProperties: false } },
+    supportingInformation: { type: "string" },
+    missingInformation: { type: "string" },
+    urgencyContext: { type: "string" },
+    limitations: { type: "string" },
+    followUpQuestions: { type: "array", items: { type: "string" } },
+    disclaimer: { type: "string" },
+  },
+  required: ["summary", "reportedSymptoms", "possibleConsiderations", "supportingInformation", "missingInformation", "urgencyContext", "limitations", "followUpQuestions", "disclaimer"],
   additionalProperties: false,
 };
 
@@ -159,6 +194,7 @@ export interface ClinicalAIProvider {
   analyzeSkin(imageDataUrl: string): Promise<AIAnalysisOutput<SkinAIResult>>;
   analyzeSymptoms(input: SymptomAIInput): Promise<AIAnalysisOutput<SymptomAIResult>>;
   analyzeCardiac(input: CardiacAIInput): Promise<AIAnalysisOutput<CardiacAIResult>>;
+  evaluateSymptoms(input: SymptomAIInput & { urgencyLevel: string; redFlags: string[]; guidance: Record<string, unknown> }): Promise<AIAnalysisOutput<SymptomEvaluationResult>>;
 }
 
 export function validateCardiacUrgencySymptoms(symptoms: string[]): string[] {
@@ -177,9 +213,6 @@ export function createClinicalAIProvider(
   config: Parameters<typeof executeProviderStructuredRequest>[0],
   options: ProviderRequestOptions = {},
 ): ClinicalAIProvider {
-  if (config.provider !== "openai") {
-    throw new AIProviderError("provider_request_rejected");
-  }
   const call = async <T>(
     schema: z.ZodType<T>,
     schemaName: string,
@@ -197,14 +230,14 @@ export function createClinicalAIProvider(
       ...(imageDataUrl ? { imageDataUrl } : {}),
     }, options);
     const decoded = decodeStructuredProviderText(config, response);
-    return { provider: config.provider, model: config.model, result: validateClinicalText(schema, decoded) };
+    return { provider: config.provider, model: config.visionModel ?? config.model, result: validateClinicalText(schema, decoded) };
   };
   return {
     analyzeSkin(imageDataUrl) {
-      if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
+      if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
         return Promise.reject(new AIProviderError("provider_request_rejected"));
       }
-      return call(skinAIResultSchema, "medscope_skin_assessment", skinJsonSchema, skinSystem, "Assess the visible skin image for informational purposes only. Do not infer a diagnosis.", imageDataUrl);
+      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Assess the visible skin image for informational purposes only. Do not infer a diagnosis.", imageDataUrl) as Promise<AIAnalysisOutput<SkinAIResult>>;
     },
     analyzeSymptoms(input) {
       return call(
@@ -224,6 +257,17 @@ export function createClinicalAIProvider(
         requestText("Explain these structured cardiac-assessment inputs for education only. No ECG or other test file was supplied.", input),
       );
     },
+    evaluateSymptoms(input) {
+      const { urgencyLevel, redFlags, guidance, ...rest } = input;
+      const user = JSON.stringify({
+        task: "Provide a structured educational interpretation of this saved symptom assessment. Cautious possibilities only; never diagnose, never prescribe, never invent numbers or history.",
+        urgencyLevel,
+        matchedUrgencyFlags: redFlags,
+        deterministicRuleGuidance: guidance,
+        assessment: rest,
+      });
+      return call(symptomEvaluationSchema, "medscope_symptom_evaluation", symptomEvaluationJsonSchema, symptomSystem, user);
+    },
   };
 }
 
@@ -235,15 +279,14 @@ export function setTestClinicalAIProvider(provider: ClinicalAIProvider | undefin
 
 export function getClinicalAIProvider(
   env: NodeJS.ProcessEnv = process.env,
-  options: ProviderRequestOptions = {},
+  options: ProviderRequestOptions & { useVisionModel?: boolean } = {},
 ): { status: "disabled" | "unconfigured" | "misconfigured" | "configured" | "test"; provider?: ClinicalAIProvider; model?: string } {
   if (testProvider) return { status: "test", provider: testProvider, model: "test-double" };
-  const configured = configuredProviderConfig(env);
-  if (configured.status !== "configured") return { status: configured.status };
-  if (configured.config?.provider !== "openai") return { status: "misconfigured" };
+  const configured = options.useVisionModel ? configuredVisionConfig(env) : configuredProviderConfig(env);
+  if (configured.status !== "configured" || !configured.config) return { status: configured.status };
   return {
     status: "configured",
     provider: createClinicalAIProvider(configured.config, options),
-    model: configured.config.model,
+    model: configured.config.visionModel ?? configured.config.model,
   };
 }

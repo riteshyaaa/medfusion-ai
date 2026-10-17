@@ -18,4 +18,5 @@ export const PredictionResultStatus = {
   abstained: 'abstained',
   failed: 'failed',
   legacy_unverified: 'legacy_unverified',
+  ai_informational: 'ai_informational',
 } as const;

@@ -25,6 +25,8 @@ type ProviderConfig = {
   timeoutMs: number;
   maxRetries: number;
   maxConcurrency: number;
+  /** Optional image-capable model override selected from the verified vision allowlist. */
+  visionModel?: string;
 };
 
 export type { ProviderConfig };
@@ -39,6 +41,18 @@ const modelAllowlist: Record<AIProviderId, readonly string[]> = {
   nvidia: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3.5-lightning-30b-a3b", "openai/gpt-oss-20b"],
   gemini: ["gemini-3.8-flash"],
   openai: ["gpt-5.2", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o4-mini", "o3", "o3-mini"],
+};
+// Verified against the live NVIDIA endpoint: these models accept multimodal
+// content arrays ({type:"image_url"} parts) on /v1/chat/completions.
+const visionModelAllowlist: Partial<Record<AIProviderId, readonly string[]>> = {
+  nvidia: ["nvidia/nemotron-3.5-super-vl-120b-a12b", "meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct", "microsoft/phi-3-vision-128k-instruct"],
+  gemini: ["gemini-3.8-flash"],
+  openai: ["gpt-5.2", "gpt-5.4", "gpt-4.1", "gpt-4o", "o4-mini", "o3"],
+};
+const defaultVisionModels: Partial<Record<AIProviderId, string>> = {
+  nvidia: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  gemini: "gemini-3.8-flash",
+  openai: "gpt-5.2",
 };
 const defaultModels: Record<AIProviderId, string> = {
   nvidia: "nvidia/nemotron-3-super-120b-a12b",
@@ -89,7 +103,7 @@ export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): Co
         model,
         apiKey: managedKey,
         baseUrl: baseUrl.toString().replace(/\/$/, ""),
-        timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 30_000, 25, 60_000),
+        timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 30_000, 25, 120_000),
         maxRetries: boundedInteger(env.AI_MAX_RETRIES, 1, 0, 2),
         maxConcurrency: boundedInteger(env.AI_MAX_CONCURRENCY, 2, 1, 8),
       },
@@ -125,7 +139,7 @@ export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): Co
       model,
       apiKey,
       baseUrl: baseUrl.toString().replace(/\/$/, ""),
-      timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 15_000, 25, 60_000),
+      timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 15_000, 25, 120_000),
       maxRetries: boundedInteger(env.AI_MAX_RETRIES, 1, 0, 2),
       maxConcurrency: boundedInteger(env.AI_MAX_CONCURRENCY, 2, 1, 8),
     },
@@ -284,6 +298,28 @@ export type StructuredRequestOptions = {
 
 export type ProviderRequestOptions = { fetchImpl?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> };
 
+// Image-capable variant of the provider config: same credentials/base URL,
+// but the model must come from the verified vision allowlist. The override
+// environment variable keeps one credential system while allowing an
+// explicitly configured vision model.
+export type VisionConfig = ProviderConfig & { readonly visionModel: string };
+export function getVisionConfigState(env: NodeJS.ProcessEnv = process.env): ConfigState {
+  const state = getProviderConfigState(env);
+  if (state.status !== "configured") return state;
+  const requested = (env.AI_SKIN_VISION_MODEL ?? "").trim();
+  const visionModel = requested || (defaultVisionModels[state.config.provider] ?? "none");
+  if (visionModel === "none") return { status: "misconfigured" };
+  const allowlist = visionModelAllowlist[state.config.provider] ?? [];
+  if (!allowlist.includes(visionModel)) return { status: "misconfigured" };
+  const visionState: ConfigState = { status: "configured", config: { ...state.config, visionModel } };
+  return visionState;
+}
+
+export function configuredVisionConfig(env: NodeJS.ProcessEnv = process.env): { status: ConfigState["status"]; config?: ProviderConfig } {
+  const state = getVisionConfigState(env);
+  return state.status === "configured" ? { status: state.status, config: state.config } : { status: state.status };
+}
+
 function requestFor(config: ProviderConfig, options: StructuredRequestOptions): { url: string; headers: HeadersInit; body: string } {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   let path: string;
@@ -292,7 +328,7 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
     path = "/responses";
     headers.Authorization = "Bearer " + config.apiKey;
     body = {
-      model: config.model,
+      model: config.visionModel ?? config.model,
       store: false,
       max_output_tokens: options.maxOutputTokens,
       input: [
@@ -311,7 +347,7 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
     path = "/interactions";
     headers["x-goog-api-key"] = config.apiKey;
     body = {
-      model: config.model,
+      model: config.visionModel ?? config.model,
       system_instruction: options.system,
       input: options.user,
       store: false,
@@ -321,9 +357,20 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
   } else {
     path = "/chat/completions";
     headers.Authorization = "Bearer " + config.apiKey;
+    // NVIDIA Chat Completions hosted support for structured output was not
+    // verified, so the required JSON shape is embedded in the prompt itself.
+    const userText = `${options.user}\n\nReturn ONLY a JSON object (no markdown, no surrounding text) matching exactly this JSON schema:\n${JSON.stringify(options.jsonSchema)}`;
     body = {
-      model: config.model,
-      messages: [{ role: "system", content: options.system }, { role: "user", content: options.user }],
+      model: config.visionModel ?? config.model,
+      messages: [
+        { role: "system", content: options.system },
+        { role: "user", content: options.imageDataUrl
+          ? [
+              { type: "text", text: userText },
+              { type: "image_url", image_url: { url: options.imageDataUrl } },
+            ]
+          : userText },
+      ],
       max_tokens: options.maxOutputTokens,
       temperature: 0,
     };
