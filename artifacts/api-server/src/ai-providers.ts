@@ -38,12 +38,12 @@ type ConfigState =
 const modelAllowlist: Record<AIProviderId, readonly string[]> = {
   nvidia: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3.5-lightning-30b-a3b", "openai/gpt-oss-20b"],
   gemini: ["gemini-3.8-flash"],
-  openai: ["gpt-5.5"],
+  openai: ["gpt-5.2", "gpt-5.4", "gpt-5.4-mini", "gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o4-mini", "o3", "o3-mini"],
 };
 const defaultModels: Record<AIProviderId, string> = {
   nvidia: "nvidia/nemotron-3-super-120b-a12b",
   gemini: "gemini-3.8-flash",
-  openai: "gpt-5.5",
+  openai: "gpt-5.2",
 };
 const defaultBaseUrls: Record<AIProviderId, string> = {
   nvidia: "https://integrate.api.nvidia.com/v1",
@@ -67,6 +67,35 @@ function boundedInteger(value: string | undefined, fallback: number, min: number
 }
 
 export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): ConfigState {
+  const managedKey = (env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "").trim();
+  const managedBase = (env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "").trim();
+  if (managedKey || managedBase) {
+    if (!managedKey || !managedBase) return { status: "unconfigured" };
+    const model = (env.AI_MODEL ?? "").trim() || "gpt-5.2";
+    if (!modelAllowlist.openai.includes(model)) return { status: "misconfigured" };
+    let baseUrl: URL;
+    try {
+      baseUrl = new URL(managedBase);
+    } catch {
+      return { status: "misconfigured" };
+    }
+    if (baseUrl.protocol !== "https:" || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) {
+      return { status: "misconfigured" };
+    }
+    return {
+      status: "configured",
+      config: {
+        provider: "openai",
+        model,
+        apiKey: managedKey,
+        baseUrl: baseUrl.toString().replace(/\/$/, ""),
+        timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 30_000, 25, 60_000),
+        maxRetries: boundedInteger(env.AI_MAX_RETRIES, 1, 0, 2),
+        maxConcurrency: boundedInteger(env.AI_MAX_CONCURRENCY, 2, 1, 8),
+      },
+    };
+  }
+
   const selected = (env.AI_PROVIDER ?? "none").trim().toLowerCase();
   if (selected === "none") return { status: "disabled" };
   if (!(aiProviders as readonly string[]).includes(selected)) return { status: "misconfigured" };
@@ -250,6 +279,7 @@ export type StructuredRequestOptions = {
   schemaName: string;
   jsonSchema: Record<string, unknown>;
   maxOutputTokens: number;
+  imageDataUrl?: string;
 };
 
 export type ProviderRequestOptions = { fetchImpl?: typeof fetch; sleep?: (milliseconds: number) => Promise<void> };
@@ -267,7 +297,13 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
       max_output_tokens: options.maxOutputTokens,
       input: [
         { role: "system", content: [{ type: "input_text", text: options.system }] },
-        { role: "user", content: [{ type: "input_text", text: options.user }] },
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: options.user },
+            ...(options.imageDataUrl ? [{ type: "input_image", image_url: options.imageDataUrl, detail: "high" }] : []),
+          ],
+        },
       ],
       text: { format: { type: "json_schema", name: options.schemaName, strict: true, schema: options.jsonSchema } },
     };

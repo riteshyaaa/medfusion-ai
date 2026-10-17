@@ -24,6 +24,7 @@ import { InterpretationValidationError, getDocumentInterpreter } from "./documen
 import { cardiacModelStatus, hasApprovedCardiacModel, assessCardiacRisk, CardiacFeatureError } from "./cardiac";
 import { classifySymptoms as classifySymptomsSymptomAssessment, getSymptomClassifierStatus } from "./symptom-classifier";
 import { assessSymptomGuidance } from "./symptom-guidance";
+import { getClinicalAIProvider, validateCardiacUrgencySymptoms } from "./clinical-ai";
 
 type Variables = {
   user: typeof users.$inferSelect;
@@ -316,6 +317,8 @@ app.get("/symptoms/classifier-status", async (c) => c.json(await getSymptomClass
 
 const createCardiacAssessmentSchema = z.object({
   caseId: z.number().int().positive().optional(),
+  consentToExternalProcessing: z.boolean().optional().default(false),
+  currentSymptoms: z.array(z.enum(["current_chest_pain", "severe_shortness_of_breath", "fainting", "stroke_signs", "uncontrolled_bleeding", "severe_allergic_reaction"])).max(6).default([]),
   age: z.number().min(18).max(120),
   sex: z.enum(["male", "female"]),
   chestPainType: z.enum(["typical_angina", "atypical_angina", "non_anginal", "asymptomatic"]),
@@ -346,6 +349,7 @@ function cardiacAssessmentView(assessment: typeof cardiacAssessments.$inferSelec
     topFactors: assessment.topFactors,
     notice: assessment.notice,
     diagnosticLimitations: assessment.diagnosticLimitations,
+    aiAssessment: assessment.aiAssessment,
     createdAt: assessment.createdAt,
   };
 }
@@ -372,17 +376,67 @@ app.post("/cardiac/assessments", requireAuth, jsonBody(createCardiacAssessmentSc
     const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, data.caseId), eq(cases.createdById, user.id)) });
     if (!caseData) throw new HTTPException(404, { message: "Case not found" });
   }
+  const urgentSymptoms = validateCardiacUrgencySymptoms(data.currentSymptoms);
   let result;
   try {
-    result = await assessCardiacRisk(data);
+    result = urgentSymptoms.length > 0
+      ? {
+          status: "model_unavailable" as const,
+          modelId: null,
+          modelVersion: null,
+          riskScore: null,
+          aboveThreshold: null,
+          label: null,
+          threshold: null,
+          topFactors: [],
+          notice: "No model was called because urgent warning symptoms were selected.",
+          diagnosticLimitations: [],
+        }
+      : await assessCardiacRisk(data);
   } catch (error) {
     if (error instanceof CardiacFeatureError) {
       return c.json({ error: "invalid_feature_value", field: error.field, message: error.message, requestId: c.get("requestId") }, 400);
     }
     throw error;
   }
-  const { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia, caseId, ..._rest } = data;
-  const inputs: Record<string, string | number> = { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia };
+  let aiAssessment: typeof cardiacAssessments.$inferSelect.aiAssessment = urgentSymptoms.length > 0
+    ? {
+        status: "skipped_urgent",
+        warningSigns: urgentSymptoms,
+        notice: "Urgent warning symptoms were selected. This application did not call an AI model. Contact local emergency services now; do not wait for an app result.",
+      }
+    : null;
+  if (!urgentSymptoms.length && data.consentToExternalProcessing) {
+    if (!externalHealthDataTransferEnabled()) {
+      throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+    }
+    const ai = getClinicalAIProvider();
+    if (!ai.provider) throw codedError(503, "provider_unavailable", "The Replit AI provider is not configured for cardiac analysis.");
+    try {
+      const analyzed = await ai.provider.analyzeCardiac({
+        age: data.age,
+        sex: data.sex,
+        chestPainType: data.chestPainType,
+        restingBloodPressure: data.restingBloodPressure,
+        serumCholesterol: data.serumCholesterol,
+        fastingBloodSugarOver120: data.fastingBloodSugarOver120,
+        restingEcg: data.restingEcg,
+        maxHeartRate: data.maxHeartRate,
+        exerciseAngina: data.exerciseAngina,
+        stDepression: data.stDepression,
+        stSlope: data.stSlope,
+        majorVessels: data.majorVessels,
+        thalassemia: data.thalassemia,
+        currentSymptoms: data.currentSymptoms,
+      });
+      aiAssessment = { status: "completed", provider: analyzed.provider, model: analyzed.model, ...analyzed.result, notice: "AI-generated educational context only. This is not a diagnosis, risk score, or proof that someone is safe." };
+    } catch (error) {
+      await logAudit(c, "cardiac_assessment", "analyze", "error", undefined, undefined, { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
+      throw aiProviderFailure(error, "Cardiac assessment");
+    }
+  }
+  const { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia, caseId, consentToExternalProcessing: _consent, currentSymptoms, ..._rest } = data;
+  const inputs: Record<string, string | number | string[]> = { age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia, currentSymptoms };
   void _rest;
   const [assessment] = await db.insert(cardiacAssessments).values({
     userId: user.id,
@@ -398,6 +452,7 @@ app.post("/cardiac/assessments", requireAuth, jsonBody(createCardiacAssessmentSc
     topFactors: result.topFactors,
     notice: result.notice,
     diagnosticLimitations: result.diagnosticLimitations,
+    aiAssessment,
   }).returning();
   await logAudit(c, "cardiac_assessment", "create", "success", "cardiac_assessment", assessment.id.toString(), { status: result.status });
   return c.json({ assessment: cardiacAssessmentView(assessment) }, 201);
@@ -482,19 +537,22 @@ app.post("/uploads", requireAuth, async (c) => {
 
 const predictSchema = z.object({
   uploadId: z.number().int().positive(),
+  consentToExternalProcessing: z.boolean().optional().default(false),
 });
 
 function predictionView(prediction: typeof predictions.$inferSelect) {
   const provenanceVerified = prediction.status !== "legacy_unverified" && prediction.scoreSemantics !== "unverified";
+  const aiInformational = prediction.status === "ai_informational" && Boolean(prediction.aiAssessment);
   return {
     id: prediction.id,
-    disease: provenanceVerified ? prediction.disease : "Unverified legacy record",
+    disease: aiInformational ? "Informational skin assessment" : provenanceVerified ? prediction.disease : "Unverified legacy record",
     confidence: provenanceVerified ? prediction.confidence : 0,
-    description: provenanceVerified ? prediction.description : "Model provenance was not recorded; stored output is suppressed.",
-    severity: provenanceVerified ? prediction.severity : "unassessed",
+    description: provenanceVerified || aiInformational ? prediction.description : "Model provenance was not recorded; stored output is suppressed.",
+    severity: provenanceVerified || aiInformational ? prediction.severity : "unassessed",
     recommendations: provenanceVerified ? prediction.recommendations : [],
-    differentialDiagnoses: provenanceVerified ? prediction.differentialDiagnoses : [],
-    preprocessingSteps: provenanceVerified ? prediction.preprocessingSteps : [],
+    differentialDiagnoses: provenanceVerified && !aiInformational ? prediction.differentialDiagnoses : [],
+    preprocessingSteps: provenanceVerified || aiInformational ? prediction.preprocessingSteps : [],
+    aiAssessment: aiInformational ? prediction.aiAssessment : null,
     modelId: prediction.modelId,
     modelVersion: prediction.modelVersion,
     scoreSemantics: prediction.scoreSemantics,
@@ -520,9 +578,58 @@ app.delete("/uploads/:id", requireAuth, async (c) => {
 
 app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
   const user = c.get("user");
-  const { uploadId } = c.req.valid("json");
+  const { uploadId, consentToExternalProcessing } = c.req.valid("json");
   const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, uploadId), eq(uploads.userId, user.id)) });
   if (!upload) throw new HTTPException(404, { message: "Upload not found" });
+
+  const ai = getClinicalAIProvider();
+  if (consentToExternalProcessing && ai.provider) {
+    if (!externalHealthDataTransferEnabled()) {
+      throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+    }
+    let imageDataUrl: string;
+    try {
+      const image = await sharp(await storage.read(upload.storageKey), { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" })
+        .rotate()
+        .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 85 })
+        .toBuffer();
+      imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
+    } catch {
+      throw new HTTPException(422, { message: "The stored image could not be prepared for analysis." });
+    }
+    let analyzed;
+    try {
+      analyzed = await ai.provider.analyzeSkin(imageDataUrl);
+    } catch (error) {
+      await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
+      throw aiProviderFailure(error, "Skin analysis");
+    }
+    const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
+    const [prediction] = await db.insert(predictions).values({
+      disease: "Informational AI assessment",
+      confidence: 0,
+      description: analyzed.result.observations.join(" "),
+      severity: analyzed.result.severity === "uncertain" ? "unassessed" : analyzed.result.severity,
+      recommendations: analyzed.result.nextSteps,
+      differentialDiagnoses: [],
+      preprocessingSteps,
+      status: "ai_informational",
+      modelId: "replit-managed-openai",
+      modelVersion: analyzed.model,
+      scoreSemantics: "not_applicable",
+      preprocessingVersion: "sharp-jpeg-resize-v1",
+      aiAssessment: { provider: analyzed.provider, model: analyzed.model, ...analyzed.result, preprocessingSteps },
+      uploadId,
+      fileName: upload.originalFileName,
+      userId: user.id,
+    }).returning();
+    await logAudit(c, "prediction", "create", "success", "prediction", prediction.id.toString(), { status: "ai_informational", provider: analyzed.provider, model: analyzed.model });
+    return c.json(predictionView(prediction), 201);
+  }
+  if (consentToExternalProcessing && !ai.provider) {
+    throw codedError(503, "provider_unavailable", "The Replit AI provider is not configured for skin analysis.");
+  }
 
   const statusLookup = await getSkinInferenceStatus();
   const testProvider = getTestInferenceProvider();
@@ -610,10 +717,19 @@ app.get("/predictions/:id", requireAuth, async (c) => {
   return c.json(predictionView(pred));
 });
 
-function codedError(status: 400 | 409 | 429 | 502 | 503, code: string, message: string): HTTPException {
+function codedError(status: 400 | 409 | 429 | 502 | 503 | 504, code: string, message: string): HTTPException {
   const error = new HTTPException(status, { message }) as HTTPException & { apiCode?: string };
   error.apiCode = code;
   return error;
+}
+
+function aiProviderFailure(error: unknown, feature: string): HTTPException {
+  const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+  if (code === "provider_timeout") return codedError(504, code, `${feature} timed out before completing. No analysis was saved.`);
+  if (code === "provider_rate_limited") return codedError(429, code, "The AI provider is rate limited. Try again later.");
+  if (code === "provider_malformed_response") return codedError(502, code, "The AI provider returned output that failed validation. Nothing was saved.");
+  if (code === "provider_request_rejected") return codedError(502, code, "The AI provider rejected the analysis request.");
+  return codedError(503, code, `${feature} could not be completed by the AI provider.`);
 }
 
 const DOCUMENT_MIME_TYPES: Record<string, "pdf" | "image"> = {
@@ -1240,6 +1356,7 @@ app.patch("/cases/:id", requireAuth, jsonBody(updateCaseSchema), async (c) => {
 
 const createSymptomAssessmentSchema = z.object({
   caseId: z.number().int().positive().optional(),
+  consentToExternalProcessing: z.boolean().optional().default(false),
   primarySymptom: z.string().trim().min(1).max(1_000),
   symptomCategory: z.enum(["skin", "general", "neurological", "cardiovascular", "respiratory", "gastrointestinal", "musculoskeletal", "psychiatric", "other"]),
   onset: z.string().max(200).optional(),
@@ -1281,7 +1398,58 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
   
   await getSymptomClassifierStatus();
   const ruleGuidance = assessSymptomGuidance(data);
-  const classification = classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
+  let classification = urgency === "emergency"
+    ? {
+        status: "not_available" as const,
+        modelId: null,
+        modelVersion: null,
+        notice: "Condition ranking and AI interpretation were skipped because the server matched an urgent warning symptom.",
+      }
+    : classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
+  let aiAssessment: NonNullable<typeof symptomAssessments.$inferSelect.classification>["aiAssessment"] = null;
+  if (urgency === "emergency") {
+    aiAssessment = {
+      status: "skipped_urgent",
+      warningSigns: redFlags,
+      notice: "Urgent warning symptoms matched. No AI model was called. Contact local emergency services or seek immediate care now; do not wait for this application.",
+    };
+  } else if (data.consentToExternalProcessing) {
+    if (!externalHealthDataTransferEnabled()) {
+      throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
+    }
+    const ai = getClinicalAIProvider();
+    if (!ai.provider) throw codedError(503, "provider_unavailable", "The Replit AI provider is not configured for symptom analysis.");
+    try {
+      const analyzed = await ai.provider.analyzeSymptoms({
+        primarySymptom: data.primarySymptom,
+        symptomCategory: data.symptomCategory,
+        ...(data.onset ? { onset: data.onset } : {}),
+        ...(data.duration ? { duration: data.duration } : {}),
+        ...(data.severity ? { severity: data.severity } : {}),
+        ...(data.progression ? { progression: data.progression } : {}),
+        associatedSymptoms: data.associatedSymptoms,
+        selectedSymptoms: data.selectedSymptoms,
+        medicalHistory: data.medicalHistory,
+        medications: data.medications,
+        allergies: data.allergies,
+      });
+      aiAssessment = {
+        status: "completed",
+        provider: analyzed.provider,
+        model: analyzed.model,
+        summary: analyzed.result.summary,
+        possibleExplanations: analyzed.result.possibleExplanations,
+        uncertainty: analyzed.result.uncertainty,
+        suggestedNextSteps: analyzed.result.suggestedNextSteps,
+        warningSigns: analyzed.result.warningSigns,
+        notice: "AI-generated educational context only. It is not a diagnosis or medical advice, and it cannot rule out a serious condition.",
+      };
+    } catch (error) {
+      await logAudit(c, "symptom_assessment", "analyze", "error", undefined, undefined, { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
+      throw aiProviderFailure(error, "Symptom assessment");
+    }
+  }
+  classification = { ...classification, aiAssessment };
   
   const [assessment] = await db.insert(symptomAssessments).values({
     ...data,
@@ -1300,6 +1468,7 @@ app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSc
   }).returning();
   
   await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency: ruleGuidance.urgencyLevel });
+  await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency, aiAnalysis: aiAssessment?.status ?? "not_requested" });
   
   return c.json({ assessment }, 201);
 });
