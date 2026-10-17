@@ -116,12 +116,12 @@ export default function CaseDetail() {
                   </div>
                   <div>
                     <h3 className="flex items-center gap-2 font-medium text-slate-800"><HeartPulse className="w-4 h-4 text-primary" />Cardiac assessments ({(workspace.cardiacAssessments ?? []).length})</h3>
-                    {(workspace.cardiacAssessments ?? []).length === 0 ? <p className="mt-2 text-slate-500">No research-only cardiac records linked.</p> : (
+                    {(workspace.cardiacAssessments ?? []).length === 0 ? <p className="mt-2 text-slate-500">No cardiac records linked.</p> : (
                       <ul className="mt-2 space-y-2">
                         {(workspace.cardiacAssessments ?? []).map((assessment) => (
                           <li key={assessment.id} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
                             <p className="font-medium text-slate-800">{typeof assessment.riskScore === "number" ? `Uncalibrated score ${assessment.riskScore.toFixed(4)}` : title(assessment.status)}</p>
-                            <p className="text-xs text-slate-500">research only · {assessment.modelId ?? "no model"} · {timestamp(assessment.createdAt)}</p>
+                            <p className="text-xs text-slate-500">{assessment.modelId ?? "model n/a"} · {timestamp(assessment.createdAt)}</p>
                           </li>
                         ))}
                       </ul>

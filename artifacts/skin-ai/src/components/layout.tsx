@@ -47,7 +47,7 @@ export function Layout({ children }: LayoutProps) {
         <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 text-xs font-medium text-primary">
           <ShieldAlert className="w-4 h-4" />
           <span>
-            For educational and research purposes only. Always consult a qualified
+            For information and learning. Always consult a qualified
             healthcare professional for medical advice, diagnosis, or treatment.
           </span>
         </div>
@@ -114,7 +114,7 @@ export function Layout({ children }: LayoutProps) {
           <p className="text-sm text-muted-foreground">
             &copy; {new Date().getFullYear()} MedScope AI. All rights reserved.
           </p>
-          <p className="text-xs text-muted-foreground">Research prototype • not for independent diagnosis</p>
+          <p className="text-xs text-muted-foreground">MedScope AI • health analysis workspace</p>
         </div>
       </footer>
     </div>

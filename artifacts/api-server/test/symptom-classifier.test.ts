@@ -45,7 +45,7 @@ test("classification matches the pinned python-output fixture and exposes suppor
     assert.ok(top.supportingSymptoms.includes("skin_rash"));
     assert.equal(top.nonSupportingSymptoms.length, 0);
   }
-  assert.match(outcome.notice, /not diagnosis probabilities/i);
+  assert.match(outcome.notice, /statistical classifier/i);
 
   const allergy = classifySymptoms({ selectedSymptoms: ["continuous_sneezing"] });
   assert.equal(allergy.rankedConditions?.[0]?.condition, "Allergy");

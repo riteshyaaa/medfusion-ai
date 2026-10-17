@@ -5,6 +5,7 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { PredictionResultAiAssessmentImageType } from './predictionResultAiAssessmentImageType.ts';
 import type { PredictionResultAiAssessmentPossibleConditionsItem } from './predictionResultAiAssessmentPossibleConditionsItem.ts';
 
 /**
@@ -13,6 +14,8 @@ import type { PredictionResultAiAssessmentPossibleConditionsItem } from './predi
 export type PredictionResultAiAssessment = {
   provider?: string;
   model?: string;
+  imageType?: PredictionResultAiAssessmentImageType;
+  visibleAbnormality?: boolean;
   observations?: string[];
   possibleConditions?: PredictionResultAiAssessmentPossibleConditionsItem[];
   uncertainty?: string;

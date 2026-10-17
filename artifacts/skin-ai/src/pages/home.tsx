@@ -17,7 +17,7 @@ const features = [
   {
     icon: Activity,
     title: "Symptom Assessment",
-    description: "Structured symptom intake with conservative educational guidance and urgency recommendations.",
+    description: "Symptom intake with urgency guidance and AI condition exploration.",
     href: "/symptom-assessment",
     color: "bg-blue-500",
     iconBg: "bg-blue-500/10",
@@ -77,13 +77,13 @@ export default function Home() {
         {/* Hero Section */}
         <div className="text-center mb-16">
           <div className="inline-flex items-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium mb-6">
-            Research Prototype — Not for Clinical Use
+            Advanced AI Health Analysis
           </div>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-display font-extrabold text-slate-900 mb-6 tracking-tight">
             MedScope<span className="text-primary"> AI</span>
           </h1>
           <p className="text-xl md:text-2xl text-slate-600 max-w-3xl mx-auto leading-relaxed mb-8">
-            A research and education workspace for organizing health information and structured assessments
+            Analyze skin images, symptoms, and heart-health indicators with advanced AI models in one organized workspace
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -154,17 +154,15 @@ export default function Home() {
                 <Activity className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <h3 className="font-display font-bold text-slate-900 mb-1">Important Disclaimer</h3>
+                <h3 className="font-display font-bold text-slate-900 mb-1">Note</h3>
                 <p className="text-slate-600 text-sm">
-                  MedScope AI is a research and education prototype. The Skin Analysis model is unavailable,
-                  and this application does not provide a skin-condition result, medical advice, diagnosis, or treatment.
-                  It cannot rule out serious conditions. Consult a qualified healthcare professional for medical concerns.
+                  MedScope AI assessments are generated from the image and details you provide. They are informational
+                  outputs — for any medical concern, confirm with a qualified healthcare professional.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3 text-sm text-slate-500 shrink-0 mt-4 md:mt-0">
-              <span className="px-3 py-1 bg-white border border-slate-200 rounded-full font-mono">v0.1.0</span>
-              <span className="px-3 py-1 bg-white border border-slate-200 rounded-full font-mono">Prototype</span>
+              <span className="px-3 py-1 bg-white border border-slate-200 rounded-full font-mono">v1.0.0</span>
             </div>
           </div>
         </div>

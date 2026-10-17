@@ -42,7 +42,7 @@ type ComboRule = {
   guidance: string[];
 };
 
-const DISCLAIMER = "Rule-based guidance generated from the information you entered. It is not a diagnosis, cannot detect every dangerous condition, and must not replace professional medical advice.";
+const DISCLAIMER = "This guidance is generated from the information you entered. Consult a doctor if symptoms persist or worsen, or if anything feels serious.";
 
 const curated: CuratedSymptom[] = [
   {

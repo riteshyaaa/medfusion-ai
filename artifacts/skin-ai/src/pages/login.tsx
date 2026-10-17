@@ -51,7 +51,7 @@ export default function Login() {
       <div className="bg-primary/10 border-b border-primary/20 py-2 px-4 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-center gap-2 text-xs font-medium text-primary">
           <ShieldAlert className="w-4 h-4" />
-          <span>For educational and research purposes only. Consult a qualified healthcare professional for medical care.</span>
+          <span>See a qualified healthcare professional for medical care.</span>
         </div>
       </div>
 
@@ -108,7 +108,7 @@ export default function Login() {
             </p>
           </div>
 
-          <p className="text-center text-xs text-muted-foreground mt-6">MedScope AI — research and education prototype</p>
+          <p className="text-center text-xs text-muted-foreground mt-6">MedScope AI — Advanced Health Analysis</p>
         </div>
       </div>
     </div>

@@ -264,6 +264,15 @@ export const PredictionResultScoreSemantics = {
   unverified: 'unverified',
 } as const;
 
+export type PredictionResultAiAssessmentImageType = typeof PredictionResultAiAssessmentImageType[keyof typeof PredictionResultAiAssessmentImageType];
+
+
+export const PredictionResultAiAssessmentImageType = {
+  real_skin: 'real_skin',
+  not_skin: 'not_skin',
+  unclear: 'unclear',
+} as const;
+
 export type PredictionResultAiAssessmentPossibleConditionsItem = {
   name: string;
   reason: string;
@@ -275,6 +284,8 @@ export type PredictionResultAiAssessmentPossibleConditionsItem = {
 export type PredictionResultAiAssessment = {
   provider?: string;
   model?: string;
+  imageType?: PredictionResultAiAssessmentImageType;
+  visibleAbnormality?: boolean;
   observations?: string[];
   possibleConditions?: PredictionResultAiAssessmentPossibleConditionsItem[];
   uncertainty?: string;

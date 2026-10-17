@@ -97,6 +97,7 @@ export * from './predictionRecordScoreSemantics.ts';
 export * from './predictionRecordStatus.ts';
 export * from './predictionResult.ts';
 export * from './predictionResultAiAssessment.ts';
+export * from './predictionResultAiAssessmentImageType.ts';
 export * from './predictionResultAiAssessmentPossibleConditionsItem.ts';
 export * from './predictionResultScoreSemantics.ts';
 export * from './predictionResultSeverity.ts';

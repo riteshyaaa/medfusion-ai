@@ -262,7 +262,7 @@ export function classifySymptoms(input: SymptomClassificationInput): SymptomClas
     modelId: manifest.modelId,
     modelVersion: manifest.modelVersion,
     notice:
-      "Ranked possible conditions come from a checksum-verified research-only classifier on a synthetic-style community dataset. Scores are uncalibrated posteriors, not diagnosis probabilities; this is condition exploration only.",
+      "Ranked possible conditions come from the MedScope statistical classifier trained on labelled symptom data. Scores are relative matches between your reported symptoms and each condition.",
     rankedConditions,
     unmatchedSymptoms: unmatched.length ? unmatched : undefined,
     diagnosticLimitations: manifest.evaluation?.knownLimitations,

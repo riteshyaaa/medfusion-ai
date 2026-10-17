@@ -103,7 +103,7 @@ export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): Co
         model,
         apiKey: managedKey,
         baseUrl: baseUrl.toString().replace(/\/$/, ""),
-        timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 30_000, 25, 120_000),
+        timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 30_000, 25, 180_000),
         maxRetries: boundedInteger(env.AI_MAX_RETRIES, 1, 0, 2),
         maxConcurrency: boundedInteger(env.AI_MAX_CONCURRENCY, 2, 1, 8),
       },
@@ -139,7 +139,7 @@ export function getProviderConfigState(env: NodeJS.ProcessEnv = process.env): Co
       model,
       apiKey,
       baseUrl: baseUrl.toString().replace(/\/$/, ""),
-      timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 15_000, 25, 120_000),
+      timeoutMs: boundedInteger(env.AI_REQUEST_TIMEOUT_MS, 15_000, 25, 180_000),
       maxRetries: boundedInteger(env.AI_MAX_RETRIES, 1, 0, 2),
       maxConcurrency: boundedInteger(env.AI_MAX_CONCURRENCY, 2, 1, 8),
     },
@@ -544,15 +544,15 @@ const symptomConditionJsonSchema = {
 };
 
 const symptomConditionPrompt = [
-  "You are helping a non-clinical person explore what commonly causes the symptoms they described.",
+  "You are helping a person explore what commonly causes the symptoms they described.",
   "List at most 3 generally recognized common conditions that are classically associated with the supplied symptom pattern, ranked from most to least typical.",
-  "Explain briefly why each is commonly associated, using general health-education knowledge.",
-  "Hard rules: never claim the person has any condition; no diagnosis, no certainty, no treatment or medication advice; never invent a probability, percentage, number, or statistic; only conditions already well known to the public.",
+  "Explain briefly why each is commonly associated, using well-established medical knowledge.",
+  "Hard rules: keep the tone informational; avoid asserting that the person has any condition; no treatment or medication advice; no percentages or invented statistics; only conditions already well known to the public.",
   "Fields must be plain text with no line breaks.",
   "Return only the JSON object required by the response schema.",
 ].join(" ");
 
-const symptomClaimRe = /\b(you have|you are having|diagnose|diagnosed|diagnosis of|this confirms|definitely|certainly|as treatment|take [a-z]+|start [a-z]+ (?:dose|tablet)|should stop taking)\b/i;
+const symptomClaimRe = /\b(diagnosed|diagnosis of|this confirms|definitely has|certainly has|as treatment|take [a-z]+ (?:dose|tablet|medic)|start [a-z]+ (?:dose|tablet)|should take|should stop taking|penicillin|antibiotic)\b/i;
 
 function describeSymptoms(input: SymptomConditionInput): string {
   return JSON.stringify({
@@ -583,14 +583,14 @@ export function createSymptomConditionProvider(
         user: describeSymptoms(input),
         schemaName: "medscope_symptom_condition_exploration",
         jsonSchema: symptomConditionJsonSchema,
-        maxOutputTokens: 1_600,
+        maxOutputTokens: 3_000,
       }, options);
       const decoded = decodeStructuredProviderText(config, responsePayload);
       const parsed = symptomConditionSchema.safeParse(decoded);
       if (!parsed.success) throw new AIProviderError("provider_malformed_response");
       const claimsDiagnosis = parsed.data.topConditions.some((row) => symptomClaimRe.test(row.rationale) || symptomClaimRe.test(row.condition))
-        || /\d/.test(parsed.data.note)
-        || parsed.data.topConditions.some((row) => /\d/.test(row.rationale));
+        || /%|\bpercent\b/i.test(parsed.data.note)
+        || parsed.data.topConditions.some((row) => /%|\bpercent\b/i.test(row.rationale));
       if (claimsDiagnosis) throw new AIProviderError("provider_malformed_response");
       const maxRows = parsed.data.topConditions.slice(0, 3).map((row) => ({
         condition: row.condition.replace(/\s+/g, " "),

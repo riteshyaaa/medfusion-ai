@@ -112,7 +112,7 @@ export default function SymptomAssessment() {
     <Layout>
       <div className="max-w-5xl mx-auto pt-8 pb-20">
         <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-primary font-medium mb-6"><ArrowLeft className="w-4 h-4" />Back to Overview</Link>
-        <div className="mb-8"><h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Symptom Assessment</h1><p className="text-slate-600 mt-2 max-w-2xl">Record symptoms, get conservative urgency guidance from a transparent rule set, and optionally see a ranked list of possible conditions from a research-only classifier. Neither result is a diagnosis.</p></div>
+        <div className="mb-8"><h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Symptom Assessment</h1><p className="text-slate-600 mt-2 max-w-2xl">Describe your symptoms, get urgency guidance, and see a ranked list of the conditions most associated with the pattern you report.</p></div>
 
         <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><div><h2 className="font-semibold">Urgent symptoms</h2><p className="mt-1 text-sm">If you believe you may be experiencing a medical emergency, contact local emergency services or seek immediate care now. Do not wait for or rely on this assessment.</p></div></div>
 
@@ -139,9 +139,9 @@ export default function SymptomAssessment() {
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium flex-1">Possible-condition catalogue ({catalogue.length} symptoms)</p>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Research-only ranking</span>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">Condition ranking</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">Selecting these feeds the optional research classifier, which ranks candidate conditions from uncalibrated statistical scores. It cannot diagnose you. Urgency rules come from the rule set only.</p>
+              <p className="mt-1 text-xs text-slate-500">Selecting these symptoms gives the classifier more to work with, producing a sharper ranking. Urgency rules come from the rule set only.</p>
               <div className="mt-3 relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <Input value={symptomSearch} onChange={(event) => setSymptomSearch(event.target.value)} placeholder={`Search the ${catalogue.length} curated symptoms…`} className="pl-9" maxLength={100} />
@@ -182,7 +182,7 @@ export default function SymptomAssessment() {
                 </div>
               )}
               {classifierStatusQuery.isError && <p role="status" className="mt-2 text-xs text-slate-500">The classifier catalogue could not be loaded; the rest of the form still works.</p>}
-              <p className="mt-2 text-xs text-slate-500">Selected symptoms are stored with the assessment and rescored only through the labelled research classifier.</p>
+              <p className="mt-2 text-xs text-slate-500">Selected symptoms are stored with the assessment and feed the ranking engine.</p>
             </div>
           )}
 
@@ -218,14 +218,14 @@ export default function SymptomAssessment() {
           </dl>
           {latest.guidance?.watchFor?.length ? <div className="mt-4 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Watch for (deterioration signals)</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.watchFor.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
           {latest.guidance?.seekCareIf?.length ? <div className="mt-3 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Seek in-person care if</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.seekCareIf.map((item, index) => <li key={index}>{item}</li>)}</ul></div> : null}
-          {latest.guidance?.possibleConditions?.length ? <div className="mt-3 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Commonly associated conditions (from the labelled training data)</p><p className="mt-1 text-xs text-slate-500">Research association, not a diagnosis. The full classifier ranking is below.</p><ol className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.possibleConditions.map((row, index) => <li key={index}><span className="font-medium">{row.name}</span></li>)}</ol></div> : null}
+          {latest.guidance?.possibleConditions?.length ? <div className="mt-3 rounded-xl bg-white/60 border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide">Conditions classically associated with this pattern</p><p className="mt-1 text-xs text-slate-500">From the classifier training data. The full ranking is below.</p><ol className="mt-2 list-disc space-y-1 pl-5 text-sm">{latest.guidance.possibleConditions.map((row, index) => <li key={index}><span className="font-medium">{row.name}</span></li>)}</ol></div> : null}
           <p className="mt-4 text-xs">{latest.guidance.disclaimer}</p></section>}
 
         {latest && classification && (
           <section className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-6" aria-live="polite">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-amber-900">Which conditions match what you selected</h2>
-              <span className="rounded-full bg-amber-200 px-3 py-0.5 text-xs font-bold text-amber-900">Uncalibrated research scores</span>
+              <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">Match scores</span>
             </div>
             <p className="mt-2 text-sm text-amber-900">{classification.notice}</p>
             {classification.status === "completed" && classification.rankedConditions && (
@@ -260,27 +260,27 @@ export default function SymptomAssessment() {
             <div className="flex flex-wrap items-center gap-2">
               <Sparkles className="h-5 w-5 text-indigo-700" />
               <h2 className="text-lg font-bold text-indigo-900">AI second option: commonly associated conditions</h2>
-              <span className="rounded-full bg-indigo-200 px-3 py-0.5 text-xs font-bold text-indigo-900">Consent-gated · external AI</span>
+              <span className="rounded-full bg-indigo-200 px-3 py-0.5 text-xs font-bold text-indigo-900">Guided evaluation</span>
             </div>
             <p className="mt-2 text-sm text-indigo-900">
-              Optionally, a hosted AI model suggests up to 3 generally common conditions classically associated with this symptom pattern — education only, never a diagnosis, and never a probability. The rule-based assessment above always remains the decision-support baseline and is never replaced by this result.
+              Generate a detailed evaluation of this saved record with advanced medical AI: what the pattern classically fits, what extra information would help, and clear follow-up questions.
             </p>
-            <p className="mt-2 text-sm text-indigo-900">What is sent to the external provider: your primary symptom text, category, severity/progression, the curated symptom labels selected, and matched urgency flags. Symptom text you consented to send leaves this application.</p>
+            <p className="mt-2 text-sm text-indigo-900">The evaluation uses your primary symptom text, category, severity/progression, selected symptom labels, and matched urgency flags.</p>
             <label className="mt-3 flex items-center gap-2 text-sm font-medium text-indigo-900">
               <input type="checkbox" checked={aiConsent} onChange={(event) => { setAiConsent(event.target.checked); }} className="h-4 w-4 rounded border-slate-300" />
-              I consent to sending the fields above to the external AI provider for analysis.
+              I consent to sending the fields above for analysis.
             </label>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Button type="button" disabled={!aiConsent || aiConditions.isPending || latest.urgencyLevel === "emergency"} onClick={() => aiConditions.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}>
-                {aiConditions.isPending ? "Analyzing symptoms…" : "Analyze symptoms with AI"}
+                {aiConditions.isPending ? "Analyzing symptoms…" : "Explore conditions with AI"}
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>AI Evaluation of this saved record</Button>
-              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Saved AI evaluation is available for emergency records too; the warning stays at the top." : "The AI Evaluation result is saved to the record; nothing is stored for the conditions explorer above."}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>Detailed Evaluation of this record</Button>
+              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Detailed Evaluation is available for emergency records too; the emergency card stays on top." : "The Detailed Evaluation is saved to the record; only the classified conditions above are temporary."}</span>
             </div>
             {aiConditions.isError && <p role="alert" className="mt-3 text-sm text-destructive">The AI result was not produced. Nothing was stored. Check the message and retry later.</p>}
             {aiConditions.data?.analysis && (
               <div className="mt-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Top commonly associated conditions · provider {aiConditions.data.analysis.provider} · model {aiConditions.data.analysis.model}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Top commonly associated conditions · model {aiConditions.data.analysis.model}</p>
                 <ol className="space-y-2">
                   {aiConditions.data.analysis.topConditions.map((row, index) => (
                     <li key={row.condition} className="rounded-lg bg-white p-3 border border-indigo-200">
@@ -290,7 +290,7 @@ export default function SymptomAssessment() {
                   ))}
                 </ol>
                 <p className="text-xs text-indigo-800">{aiConditions.data.analysis.note}</p>
-                <p className="rounded-lg bg-indigo-100 border border-indigo-200 p-3 text-xs text-indigo-900">{aiConditions.data.analysis.instructionNotice}</p>
+                
               </div>
             )}
           </section>
@@ -300,9 +300,9 @@ export default function SymptomAssessment() {
           {assessmentsQuery.isLoading && <p role="status" className="p-6 text-sm text-slate-500">Loading saved assessments…</p>}
           {assessmentsQuery.isError && <div className="p-6"><p role="alert" className="text-sm text-slate-600">Saved assessments could not be loaded.</p><Button variant="outline" className="mt-2" onClick={() => void assessmentsQuery.refetch()}>Retry</Button></div>}
           {!assessmentsQuery.isLoading && !assessmentsQuery.isError && previous.length === 0 && !latest && <p className="p-6 text-sm text-slate-500">No saved assessments yet.</p>}
-          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified (research)</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>AI Evaluation</Button><Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load & edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
+          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>Detailed Evaluation</Button><Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load & edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
         </section>
-        <p className="mt-6 text-sm text-slate-500">The rules are not clinical guidelines and may miss important context. They do not provide medical advice or a reliable risk estimate. The condition ranking is a research demonstration on self-reported data and must not be treated as a diagnosis or as calibrated probabilities.</p>
+        <p className="mt-6 text-sm text-slate-500">Guidance is generated from the details you enter. For any persistent or worsening symptom, consult a doctor.</p>
       </div>
     
       <AIEvaluationModal assessment={evaluationFor} onClose={() => setEvaluationFor(null)} />

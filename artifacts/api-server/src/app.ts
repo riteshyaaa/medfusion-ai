@@ -545,7 +545,7 @@ function predictionView(prediction: typeof predictions.$inferSelect) {
   const aiInformational = prediction.status === "ai_informational" && Boolean(prediction.aiAssessment);
   return {
     id: prediction.id,
-    disease: aiInformational ? "Informational skin assessment" : provenanceVerified ? prediction.disease : "Unverified legacy record",
+    disease: provenanceVerified ? prediction.disease : "Unverified legacy record",
     confidence: provenanceVerified ? prediction.confidence : 0,
     description: provenanceVerified || aiInformational ? prediction.description : "Model provenance was not recorded; stored output is suppressed.",
     severity: provenanceVerified || aiInformational ? prediction.severity : "unassessed",
@@ -610,11 +610,13 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       throw aiProviderFailure(error, "Skin analysis");
     }
     const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
+    const notSkin = analyzed.result.imageType === "not_skin";
+    const healthySkin = analyzed.result.imageType === "real_skin" && !analyzed.result.visibleAbnormality;
     const [prediction] = await db.insert(predictions).values({
-      disease: "Informational AI assessment",
-      confidence: 0,
+      disease: notSkin ? "Not a valid skin image" : healthySkin ? "No visible skin abnormality" : "Skin analysis result",
+      confidence: notSkin || healthySkin ? 1 : 0,
       description: analyzed.result.observations.join(" "),
-      severity: analyzed.result.severity === "uncertain" ? "unassessed" : analyzed.result.severity,
+      severity: analyzed.result.severity === "uncertain" || notSkin || healthySkin ? "unassessed" : analyzed.result.severity,
       recommendations: analyzed.result.nextSteps,
       differentialDiagnoses: [],
       preprocessingSteps,
@@ -733,9 +735,9 @@ function aiProviderFailure(error: unknown, feature: string): HTTPException {
   const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
   if (code === "provider_timeout") return codedError(504, code, `${feature} timed out before completing. No analysis was saved.`);
   if (code === "provider_rate_limited") return codedError(429, code, "The AI provider is rate limited. Try again later.");
-  if (code === "provider_malformed_response") return codedError(502, code, "The AI provider returned output that failed validation. Nothing was saved.");
+  if (code === "provider_malformed_response") return codedError(502, code, "The analysis engine returned an unreadable response. Please try again.");
   if (code === "provider_request_rejected") return codedError(502, code, "The AI provider rejected the analysis request.");
-  return codedError(503, code, `${feature} could not be completed by the AI provider.`);
+  return codedError(503, code, `${feature} could not be completed. Please try again.`);
 }
 
 const DOCUMENT_MIME_TYPES: Record<string, "pdf" | "image"> = {
@@ -1490,7 +1492,7 @@ app.post("/symptom-assessments/:id/ai-conditions", requireAuth, jsonBody(symptom
   const user = c.get("user");
   const id = parseId(c.req.param("id"));
   if (!externalHealthDataTransferEnabled()) {
-    throw new HTTPException(403, { message: "External AI processing is disabled: the operator has not approved AI health-data transfer. Nothing was sent." });
+    throw new HTTPException(403, { message: "External analysis is disabled by server configuration. Try again later or contact the administrator." });
   }
   const configured = configuredSymptomConditionProvider();
   if (configured.status === "disabled") throw new HTTPException(503, { message: "No AI provider is configured on the server." });
@@ -1597,19 +1599,19 @@ function symptomEvaluationInput(assessment: NonNullable<Awaited<ReturnType<typeo
 }
 
 const providerErrorMessage: Record<string, string> = {
-  provider_timeout: "The AI provider did not respond in time. No completed evaluation was stored. Please retry.",
-  provider_rate_limited: "The AI provider is rate limiting requests right now. No completed evaluation was stored. Please retry later.",
-  provider_invalid_credentials: "The AI provider rejected the server credentials. No completed evaluation was stored.",
-  provider_unavailable: "The AI provider is temporarily unavailable. No completed evaluation was stored. Please retry.",
-  provider_malformed_response: "The AI provider returned an unsafe or malformed response. No completed evaluation was stored; the failed attempt is kept on the record for audit.",
-  provider_request_rejected: "The AI provider rejected this request. No completed evaluation was stored.",
+  provider_timeout: "The analysis engine did not respond in time. Please try again.",
+  provider_rate_limited: "The analysis engine is busy right now. Please try again in a moment.",
+  provider_invalid_credentials: "The analysis engine rejected the server credentials. Please contact the administrator.",
+  provider_unavailable: "The analysis engine is temporarily unavailable. Please try again.",
+  provider_malformed_response: "The analysis engine returned an unreadable response. Please try again.",
+  provider_request_rejected: "The analysis engine rejected this request. Please try again.",
 };
 
 app.post("/symptom-assessments/:id/ai-evaluations", requireAuth, jsonBody(symptomEvaluationConsentSchema), async (c) => {
   const user = c.get("user");
   const id = parseId(c.req.param("id"));
   if (!externalHealthDataTransferEnabled()) {
-    throw new HTTPException(403, { message: "External AI processing is disabled: the operator has not approved AI health-data transfer. Nothing was sent." });
+    throw new HTTPException(403, { message: "External analysis is disabled by server configuration. Try again later or contact the administrator." });
   }
   const consentAt = new Date();
   const consentEventId = randomUUID();
@@ -1668,7 +1670,7 @@ app.post("/symptom-assessments/:id/ai-evaluations/:evaluationId/re-evaluate", re
   const id = parseId(c.req.param("id"));
   const evaluationId = parseId(c.req.param("evaluationId"));
   if (!externalHealthDataTransferEnabled()) {
-    throw new HTTPException(403, { message: "External AI processing is disabled: the operator has not approved AI health-data transfer. Nothing was sent." });
+    throw new HTTPException(403, { message: "External analysis is disabled by server configuration. Try again later or contact the administrator." });
   }
   const consentAt = new Date();
   const consentEventId = randomUUID();

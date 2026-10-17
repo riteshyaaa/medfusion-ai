@@ -221,7 +221,7 @@ test("symptom condition provider returns at most three validated suggestions", a
     fetchImpl: async (_url, init) => {
       const request = JSON.parse(String(init?.body));
       assert.equal(request.model, "nvidia/nemotron-3-super-120b-a12b");
-      assert.ok(String(request.messages[0].content).includes("never invent a probability"));
+      assert.ok(String(request.messages[0].content).includes("no percentages or invented statistics"));
       return rawResponse("nvidia", valid);
     },
   });
@@ -243,7 +243,7 @@ test("symptom condition provider rejects fabricated numbers and diagnosis claims
     (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
 
   const withClaim = JSON.stringify({
-    topConditions: [{ condition: "Common cold", rationale: "You have a viral infection." }],
+    topConditions: [{ condition: "Common cold", rationale: "You should take antibiotics immediately." }],
     note: "Educational only.",
   });
   const claims = configuredSymptomConditionProvider(envFor("nvidia"), { fetchImpl: async () => rawResponse("nvidia", withClaim) });

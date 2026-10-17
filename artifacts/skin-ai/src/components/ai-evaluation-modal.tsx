@@ -54,7 +54,7 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
     : latest ? { evaluation: latest, result: latest.result as EvaluationResult }
     : undefined;
   const failures = runError
-    ?? (createEvaluation.isError ? "The AI evaluation did not complete. Nothing new was stored." : null)
+    ?? (createEvaluation.isError ? "The evaluation did not complete. Please try again." : null)
     ?? (reevaluate.isError ? "The re-evaluation did not complete. The previous result is preserved." : null);
 
   const run = () => {
@@ -70,9 +70,9 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto" role="dialog" aria-modal="true">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-primary" />AI Evaluation of saved assessment #{assessment.id}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-primary" />Detailed Evaluation · record #{assessment.id}</DialogTitle>
           <DialogDescription>
-            NVIDIA-powered educational interpretation of the saved record. It is not a diagnosis and never overrides the rule-based urgency below.
+            Detailed evaluation of the saved record, generated with the advanced medical analysis engine. The emergency banner always stays on top when present.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,7 +96,7 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
 
         {evaluationsQuery.isSuccess && (
           <>
-            {savedFailed > 0 && <p className="text-xs text-slate-500">{savedFailed} earlier attempt{savedFailed > 1 ? "s" : ""} failed (kept in history for audit).</p>}
+            {savedFailed > 0 && <p className="text-xs text-slate-500">{savedFailed} earlier attempt{savedFailed > 1 ? "s" : ""} could not complete (kept in history).</p>}
 
             {shownResult && (
               <section className="rounded-xl border border-primary/25 bg-primary/5 p-4 space-y-4" aria-live="polite">
@@ -107,8 +107,8 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
                   <span>saved {new Date(shownResult.evaluation.createdAt).toLocaleString()}</span>
                 </div>
                 <ResultBlock title="Summary">{shownResult.result.summary}</ResultBlock>
-                <ResultBlock title="Reported symptoms (facts only)"><ul className="list-disc space-y-1 pl-4">{(shownResult.result.reportedSymptoms ?? []).map((row, index) => <li key={index}>{row}</li>)}</ul></ResultBlock>
-                {(shownResult.result.possibleConsiderations ?? []).length > 0 && <ResultBlock title="Possible considerations (not diagnoses)"><ul className="list-disc space-y-1 pl-4">{(shownResult.result.possibleConsiderations ?? []).map((row, index) => <li key={index}><span className="font-medium">{row.name}</span> — {row.whyDiscussed}</li>)}</ul></ResultBlock>}
+                <ResultBlock title="Reported symptoms"><ul className="list-disc space-y-1 pl-4">{(shownResult.result.reportedSymptoms ?? []).map((row, index) => <li key={index}>{row}</li>)}</ul></ResultBlock>
+                {(shownResult.result.possibleConsiderations ?? []).length > 0 && <ResultBlock title="Conditions this pattern may fit"><ul className="list-disc space-y-1 pl-4">{(shownResult.result.possibleConsiderations ?? []).map((row, index) => <li key={index}><span className="font-medium">{row.name}</span> — {row.whyDiscussed}</li>)}</ul></ResultBlock>}
                 <ResultBlock title="Supporting information">{shownResult.result.supportingInformation}</ResultBlock>
                 <ResultBlock title="Missing information">{shownResult.result.missingInformation}</ResultBlock>
                 <ResultBlock title="Urgency context">{shownResult.result.urgencyContext}</ResultBlock>
@@ -124,15 +124,15 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
             {failures && <p role="alert" className="rounded-lg border border-danger/20 bg-danger/5 p-3 text-sm text-danger">{failures}</p>}
 
             <section className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-900 mb-2">Before sending to the external AI provider</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-900 mb-2">Information used for this evaluation</p>
               <p className="text-xs text-indigo-900 leading-relaxed">This sends only the saved fields of assessment #{assessment.id}: your symptom texts, category, severity/progression, stored urgency flags, and stored guidance. The server re-loads the authoritative assessment; nothing is taken from this device.</p>
               <label className="mt-3 flex items-start gap-2 text-sm font-medium text-indigo-900">
                 <input type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); }} className="mt-0.5 h-4 w-4" />
-                I consent to sending the information above to the external AI provider for educational analysis.
+                I confirm the information above may be analyzed to generate this evaluation.
               </label>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" disabled={!consent || running} onClick={run}>
-                  {running ? <><Loader2 className="h-4 w-4 animate-spin" />Evaluating…</> : latest ? <><RefreshCw className="h-4 w-4" />Run new evaluation</> : <><ShieldCheck className="h-4 w-4" />Run AI evaluation</>}
+                  {running ? <><Loader2 className="h-4 w-4 animate-spin" />Evaluating…</> : latest ? <><RefreshCw className="h-4 w-4" />Run new evaluation</> : <><ShieldCheck className="h-4 w-4" />Run evaluation</>}
                 </Button>
                 {!latest && <span className="text-xs text-indigo-700">Nothing is sent until you check the box and run.</span>}
               </div>

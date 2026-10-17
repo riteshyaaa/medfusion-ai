@@ -203,6 +203,8 @@ export const PredictSkinDiseaseResponse = zod.object({
   "aiAssessment": zod.object({
   "provider": zod.string().optional(),
   "model": zod.string().optional(),
+  "imageType": zod.enum(['real_skin', 'not_skin', 'unclear']).optional(),
+  "visibleAbnormality": zod.boolean().optional(),
   "observations": zod.array(zod.string()).optional(),
   "possibleConditions": zod.array(zod.object({
   "name": zod.string(),

@@ -12,6 +12,8 @@ const urgencySchema = z.enum(["routine", "prompt", "urgent", "emergency", "uncer
 const severitySchema = z.enum(["mild", "moderate", "severe", "uncertain"]);
 
 export const skinAIResultSchema = z.object({
+  imageType: z.enum(["real_skin", "not_skin", "unclear"]).default("unclear"),
+  visibleAbnormality: z.boolean().default(true),
   observations: z.array(z.string().trim().min(1).max(300)).min(1).max(8),
   possibleConditions: z.array(z.object({
     name: z.string().trim().min(1).max(120),
@@ -35,14 +37,14 @@ export const symptomAIResultSchema = z.object({
   warningSigns: z.array(z.string().trim().min(1).max(300)).max(8),
 }).strict();
 
-const evalFieldName = z.string().trim().min(1).max(400).regex(/^[^\u0000-\u001f\u007f]+$/);
+const evalFieldName = z.string().trim().min(1).max(600).regex(/^[^\u0000-\u001f\u007f]+$/);
 export const symptomEvaluationSchema = z.object({
   summary: evalFieldName,
   reportedSymptoms: z.array(evalFieldName).min(1).max(12),
   possibleConsiderations: z.array(z.object({
     name: z.string().trim().min(2).max(120).regex(/^[^\u0000-\u001f\u007f]+$/),
     whyDiscussed: evalFieldName,
-  }).strict()).min(0).max(4),
+  }).strict()).min(0).max(5),
   supportingInformation: evalFieldName,
   missingInformation: evalFieldName,
   urgencyContext: evalFieldName,
@@ -76,6 +78,8 @@ export type AIAnalysisOutput<T> = {
 const skinJsonSchema = {
   type: "object",
   properties: {
+    imageType: { type: "string", enum: ["real_skin", "not_skin", "unclear"] },
+    visibleAbnormality: { type: "boolean" },
     observations: { type: "array", items: { type: "string" } },
     possibleConditions: { type: "array", items: { type: "object", properties: { name: { type: "string" }, reason: { type: "string" } }, required: ["name", "reason"], additionalProperties: false } },
     uncertainty: { type: "string" },
@@ -84,7 +88,7 @@ const skinJsonSchema = {
     nextSteps: { type: "array", items: { type: "string" } },
     consultClinicianWhen: { type: "array", items: { type: "string" } },
   },
-  required: ["observations", "possibleConditions", "uncertainty", "severity", "urgency", "nextSteps", "consultClinicianWhen"],
+  required: ["imageType", "visibleAbnormality", "observations", "possibleConditions", "uncertainty", "severity", "urgency", "nextSteps", "consultClinicianWhen"],
   additionalProperties: false,
 };
 
@@ -119,19 +123,23 @@ const symptomEvaluationJsonSchema = {
 };
 
 const skinSystem = [
-  "You provide cautious educational observations about a skin image for a research prototype.",
-  "Do not diagnose, identify a disease as certain, recommend medication, or claim the image proves someone is safe.",
-  "Describe visible features only; image quality and lighting can limit interpretation. Do not infer identity, age, ethnicity, or other personal attributes.",
-  "Give a short list of possible explanations only when appropriate, state uncertainty, and encourage clinician evaluation when warranted.",
-  "Do not provide confidence scores, probabilities, percentages, citations, or invented image preprocessing claims.",
+  "You are an experienced dermatology AI assistant analyzing a submitted skin image with the depth of a trained diagnostic model.",
+  "First check the image itself: if it is a drawing, illustration, 3D render, object, screenshot, or anything that is not a genuine photograph of human skin, set imageType to not_skin.",
+  "For a genuine skin photograph, assess like a clinician: skin tone and phototype, lesion color distribution, border regularity, symmetry, diameter, texture, surface changes, and surrounding skin.",
+  "If no lesion, rash, irritation, or pigment change is visible, set visibleAbnormality to false and say the skin appears within normal limits.",
+  "PossibleConditions are named conditions whose visible features best fit what you observe, each with the feature overlap that supports it. Keep names precise (for example: Atopic dermatitis, Melanocytic nevus, Tinea corporis).",
+  "Describe visible features using plain clinical wording; note where image quality limits the assessment. Do not infer identity, age, or ethnicity from the image.",
+  "Do not provide confidence scores, probabilities, percentages, citations, or invented image-preprocessing claims.",
+  "Use the phrase 'may fit' or 'commonly presents as' rather than asserting 'you have'. End the disclaimer field with one short line advising a doctor visit if symptoms persist.",
   "Return only the requested JSON object.",
 ].join(" ");
 
 const symptomSystem = [
-  "Provide cautious educational context for self-reported symptoms, not a diagnosis or medical advice.",
-  "Use only supplied details. Do not state that the user has a condition, rule out a serious cause, or recommend medicines or doses.",
+  "Provide detailed, medically informed context for self-reported symptoms, grounded in the supplied details.",
+  "Use only supplied details. Explain which conditions classically present with this symptom pattern and why.",
   "Do not provide probabilities, confidence scores, percentages, or fabricated medical history.",
   "Mention uncertainty and appropriate professional evaluation. Do not downgrade server-supplied urgent guidance.",
+  "Use the phrase 'may fit' or 'commonly presents as' rather than asserting 'you have'. End the disclaimer field with one short line advising a doctor visit if symptoms persist.",
   "Return only the requested JSON object.",
 ].join(" ");
 
@@ -144,7 +152,8 @@ const cardiacSystem = [
 ].join(" ");
 
 const noDiagnosisPatterns = [
-  /\byou (?:definitely |certainly )?have\b/i,
+  // "If you have ..." phrasing is a legitimate caution, not a claim; direct assertions are not.
+  /(?<!\bif\s)\byou\s+(?:(?:definitely|certainly|clearly|obviously)\s+)?have\b/i,
   /\bdiagnosed with\b/i,
   /\bthis confirms\b/i,
   /\bthe image proves\b/i,
@@ -220,13 +229,14 @@ export function createClinicalAIProvider(
     system: string,
     user: string,
     imageDataUrl?: string,
+    maxOutputTokens = 3_000,
   ): Promise<AIAnalysisOutput<T>> => {
     const response = await executeProviderStructuredRequest(config, {
       system,
       user,
       schemaName,
       jsonSchema,
-      maxOutputTokens: 1_800,
+      maxOutputTokens,
       ...(imageDataUrl ? { imageDataUrl } : {}),
     }, options);
     const decoded = decodeStructuredProviderText(config, response);
@@ -237,7 +247,7 @@ export function createClinicalAIProvider(
       if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
         return Promise.reject(new AIProviderError("provider_request_rejected"));
       }
-      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Assess the visible skin image for informational purposes only. Do not infer a diagnosis.", imageDataUrl) as Promise<AIAnalysisOutput<SkinAIResult>>;
+      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Analyze efficiently and output the JSON directly.", imageDataUrl, 3_200) as Promise<AIAnalysisOutput<SkinAIResult>>;
     },
     analyzeSymptoms(input) {
       return call(

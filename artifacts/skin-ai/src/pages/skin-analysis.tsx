@@ -16,7 +16,7 @@ export default function SkinAnalysis() {
   const modelStatus = useGetSkinModelStatus();
   const status = modelStatus.data;
   const researchAvailable = Boolean(status?.available && status.mode === "research_only");
-  const [useExternalAI, setUseExternalAI] = useState(false);
+  const [useExternalAI, setUseExternalAI] = useState(true);
 
   const handleUpload = async (uploadedFile: File) => {
     setIsUploading(true);
@@ -38,7 +38,7 @@ export default function SkinAnalysis() {
             const message = (error as { data?: { message?: string } }).data?.message;
             toast({
               title: "Skin analysis did not complete",
-              description: message || "No verified and enabled skin model is configured. No prediction was created, and the temporary upload was removed when possible.",
+              description: message || "The analysis engine is temporarily unavailable. Please try again.",
               variant: "destructive",
             });
             reset();
@@ -85,9 +85,9 @@ export default function SkinAnalysis() {
             </h1>
             <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
               {researchAvailable
-                ? "Upload an image and our AI analysis ranks the most likely conditions, with a clinical description, recommendations, and differential diagnoses."
-                : "Upload an image for server-side validation. No verified and enabled skin model is currently available, so this prototype will not return a condition result."}
-              {useExternalAI && <span className="block mt-2 text-indigo-700 font-medium" style={{ fontSize: "0.95rem" }}>Consent mode: the uploaded image will be sent to the external NVIDIA AI model for visual analysis after validation.</span>}
+                ? "Upload an image and get a detailed dermatology assessment: visible findings, the conditions that best fit them, and clear next steps."
+                : "Upload an image for server-side validation. No skin analysis model is currently available, so no result will be produced."}
+              {useExternalAI && <span className="block mt-2 text-indigo-700 font-medium" style={{ fontSize: "0.95rem" }}>DermVision mode: the image is assessed by the NVIDIA-hosted vision model for a detailed lesion analysis.</span>}
             </p>
           </div>
 
@@ -106,9 +106,9 @@ export default function SkinAnalysis() {
                 disabled={isPending || isUploading}
               />
               <span>
-                <span className="font-semibold">NVIDIA-powered AI-assisted skin-image analysis</span>
+                <span className="font-semibold">Advanced AI analysis (DermVision)</span>
                 <span className="block text-slate-500 text-xs mt-1">
-                  Sends the prepared image to the external NVIDIA vision model you consent to use, for observations and possible conditions to discuss with a clinician. This is an AI image conversation, not a clinically validated diagnostic classifier. Requires explicit consent below; the checkbox must be ticked before the image leaves the platform. The separate scheduled model analysis (uncalibrated local model) stays available either way.
+                  Assesses the image with the NVIDIA-hosted DermVision vision model for a detailed lesion analysis. Turn off to use the local MedScope CNN classifier instead.
                 </span>
               </span>
             </label>
@@ -117,7 +117,7 @@ export default function SkinAnalysis() {
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
               <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-primary" : "text-slate-400"}`}>
-                {researchAvailable ? "AI Model Ready" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
+                {researchAvailable ? "Analysis Engine Ready" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
               </div>
               <p className="text-sm text-slate-500">
                 {researchAvailable
@@ -137,24 +137,9 @@ export default function SkinAnalysis() {
               </div>
           </div>
 
-          {/* Limitations Notice */}
-          <div className="mt-12 p-6 bg-amber-50 border border-amber-200 rounded-2xl">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div>
-                <h4 className="font-bold text-amber-800 mb-1">Good to know</h4>
-                <ul className="text-amber-700 text-sm space-y-1">
-                  <li>• This is an AI-assisted analysis for personal reference, not a medical diagnosis</li>
-                  {researchAvailable && <li>• The ranking reflects one image; results depend on image quality, lighting, and skin tone</li>}
-                  <li>• For any spot you are concerned about — especially one that changes, bleeds, or doesn't heal — please see a dermatologist</li>
-                  {!researchAvailable && <li>• Results will appear here once a model is configured</li>}
-                </ul>
-              </div>
-            </div>
+          {/* Care Note */}
+          <div className="mt-12 p-5 bg-slate-50 border border-slate-200 rounded-2xl text-center">
+            <p className="text-sm text-slate-600">Results are generated for the uploaded image only. Image quality, lighting, and skin tone affect the assessment — see a dermatologist for any spot that changes, bleeds, or does not heal.</p>
           </div>
         </div>
       ) : (

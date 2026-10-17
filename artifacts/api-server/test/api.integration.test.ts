@@ -249,7 +249,7 @@ test("API foundation persists data, enforces owner access, and fails closed with
   assert.equal(classificationBody.assessment.classification.rankedConditions[0]?.condition, "Fungal infection");
   assert.ok(classificationBody.assessment.classification.rankedConditions[0]?.score > 0.9);
   assert.deepEqual(classificationBody.assessment.classification.unmatchedSymptoms, ["my custom phrase"]);
-  assert.match(classificationBody.assessment.classification.notice, /not diagnosis probabilities/i);
+  assert.match(classificationBody.assessment.classification.notice, /statistical classifier/i);
   const classificationPersisted = await (await jsonRequest(`/symptom-assessments/${classificationBody.assessment.id}`, "GET", undefined, cookieA)).json() as { assessment: { classification: { status: string; rankedConditions: { length: number } } } };
   assert.equal(classificationPersisted.assessment.classification.status, "completed");
   assert.equal(classificationPersisted.assessment.classification.rankedConditions.length, 8);
@@ -685,7 +685,7 @@ test("saved symptom AI evaluations are consent-gated, owner-scoped, keep failed 
 
   const noTransferGate = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "POST", { consentToExternalProcessing: true }, cookieOwner);
   assert.equal(noTransferGate.status, 403);
-  assert.equal((await noTransferGate.json() as { message: string }).message.includes("External AI processing is disabled"), true);
+  assert.match((await noTransferGate.json() as { message: string }).message, /External analysis is disabled/i);
   const emptyList = await jsonRequest(`/symptom-assessments/${assessmentId}/ai-evaluations`, "GET", undefined, cookieOwner);
   assert.equal(emptyList.status, 200);
   assert.equal((await emptyList.json() as { evaluations: unknown[] }).evaluations.length, 0);

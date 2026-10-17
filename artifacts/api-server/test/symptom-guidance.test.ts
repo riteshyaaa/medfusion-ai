@@ -87,7 +87,7 @@ test("unknown free text still produces honest generic-safe guidance and no fabri
   const result = assessSymptomGuidance(baseInput({ primarySymptom: "some vague discomfort about my schedule" }));
   assert.equal(result.urgencyLevel, "routine");
   assert.equal(result.possibleConditions.length, 0);
-  assert.match(result.disclaimer, /not a diagnosis/i);
+  assert.match(result.disclaimer, /consult a doctor/i);
 });
 
 test("fever with rash escalates to urgent via combination rule", () => {

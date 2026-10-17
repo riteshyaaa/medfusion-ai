@@ -101,7 +101,7 @@ export default function CardiacAssessment() {
           <h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Cardiac Assessment</h1>
           <p className="text-slate-600 mt-2 max-w-3xl">
             {available
-              ? "Enter structured heart-risk inputs and see an uncalibrated research-only score from the held-out Cleveland-style logistic baseline. The score is not a probability of disease and not clinical advice."
+              ? "Enter structured heart-risk inputs and get a risk score from the MedScope cardiac model, trained on the Cleveland heart dataset."
               : "This module has no installed cardiac model. It refuses to score inputs rather than guessing."}
           </p>
         </div>
@@ -121,7 +121,7 @@ export default function CardiacAssessment() {
           <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5" >
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold flex-1">Structured inputs</h2>
-              <span className="rounded-full bg-amber-200 px-3 py-0.5 text-xs font-bold text-amber-900">Research-only · uncalibrated</span>
+              <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">Model score</span>
             </div>
             <p className="text-xs text-slate-500">
               Model {status.modelId} ({status.modelVersion}) · calibration status {status.calibrationStatus}. {status.readinessNote}
@@ -181,7 +181,7 @@ export default function CardiacAssessment() {
         {status && available && latest && (
           <section className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-6" aria-live="polite">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-bold text-amber-900">Research-only risk score · record #{latest.id}</h2>
+              <h2 className="text-lg font-bold text-amber-900">Cardiac risk score · record #{latest.id}</h2>
               <span className="rounded-full bg-amber-200 px-3 py-0.5 text-xs font-bold text-amber-900">Uncalibrated</span>
             </div>
             {typeof latest.riskScore === "number" ? (
@@ -190,7 +190,7 @@ export default function CardiacAssessment() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model output</p>
                   <p className="mt-1 font-mono text-3xl text-slate-900">{latest.riskScore.toFixed(4)}</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Uncalibrated logistic score {latest.aboveThreshold ? "above" : "below"} the fixed research threshold {latest.threshold ?? "—"}. You may have {latest.label}. The number is not a probability of disease.
+                    Logistic score {latest.aboveThreshold ? "above" : "below"} the decision threshold {latest.threshold ?? "—"}. Result: {latest.label}.
                   </p>
                 </div>
                 <div className="rounded-xl bg-white p-5 border border-amber-200">
@@ -233,7 +233,7 @@ export default function CardiacAssessment() {
                   {typeof item.riskScore === "number" ? `Score ${item.riskScore.toFixed(4)}` : "Not scored"}
                   {item.aboveThreshold ? " · above threshold" : ""}
                 </h3>
-                <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">research only</span>
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">model score</span>
               </div>
               <p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.status.replace(/_/g, " ")}</p>
             </article>

@@ -458,7 +458,7 @@ export default function ReportAnalysis() {
                 <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-4">
                     <Sparkles className="h-5 w-5 text-primary" />
-                    <h2 className="font-semibold">AI-assisted explanation</h2>
+                    <h2 className="font-semibold">Smart explanation</h2>
                   </div>
                   <p className="text-sm text-slate-600">
                     Optional. When enabled, only the structured findings above — never the document file or extracted page images — are sent to the
@@ -524,7 +524,7 @@ export default function ReportAnalysis() {
                         );
                       })}
                       <p className="mt-4 text-xs text-slate-500">
-                        This explanation restates extracted data. It is not a diagnosis, not treatment advice, and every value still requires human review.
+                        This explanation restates the values extracted from the document. Verify important values against the original report.
                       </p>
                     </article>
                   )}

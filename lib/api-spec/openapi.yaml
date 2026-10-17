@@ -2143,6 +2143,11 @@ components:
               type: string
             model:
               type: string
+            imageType:
+              type: string
+              enum: [real_skin, not_skin, unclear]
+            visibleAbnormality:
+              type: boolean
             observations:
               type: array
               items:
