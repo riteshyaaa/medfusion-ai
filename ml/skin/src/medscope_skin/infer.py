@@ -19,7 +19,7 @@ import torch
 from PIL import Image, UnidentifiedImageError
 
 from .manifest import read_manifest, sha256_file
-from .model import SmallSkinCNN
+from .model import SUPPORTED_ARCHITECTURES, create_skin_model
 from .transforms import ImageTransform
 
 ALLOWED_READINESS_STATES = {"approved", "research_only_not_approved"}
@@ -80,11 +80,12 @@ def run_inference(artifact_dir: Path, image_path: Path) -> tuple[dict[str, Any],
             "error": "readiness_state_not_served",
             "message": f"Manifest readiness state {manifest['readinessState']!r} is not served.",
         }, 2
-    if manifest.get("architecture", manifest.get("trainingConfig", {}).get("model", {}).get("architecture")) not in (None, SmallSkinCNN.architecture_id):
+    architecture_id = manifest.get("architecture", manifest.get("trainingConfig", {}).get("model", {}).get("architecture")) or "medscope-small-cnn-v1"
+    if architecture_id not in SUPPORTED_ARCHITECTURES:
         return {
             "status": "error",
             "error": "incompatible_architecture",
-            "message": f"Checkpoint architecture {manifest.get('architecture')!r} is not {SmallSkinCNN.architecture_id}.",
+            "message": f"Checkpoint architecture {architecture_id!r} is not one of {', '.join(SUPPORTED_ARCHITECTURES)}.",
         }, 2
 
     artifact_path = artifact_dir / manifest["artifact"]["path"]
@@ -115,7 +116,7 @@ def run_inference(artifact_dir: Path, image_path: Path) -> tuple[dict[str, Any],
     except (UnidentifiedImageError, OSError) as error:
         return {"status": "error", "error": "image_unreadable", "message": str(error)}, 2
 
-    model = SmallSkinCNN(number_of_classes=len(labels))
+    model = create_skin_model(architecture_id, len(labels), pretrained=False)
     try:
         checkpoint = torch.load(artifact_path, map_location="cpu", weights_only=True)
         state_dict = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint

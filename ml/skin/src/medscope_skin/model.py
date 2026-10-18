@@ -42,3 +42,37 @@ class SmallSkinCNN(nn.Module):
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.features(image))
 
+
+class TransferSkinModel(nn.Module):
+    """MobileNetV2 transfer-learning model (ImageNet-pretrained backbone)."""
+
+    architecture_id = "medscope-mobilenetv2-v1"
+
+    def __init__(self, number_of_classes: int, pretrained: bool = True) -> None:
+        super().__init__()
+        try:
+            import torchvision
+        except ImportError as error:  # pragma: no cover - environment issue surfaced clearly
+            raise RuntimeError("The medscope-mobilenetv2-v1 architecture requires torchvision in the ML environment.") from error
+        weights = torchvision.models.MobileNet_V2_Weights.IMAGENET1K_V1 if pretrained else None
+        backbone = torchvision.models.mobilenet_v2(weights=weights)
+        self.features = backbone.features
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(nn.Flatten(), nn.Dropout(p=0.3), nn.Linear(1280, number_of_classes))
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.pool(self.features(image)))
+
+
+SUPPORTED_ARCHITECTURES = (SmallSkinCNN.architecture_id, TransferSkinModel.architecture_id)
+
+
+def create_skin_model(architecture_id: str, number_of_classes: int, pretrained: bool) -> nn.Module:
+    if architecture_id == SmallSkinCNN.architecture_id:
+        if pretrained:
+            raise ValueError("SmallSkinCNN is a randomly initialized architecture and cannot use pretrained weights.")
+        return SmallSkinCNN(number_of_classes)
+    if architecture_id == TransferSkinModel.architecture_id:
+        return TransferSkinModel(number_of_classes, pretrained=pretrained)
+    raise ValueError(f"Unsupported skin model architecture: {architecture_id!r}")
+

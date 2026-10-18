@@ -19,7 +19,7 @@ from .dataset import Sample, load_samples
 from .download import verify_download_manifest
 from .evaluation import compute_metrics, compute_subgroup_metrics, write_reliability_plot
 from .manifest import sha256_file, verify_manifest
-from .model import SmallSkinCNN
+from .model import SUPPORTED_ARCHITECTURES, create_skin_model
 from .splits import DatasetSplit, make_splits, write_split_manifest
 from .transforms import ImageTransform
 
@@ -109,12 +109,13 @@ def smoke_test_checkpoint(path: Path, label_order: list[str], image_size: int) -
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict):
         raise ValueError("Model checkpoint must contain a tensor-state dictionary.")
-    if checkpoint.get("architecture") != SmallSkinCNN.architecture_id or checkpoint.get("labelOrder") != label_order:
+    architecture_id = checkpoint.get("architecture")
+    if architecture_id not in SUPPORTED_ARCHITECTURES or checkpoint.get("labelOrder") != label_order:
         raise ValueError("Model checkpoint architecture or label order is incompatible.")
     state = checkpoint.get("state_dict")
     if not isinstance(state, dict):
         raise ValueError("Model checkpoint is missing its state dictionary.")
-    model = SmallSkinCNN(len(label_order))
+    model = create_skin_model(architecture_id, len(label_order), pretrained=False)
     model.load_state_dict(state, strict=True)
     model.eval()
     with torch.inference_mode():
@@ -128,12 +129,16 @@ def run_training(data_root: Path, config: dict[str, Any], source_manifest: dict[
     if output_dir.exists():
         raise FileExistsError(f"Refusing to overwrite an existing training output: {output_dir}")
     model_config = config["model"]
-    if (
-        model_config.get("architecture") != SmallSkinCNN.architecture_id
-        or model_config.get("initialization") != "random"
-        or model_config.get("pretrained_weights") is not False
-    ):
-        raise ValueError("This training package only supports the configured randomly initialized SmallSkinCNN baseline.")
+    architecture_id = model_config.get("architecture")
+    if architecture_id not in SUPPORTED_ARCHITECTURES:
+        raise ValueError(f"This training package only supports the configured architectures: {', '.join(SUPPORTED_ARCHITECTURES)}.")
+    if architecture_id == "medscope-small-cnn-v1" and (model_config.get("initialization") != "random" or model_config.get("pretrained_weights") is not False):
+        raise ValueError("SmallSkinCNN runs must stay randomly initialized.")
+    if architecture_id == "medscope-mobilenetv2-v1" and model_config.get("pretrained_weights") != "imagenet":
+        raise ValueError("MobileNetV2 runs transfer ImageNet pretrained weights (model.pretrained_weights = \"imagenet\").")
+    freeze_backbone = bool(model_config.get("freeze_backbone", False))
+    if freeze_backbone and architecture_id not in ("medscope-mobilenetv2-v1",):
+        raise ValueError("Only the transfer architecture supports freezing the backbone.")
     output_dir.mkdir(parents=True, exist_ok=False)
 
     seed = int(config["split"]["seed"])
@@ -164,13 +169,16 @@ def run_training(data_root: Path, config: dict[str, Any], source_manifest: dict[
     test_loader = DataLoader(test_data, shuffle=False, **common_loader_options)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SmallSkinCNN(len(label_order)).to(device)
+    model = create_skin_model(architecture_id, len(label_order), pretrained=architecture_id == "medscope-mobilenetv2-v1").to(device)
+    if freeze_backbone:
+        for parameter in model.features.parameters():
+            parameter.requires_grad = False
     counts = np.asarray([sum(samples[index].label == label for index in split.train) for label in label_order], dtype=np.float32)
     if np.any(counts == 0):
         raise ValueError("At least one class has no samples in the training split.")
     class_weights = counts.sum() / (len(label_order) * counts)
     loss_function = nn.CrossEntropyLoss(weight=torch.tensor(class_weights, dtype=torch.float32, device=device))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(config["training"]["learning_rate"]), weight_decay=float(config["training"]["weight_decay"]))
+    optimizer = torch.optim.AdamW((parameter for parameter in model.parameters() if parameter.requires_grad), lr=float(config["training"]["learning_rate"]), weight_decay=float(config["training"]["weight_decay"]))
 
     best_validation_loss = float("inf")
     best_epoch = 0
@@ -204,7 +212,7 @@ def run_training(data_root: Path, config: dict[str, Any], source_manifest: dict[
     model.load_state_dict(best_state)
     model.to(device)
     checkpoint_path = output_dir / "model.pt"
-    torch.save({"state_dict": best_state, "architecture": SmallSkinCNN.architecture_id, "labelOrder": label_order}, checkpoint_path)
+    torch.save({"state_dict": best_state, "architecture": architecture_id, "labelOrder": label_order}, checkpoint_path)
 
     test_labels, test_probabilities, _ = _batch_logits(model, test_loader, device)
     test_metrics = compute_metrics(test_labels, test_probabilities, label_order, list(config["evaluation"]["abstention_score_thresholds"]))
