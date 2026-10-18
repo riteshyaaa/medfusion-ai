@@ -1,0 +1,85 @@
+{
+  "dataset": {
+    "id": "PAD-UFES-20",
+    "version": "1",
+    "doi": "10.17632/zr7vgbcyr2.1",
+    "source_url": "https://data.mendeley.com/datasets/zr7vgbcyr2/1",
+    "license": "CC BY 4.0",
+    "metadata_filename": "metadata.csv",
+    "images_directory": "images",
+    "image_column": "img_id",
+    "patient_column": "patient_id",
+    "lesion_column": "lesion_id",
+    "label_column": "diagnostic",
+    "label_aliases": {
+      "BOD": "SCC"
+    }
+  },
+  "data_quality": {
+    "exact_hash_conflicts": "exclude-all-samples-from-conflicting-label-groups",
+    "same_label_duplicates": "keep-and-merge-for-splitting"
+  },
+  "task": {
+    "id": "pad-ufes-six-class-image-classification",
+    "labels": [
+      "ACK",
+      "BCC",
+      "MEL",
+      "NEV",
+      "SCC",
+      "SEK"
+    ]
+  },
+  "preprocessing": {
+    "version": "pad-ufes-rgb-160-center-fit-v3",
+    "image_size": 160,
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "train_horizontal_flip": true
+  },
+  "split": {
+    "seed": 20261019,
+    "test_fraction": 0.2,
+    "validation_fraction_of_remaining": 0.2,
+    "group_fields": [
+      "patient_id",
+      "lesion_id",
+      "sha256"
+    ]
+  },
+  "model": {
+    "architecture": "medscope-efficientnet-v1",
+    "initialization": "imagenet_pretrained",
+    "pretrained_weights": "imagenet",
+    "freeze_backbone": true
+  },
+  "training": {
+    "epochs": 14,
+    "batch_size": 24,
+    "learning_rate": 0.0004,
+    "weight_decay": 0.0001,
+    "early_stopping_patience": 4,
+    "cpu_threads": 8,
+    "num_workers": 0,
+    "class_imbalance": "inverse-frequency-weighted-cross-entropy"
+  },
+  "evaluation": {
+    "calibration": "diagnostic-only-raw-softmax",
+    "abstention_score_thresholds": [
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9
+    ],
+    "subgroup_minimum_support": 30
+  }
+}

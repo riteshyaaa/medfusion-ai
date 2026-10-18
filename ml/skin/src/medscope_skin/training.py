@@ -137,8 +137,9 @@ def run_training(data_root: Path, config: dict[str, Any], source_manifest: dict[
     if architecture_id == "medscope-mobilenetv2-v1" and model_config.get("pretrained_weights") != "imagenet":
         raise ValueError("MobileNetV2 runs transfer ImageNet pretrained weights (model.pretrained_weights = \"imagenet\").")
     freeze_backbone = bool(model_config.get("freeze_backbone", False))
-    if freeze_backbone and architecture_id not in ("medscope-mobilenetv2-v1",):
-        raise ValueError("Only the transfer architecture supports freezing the backbone.")
+    transferBackbones = ("medscope-mobilenetv2-v1", "medscope-efficientnet-v1")
+    if freeze_backbone and architecture_id not in transferBackbones:
+        raise ValueError("Only the transfer architectures support freezing the backbone.")
     output_dir.mkdir(parents=True, exist_ok=False)
 
     seed = int(config["split"]["seed"])
@@ -169,16 +170,30 @@ def run_training(data_root: Path, config: dict[str, Any], source_manifest: dict[
     test_loader = DataLoader(test_data, shuffle=False, **common_loader_options)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = create_skin_model(architecture_id, len(label_order), pretrained=architecture_id == "medscope-mobilenetv2-v1").to(device)
-    if freeze_backbone:
-        for parameter in model.features.parameters():
-            parameter.requires_grad = False
+    model = create_skin_model(architecture_id, len(label_order), pretrained=architecture_id in ("medscope-mobilenetv2-v1", "medscope-efficientnet-v1")).to(device)
+    freeze_backbone = bool(model_config.get("freeze_backbone", False))
+    head_lr = float(config["training"]["learning_rate"])
+    if architecture_id in ("medscope-mobilenetv2-v1", "medscope-efficientnet-v1"):
+        backbone_params = {id(parameter) for parameter in model.features.parameters()}
+        if freeze_backbone:
+            for parameter in model.features.parameters():
+                parameter.requires_grad = False
+        head_params = [parameter for parameter in model.parameters() if id(parameter) not in backbone_params and parameter.requires_grad]
+        trainable_backbone = [parameter for parameter in model.features.parameters() if parameter.requires_grad]
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": head_params, "lr": head_lr},
+                {"params": trainable_backbone, "lr": head_lr * float(model_config.get("backbone_lr_multiplier", 0.1))},
+            ],
+            weight_decay=float(config["training"]["weight_decay"]),
+        )
+    else:
+        optimizer = torch.optim.AdamW((parameter for parameter in model.parameters() if parameter.requires_grad), lr=head_lr, weight_decay=float(config["training"]["weight_decay"]))
     counts = np.asarray([sum(samples[index].label == label for index in split.train) for label in label_order], dtype=np.float32)
     if np.any(counts == 0):
         raise ValueError("At least one class has no samples in the training split.")
     class_weights = counts.sum() / (len(label_order) * counts)
     loss_function = nn.CrossEntropyLoss(weight=torch.tensor(class_weights, dtype=torch.float32, device=device))
-    optimizer = torch.optim.AdamW((parameter for parameter in model.parameters() if parameter.requires_grad), lr=float(config["training"]["learning_rate"]), weight_decay=float(config["training"]["weight_decay"]))
 
     best_validation_loss = float("inf")
     best_epoch = 0
