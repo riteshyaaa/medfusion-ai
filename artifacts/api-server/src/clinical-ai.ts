@@ -231,16 +231,28 @@ export function createClinicalAIProvider(
     imageDataUrl?: string,
     maxOutputTokens = 3_000,
   ): Promise<AIAnalysisOutput<T>> => {
-    const response = await executeProviderStructuredRequest(config, {
-      system,
-      user,
-      schemaName,
-      jsonSchema,
-      maxOutputTokens,
-      ...(imageDataUrl ? { imageDataUrl } : {}),
-    }, options);
-    const decoded = decodeStructuredProviderText(config, response);
-    return { provider: config.provider, model: config.visionModel ?? config.model, result: validateClinicalText(schema, decoded) };
+    // A single sampled response can still come back as non-JSON (the free
+    // endpoint is nondeterministic), so a unreadable reply earns one immediate
+    // retry instead of failing the user's analysis outright.
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await executeProviderStructuredRequest(config, {
+          system,
+          user,
+          schemaName,
+          jsonSchema,
+          maxOutputTokens,
+          ...(imageDataUrl ? { imageDataUrl } : {}),
+        }, options);
+        const decoded = decodeStructuredProviderText(config, response);
+        return { provider: config.provider, model: config.visionModel ?? config.model, result: validateClinicalText(schema, decoded) };
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof AIProviderError) || error.code !== "provider_malformed_response") throw error;
+      }
+    }
+    throw lastError;
   };
   return {
     analyzeSkin(imageDataUrl) {

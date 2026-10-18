@@ -371,6 +371,10 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
             ]
           : userText },
       ],
+      // Verified live: the fallback chat_template_kwargs disables nemotron's
+      // internal reasoning channel, which otherwise spends a large share of
+      // the latency budget deliberating before the JSON is emitted.
+      ...(config.provider === "nvidia" ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       max_tokens: options.maxOutputTokens,
       temperature: 0,
     };
