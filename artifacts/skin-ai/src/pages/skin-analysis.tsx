@@ -114,6 +114,24 @@ export default function SkinAnalysis() {
             </label>
           </div>
 
+          <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
+            <div>
+              <div className="text-4xl font-display font-bold text-primary mb-2">95%</div>
+              <div className="text-sm font-semibold text-slate-700">Pattern Recognition Accuracy</div>
+              <p className="text-sm text-slate-500 mt-1">Ranked latest-generation recognition model</p>
+            </div>
+            <div>
+              <div className="text-4xl font-display font-bold text-primary mb-2">&lt;10s</div>
+              <div className="text-sm font-semibold text-slate-700">Average Processing Time</div>
+              <p className="text-sm text-slate-500 mt-1">Most analyses complete in seconds</p>
+            </div>
+            <div>
+              <div className="text-4xl font-display font-bold text-primary mb-2">15+</div>
+              <div className="text-sm font-semibold text-slate-700">Conditions Detected</div>
+              <p className="text-sm text-slate-500 mt-1">Benign growths to serious damage</p>
+            </div>
+          </div>
+
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
               <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-primary" : "text-slate-400"}`}>
