@@ -127,7 +127,7 @@ const skinSystem = [
   "First check the image itself: if it is a drawing, illustration, 3D render, object, screenshot, or anything that is not a genuine photograph of human skin, set imageType to not_skin.",
   "For a genuine skin photograph, assess like a clinician: skin tone and phototype, lesion color distribution, border regularity, symmetry, diameter, texture, surface changes, and surrounding skin.",
   "If no lesion, rash, irritation, or pigment change is visible, set visibleAbnormality to false and say the skin appears within normal limits.",
-  "PossibleConditions are named conditions whose visible features best fit what you observe, each with the feature overlap that supports it. Keep names precise (for example: Atopic dermatitis, Melanocytic nevus, Tinea corporis).",
+  "PossibleConditions are exactly four named conditions whose visible features best fit what you observe, ordered from the closest match first to progressively weaker matches, each with the visible feature overlap that supports it. Keep names precise (for example: Atopic dermatitis, Melanocytic nevus, Tinea corporis).",
   "Describe visible features using plain clinical wording; note where image quality limits the assessment. Do not infer identity, age, or ethnicity from the image.",
   "Do not provide confidence scores, probabilities, percentages, citations, or invented image-preprocessing claims.",
   "Use the phrase 'may fit' or 'commonly presents as' rather than asserting 'you have'. End the disclaimer field with one short line advising a doctor visit if symptoms persist.",

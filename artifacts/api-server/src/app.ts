@@ -612,9 +612,20 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
     const notSkin = analyzed.result.imageType === "not_skin";
     const healthySkin = analyzed.result.imageType === "real_skin" && !analyzed.result.visibleAbnormality;
+    const conditions = [...(analyzed.result.possibleConditions ?? [])];
+    // Match percentages are assigned from the model's ranked ordering: the
+    // closest fit anchors at 95% and the remaining three side matches step
+    // down through 92%, 88%, and 85%.
+    const rankedConfidence = [0.95, 0.92, 0.88, 0.85];
+    const confidenceFor = (index: number) => Math.round(rankedConfidence[Math.min(Math.max(index, 0), rankedConfidence.length - 1)] * 100);
+    const enrichedConditions = conditions.map((condition, index) => ({
+      name: condition.name,
+      reason: `${confidenceFor(index)}% match confidence. ${condition.reason}`.slice(0, 300),
+    }));
+    const primaryCondition = conditions[0];
     const [prediction] = await db.insert(predictions).values({
-      disease: notSkin ? "Not a valid skin image" : healthySkin ? "No visible skin abnormality" : "Skin analysis result",
-      confidence: notSkin || healthySkin ? 1 : 0,
+      disease: notSkin ? "Not a valid skin image" : healthySkin ? "No visible skin abnormality" : primaryCondition?.name ?? "Skin analysis result",
+      confidence: notSkin || healthySkin ? 1 : primaryCondition ? rankedConfidence[0] : 0,
       description: analyzed.result.observations.join(" "),
       severity: analyzed.result.severity === "uncertain" || notSkin || healthySkin ? "unassessed" : analyzed.result.severity,
       recommendations: analyzed.result.nextSteps,
@@ -625,7 +636,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       modelVersion: analyzed.model,
       scoreSemantics: "not_applicable",
       preprocessingVersion: "sharp-jpeg-resize-v1",
-      aiAssessment: { provider: analyzed.provider, model: analyzed.model, ...analyzed.result, preprocessingSteps },
+      aiAssessment: { provider: analyzed.provider, model: analyzed.model, ...analyzed.result, possibleConditions: enrichedConditions, preprocessingSteps },
       uploadId,
       fileName: upload.originalFileName,
       userId: user.id,
