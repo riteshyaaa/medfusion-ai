@@ -1,0 +1,316 @@
+{
+  "sampleCount": 453,
+  "accuracy": 0.31788079470198677,
+  "macroF1": 0.08040201005025126,
+  "top2Accuracy": 0.4260485651214128,
+  "classOrder": [
+    "ACK",
+    "BCC",
+    "MEL",
+    "NEV",
+    "SCC",
+    "SEK"
+  ],
+  "perClass": {
+    "ACK": {
+      "precision": 0.31788079470198677,
+      "recall": 1.0,
+      "sensitivity": 1.0,
+      "f1": 0.4824120603015075,
+      "support": 144,
+      "specificity": 0.0
+    },
+    "BCC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "sensitivity": 0.0,
+      "f1": 0.0,
+      "support": 166,
+      "specificity": 1.0
+    },
+    "MEL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "sensitivity": 0.0,
+      "f1": 0.0,
+      "support": 10,
+      "specificity": 1.0
+    },
+    "NEV": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "sensitivity": 0.0,
+      "f1": 0.0,
+      "support": 49,
+      "specificity": 1.0
+    },
+    "SCC": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "sensitivity": 0.0,
+      "f1": 0.0,
+      "support": 37,
+      "specificity": 1.0
+    },
+    "SEK": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "sensitivity": 0.0,
+      "f1": 0.0,
+      "support": 47,
+      "specificity": 1.0
+    }
+  },
+  "confusionMatrix": [
+    [
+      144,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      166,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      10,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      49,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      37,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      47,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "scoreSemantics": "raw_model_score",
+  "probabilityInterpretation": "Uncalibrated softmax outputs used only for evaluation diagnostics; not an individual's disease probability.",
+  "calibration": {
+    "negativeLogLikelihood": 1.7545414835124706,
+    "multiclassBrierScore": 0.8212935292379973,
+    "expectedCalibrationErrorTopLabel10Bins": 0.1292629244903855,
+    "reliabilityBins": [
+      {
+        "lower": 0.0,
+        "upper": 0.1,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.1,
+        "upper": 0.2,
+        "count": 453,
+        "meanConfidence": 0.18861787021160126,
+        "accuracy": 0.31788079470198677
+      },
+      {
+        "lower": 0.2,
+        "upper": 0.3,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.3,
+        "upper": 0.4,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.4,
+        "upper": 0.5,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.5,
+        "upper": 0.6,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.6,
+        "upper": 0.7,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.7,
+        "upper": 0.8,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.8,
+        "upper": 0.9,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      },
+      {
+        "lower": 0.9,
+        "upper": 1.0,
+        "count": 0,
+        "meanConfidence": null,
+        "accuracy": null
+      }
+    ]
+  },
+  "abstentionCoverage": [
+    {
+      "rawScoreThreshold": 0.5,
+      "acceptedCount": 0,
+      "coverage": 0.0,
+      "accuracyAmongAccepted": null
+    },
+    {
+      "rawScoreThreshold": 0.6,
+      "acceptedCount": 0,
+      "coverage": 0.0,
+      "accuracyAmongAccepted": null
+    },
+    {
+      "rawScoreThreshold": 0.7,
+      "acceptedCount": 0,
+      "coverage": 0.0,
+      "accuracyAmongAccepted": null
+    },
+    {
+      "rawScoreThreshold": 0.8,
+      "acceptedCount": 0,
+      "coverage": 0.0,
+      "accuracyAmongAccepted": null
+    },
+    {
+      "rawScoreThreshold": 0.9,
+      "acceptedCount": 0,
+      "coverage": 0.0,
+      "accuracyAmongAccepted": null
+    }
+  ],
+  "subgroups": {
+    "age": {
+      "minimumSupport": 30,
+      "reportedGroups": {},
+      "omittedSmallGroups": true
+    },
+    "fitzpatrick": {
+      "minimumSupport": 30,
+      "reportedGroups": {
+        "2.0": {
+          "sampleCount": 167,
+          "accuracy": 0.16766467065868262,
+          "macroF1OverPresentClasses": 0.04786324786324786,
+          "supportByClass": {
+            "ACK": 28,
+            "BCC": 96,
+            "MEL": 7,
+            "NEV": 5,
+            "SCC": 28,
+            "SEK": 3
+          }
+        },
+        "3.0": {
+          "sampleCount": 81,
+          "accuracy": 0.30864197530864196,
+          "macroF1OverPresentClasses": 0.07861635220125786,
+          "supportByClass": {
+            "ACK": 25,
+            "BCC": 45,
+            "MEL": 2,
+            "NEV": 4,
+            "SCC": 4,
+            "SEK": 1
+          }
+        }
+      },
+      "omittedSmallGroups": true
+    },
+    "sex": {
+      "minimumSupport": 30,
+      "reportedGroups": {
+        "FEMALE": {
+          "sampleCount": 141,
+          "accuracy": 0.19858156028368795,
+          "macroF1OverPresentClasses": 0.05522682445759369,
+          "supportByClass": {
+            "ACK": 28,
+            "BCC": 82,
+            "MEL": 5,
+            "NEV": 10,
+            "SCC": 13,
+            "SEK": 3
+          }
+        },
+        "MALE": {
+          "sampleCount": 149,
+          "accuracy": 0.19463087248322147,
+          "macroF1OverPresentClasses": 0.054307116104868915,
+          "supportByClass": {
+            "ACK": 29,
+            "BCC": 84,
+            "MEL": 5,
+            "NEV": 1,
+            "SCC": 24,
+            "SEK": 6
+          }
+        }
+      },
+      "omittedSmallGroups": true
+    }
+  },
+  "datasetIdentity": {
+    "datasetId": "PAD-UFES-20",
+    "version": "1",
+    "doi": "10.17632/zr7vgbcyr2.1"
+  },
+  "split": {
+    "strategy": "patient-lesion-and-exact-image-hash-grouped-stratification",
+    "seed": 20261019,
+    "splitManifestSha256": "b27cfc31b44282fe05e0c96dcb19914148b8a666857a46e80ba793b95531f4f7",
+    "sampleCount": 453,
+    "patientGroupCount": 273,
+    "trainingSampleCount": 1459,
+    "validationSampleCount": 362
+  },
+  "evaluationCaveats": [
+    "Held-out split is from the same dataset/version; it is not external validation.",
+    "Raw softmax outputs are uncalibrated model scores and are not individual disease probabilities.",
+    "Subgroup summaries are descriptive and are omitted below the configured support threshold.",
+    "No clinical review or prospective evaluation has been performed."
+  ]
+}

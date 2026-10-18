@@ -1,0 +1,58 @@
+{
+  "status": "completed_research_run",
+  "runId": "pad-ufes20-v1-mobilenet-transfer-20261018",
+  "device": "cpu",
+  "datasetSummary": {
+    "metadataFile": "metadata.csv",
+    "imageDirectory": "images",
+    "sourceSampleCount": 2298,
+    "sampleCount": 2274,
+    "sourceClassCounts": {
+      "ACK": 730,
+      "BCC": 845,
+      "MEL": 52,
+      "NEV": 244,
+      "SCC": 192,
+      "SEK": 235
+    },
+    "classCounts": {
+      "ACK": 724,
+      "BCC": 834,
+      "MEL": 52,
+      "NEV": 243,
+      "SCC": 186,
+      "SEK": 235
+    },
+    "patientCount": 1371,
+    "lesionCount": 1632,
+    "uniqueImageHashCount": 2283,
+    "duplicateImageHashGroups": 15,
+    "conflictingDuplicateImageHashGroups": 12,
+    "excludedConflictingLabelDuplicateSamples": 24,
+    "duplicatePolicy": "exclude-all-samples-in-conflicting-exact-sha256-groups; group-retained-duplicate-hashes-together",
+    "subgroupFieldsAvailable": [
+      "age",
+      "fitzpatrick",
+      "sex"
+    ]
+  },
+  "splitCounts": {
+    "train": 1459,
+    "validation": 362,
+    "test": 453
+  },
+  "bestEpoch": 9,
+  "macroF1": 0.4570357195266524,
+  "modelReadiness": "research_only_not_approved",
+  "scoreSemantics": "raw_model_score",
+  "checkpointSmokeTest": {
+    "status": "smoke_test_passed",
+    "outputShape": [
+      1,
+      6
+    ],
+    "finiteScores": true
+  },
+  "evaluationReport": "outputs\\ml\\skin\\pad-ufes20-v1-mobilenet-transfer-20261018\\evaluation_report.json",
+  "manifest": "outputs\\ml\\skin\\pad-ufes20-v1-mobilenet-transfer-20261018\\manifest.json"
+}
