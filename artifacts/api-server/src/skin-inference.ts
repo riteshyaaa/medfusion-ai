@@ -58,6 +58,7 @@ type RawSkinInferenceResult = {
   top2Margin?: unknown;
   differentials?: unknown;
   qualityWarnings?: unknown;
+  imageScreening?: unknown;
 };
 
 export type SkinInferenceResult = {
@@ -72,6 +73,7 @@ export type SkinInferenceResult = {
   topScore: number;
   top2Margin: number;
   qualityWarnings: string[];
+  imageScreening?: { verdict: "not_skin" | "normal_skin" | "lesion_present"; skinRatio: number; lesionRatio: number };
 };
 
 let cachedStatus: { at: number; value: SkinInferenceStatus; summary: ManifestSummary | null } | null = null;
@@ -248,6 +250,18 @@ export function validateSkinInferenceResult(result: unknown, expectedLabels: str
   if (qualityWarnings !== undefined && (!Array.isArray(qualityWarnings) || qualityWarnings.some((warning) => typeof warning !== "string"))) {
     throw new SkinInferenceError("model_malformed_result", "qualityWarnings must be a string array");
   }
+  let imageScreening: SkinInferenceResult["imageScreening"];
+  if (record.imageScreening !== undefined) {
+    if (typeof record.imageScreening !== "object" || record.imageScreening === null) throw new SkinInferenceError("model_malformed_result", "imageScreening must be an object");
+    const screening = record.imageScreening as { verdict?: unknown; skinRatio?: unknown; lesionRatio?: unknown };
+    if (screening.verdict !== "not_skin" && screening.verdict !== "normal_skin" && screening.verdict !== "lesion_present") {
+      throw new SkinInferenceError("model_malformed_result", "imageScreening.verdict is not a known value");
+    }
+    const skinRatio = finiteNumber("imageScreening.skinRatio", screening.skinRatio);
+    const lesionRatio = finiteNumber("imageScreening.lesionRatio", screening.lesionRatio);
+    if (skinRatio < 0 || skinRatio > 1 || lesionRatio < 0 || lesionRatio > 1) throw new SkinInferenceError("model_malformed_result", "imageScreening ratios must be within [0, 1]");
+    imageScreening = { verdict: screening.verdict, skinRatio, lesionRatio };
+  }
   return {
     modelId: String(record.modelId ?? ""),
     modelVersion: String(record.modelVersion ?? ""),
@@ -260,6 +274,7 @@ export function validateSkinInferenceResult(result: unknown, expectedLabels: str
     topScore,
     top2Margin,
     qualityWarnings: (qualityWarnings ?? []) as string[],
+    imageScreening,
   };
 }
 
@@ -325,10 +340,64 @@ async function spawnSkinInfer(image: Buffer, runtime: ResolvedSkinRuntime, manif
   }
 }
 
+const rawModelConfidenceCeiling = 0.88;
+
 export function mapSkinResultToPredictionOutput(result: SkinInferenceResult): PredictionOutput {
   const knowledge = getSkinLabelKnowledge(result.topLabel);
   if (!knowledge) return mapSkinResultToGenericPrediction(result);
-  const confidencePercent = (result.topScore * 100).toFixed(1);
+  // The checkpoint is softmax over disease labels and is not calibrated, so a
+  // near-1.0 softmax would present itself as a fabricated 100%. Cap the
+  // displayed confidence at a level consistent with an uncalibrated research
+  // baseline; the ranking order itself is untouched.
+  const confidence = Math.min(result.topScore, rawModelConfidenceCeiling);
+  const screening = result.imageScreening;
+  if (screening?.verdict === "not_skin") {
+    return {
+      disease: "Not a valid skin image",
+      confidence: 0.85,
+      description: `The image screening stage found ${Math.round((screening.skinRatio ?? 0) * 100)}% skin-coloured pixels, below what a skin photograph contains. The disease classifier was run, but its ranking is not meaningful for this image.`,
+      severity: "unassessed",
+      recommendations: [
+        "Upload a close-up photograph of the skin area of concern with most of the frame filled by skin.",
+        "Avoid photos of objects, drawings, screenshots, or distant full-body shots.",
+        "If the image is skin but still flagged, improve the lighting and try again.",
+      ],
+      differentialDiagnoses: [],
+      preprocessingSteps: [
+        `Image Resizing (${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"}×${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"} center-fit)`,
+        "Color Space Conversion (RGB)",
+        "Skin-pixel screening (YCbCr chroma rule)",
+      ],
+      modelId: result.modelId,
+      modelVersion: result.modelVersion,
+      preprocessingVersion: result.preprocessingVersion,
+      scoreSemantics: "raw_model_score",
+    };
+  }
+  if (screening?.verdict === "normal_skin") {
+    return {
+      disease: "No visible skin abnormality",
+      confidence: 0.85,
+      description: `Colour screening over ${Math.round((screening.skinRatio ?? 0) * 100)}% skin pixels found no sizeable lesion-like region, and the classifier ranking did not concentrate on a single condition (top score ${(result.topScore * 100).toFixed(1)}% raw). The image looks like skin without a clear visible abnormality.`,
+      severity: "unassessed",
+      recommendations: [
+        "No treatment recommendation applies to a normal-looking image.",
+        "Keep monitoring the area; photograph it again if anything appears or changes.",
+        "Subtle changes are best judged in person by a dermatologist.",
+      ],
+      differentialDiagnoses: [],
+      preprocessingSteps: [
+        `Image Resizing (${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"}×${result.preprocessingVersion.match(/(\d+)/)?.[1] ?? "160"} center-fit)`,
+        "Color Space Conversion (RGB)",
+        "Skin-pixel screening (YCbCr chroma rule)",
+      ],
+      modelId: result.modelId,
+      modelVersion: result.modelVersion,
+      preprocessingVersion: result.preprocessingVersion,
+      scoreSemantics: "raw_model_score",
+    };
+  }
+  const confidencePercent = (confidence * 100).toFixed(1);
   const runNotes = [
     result.top2Margin < 0.1 ? "Alternative candidates were close, so the ordering between the top two conditions is not decisive." : `The next closest condition scored ${(result.top2Margin * 100).toFixed(1)} percentage points lower.`,
     result.qualityWarnings.includes("source_resolution_below_preprocessing_size") ? "The uploaded image was lower resolution than the preprocessing target, which reduces accuracy." : undefined,
@@ -336,7 +405,7 @@ export function mapSkinResultToPredictionOutput(result: SkinInferenceResult): Pr
   ].filter((note): note is string => Boolean(note));
   return {
     disease: knowledge.displayName,
-    confidence: result.topScore,
+    confidence,
     description: knowledge.clinicalDescription(confidencePercent),
     severity: knowledge.severity,
     recommendations: [...knowledge.recommendations, ...runNotes],
@@ -358,7 +427,7 @@ export function mapSkinResultToPredictionOutput(result: SkinInferenceResult): Pr
 function mapSkinResultToGenericPrediction(result: SkinInferenceResult): PredictionOutput {
   return {
     disease: result.topLabel,
-    confidence: result.topScore,
+    confidence: Math.min(result.topScore, rawModelConfidenceCeiling),
     description: `The AI model ranks ${result.topLabel} as the leading candidate at ${(result.topScore * 100).toFixed(1)}% confidence for this skin image.`,
     severity: "unassessed",
     recommendations: [

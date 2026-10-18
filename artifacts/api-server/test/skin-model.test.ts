@@ -157,7 +157,11 @@ if (artifactPresent && pythonPresent) test("inference timeout is enforced struct
 if (artifactPresent && pythonPresent) test("real research checkpoint produces finite ranked probabilities for a valid image", async () => {
   before(async () => { resetSkinInferenceCache(); });
   const { default: sharp } = await import("sharp");
-  const image = await sharp({ create: { width: 220, height: 200, channels: 3, background: { r: 120, g: 100, b: 90 } } }).png().toBuffer();
+  // Brown skin background with a darker central lesion-like patch so the
+  // screening stage classifies the image as skin with a present lesion.
+  const base = sharp({ create: { width: 220, height: 200, channels: 3, background: { r: 120, g: 100, b: 90 } } });
+  const lesionPatch = await sharp({ create: { width: 70, height: 70, channels: 3, background: { r: 60, g: 40, b: 30 } } }).png().toBuffer();
+  const image = await base.composite([{ input: lesionPatch, left: 75, top: 65 }]).png().toBuffer();
   const status = await getSkinInferenceStatus();
   assert.equal(status.available, true);
   const { getResearchSkinInferenceProvider } = skinInferenceModule;
@@ -180,6 +184,26 @@ if (artifactPresent && pythonPresent) test("real research checkpoint produces fi
   assert.equal(output.scoreSemantics, "raw_model_score");
   assert.match(output.description, /appears most consistent with|the AI associates with|evaluat/i);
   before(async () => { resetSkinInferenceCache(); });
+});
+
+if (artifactPresent && pythonPresent) test("image screening flags uniform skin as normal and rejects non-skin colours", async () => {
+  const { default: sharp } = await import("sharp");
+  const { getResearchSkinInferenceProvider } = skinInferenceModule;
+  const provider = await getResearchSkinInferenceProvider();
+  assert.ok(provider);
+
+  const flatSkin = await sharp({ create: { width: 220, height: 200, channels: 3, background: { r: 120, g: 100, b: 90 } } }).png().toBuffer();
+  const normal = await provider.predict(flatSkin);
+  assert.equal(normal.disease, "No visible skin abnormality");
+  assert.equal(normal.differentialDiagnoses.length, 0);
+  assert.equal(normal.severity, "unassessed");
+  assert.equal(normal.confidence, 0.85);
+
+  const notSkin = await sharp({ create: { width: 220, height: 200, channels: 3, background: { r: 40, g: 80, b: 220 } } }).png().toBuffer();
+  const rejected = await provider.predict(notSkin);
+  assert.equal(rejected.disease, "Not a valid skin image");
+  assert.equal(rejected.confidence, 0.85);
+  assert.equal(rejected.differentialDiagnoses.length, 0);
 });
 
 after(() => {

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy
 import torch
 from PIL import Image, UnidentifiedImageError
 
@@ -22,6 +23,39 @@ from .model import SmallSkinCNN
 from .transforms import ImageTransform
 
 ALLOWED_READINESS_STATES = {"approved", "research_only_not_approved"}
+
+
+def screen_image(source: Image.Image) -> dict[str, Any]:
+    """Deterministic YCbCr-based image screening ahead of the CNN.
+
+    Two classic image-processing checks (the same colour-rule family used by
+    the traditional MATLAB pipeline era): the fraction of pixels that fall in
+    the skin chroma range, and, when enough skin is present, the fraction of
+    skin pixels whose colour deviates strongly from the median skin colour
+    (a lesion-like region). Thresholds are conservative so normal
+    photographs with clothing, background, or small marks are not rejected.
+    """
+    small = source.convert("RGB").resize((128, 128))
+    pixels = numpy.asarray(small, dtype=numpy.float32)
+    red, green, blue = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+    luma = 0.299 * red + 0.587 * green + 0.114 * blue
+    cb = 128.0 - 0.168736 * red - 0.331264 * green + 0.5 * blue
+    cr = 128.0 + 0.5 * red - 0.418688 * green - 0.081312 * blue
+    skin = (cb >= 77.0) & (cb <= 127.0) & (cr >= 133.0) & (cr <= 173.0) & (luma > 40.0)
+    skin_ratio = float(skin.mean())
+    # Dermatological assessment images are close-ups: on landscapes, portraits
+    # in context, and object photos the skin-chroma fraction stays far below
+    # the share a skin photograph fills.
+    if skin_ratio < 0.30:
+        return {"verdict": "not_skin", "skinRatio": round(skin_ratio, 4), "lesionRatio": 0.0}
+    deviations = numpy.linalg.norm(pixels - numpy.median(pixels[skin], axis=0), axis=2)
+    lesion = skin & (deviations > numpy.maximum(45.0, 2.2 * float(deviations[skin].std())))
+    lesion_ratio = float(lesion.mean())
+    return {
+        "verdict": "lesion_present" if lesion_ratio >= 0.015 else "normal_skin",
+        "skinRatio": round(skin_ratio, 4),
+        "lesionRatio": round(lesion_ratio, 4),
+    }
 
 
 def _fail(payload: dict[str, Any], code: int) -> int:
@@ -122,6 +156,7 @@ def run_inference(artifact_dir: Path, image_path: Path) -> tuple[dict[str, Any],
         "topScore": top_score,
         "top2Margin": top_score - ranked[1][1],
         "differentials": [{"disease": label, "confidence": score} for label, score in ranked[1:]],
+        "imageScreening": screen_image(source),
         "imageSize": list(map(int, source.size)),
         "qualityWarnings": [] if min(source.size) >= int(preprocessing["image_size"]) else ["source_resolution_below_preprocessing_size"],
     }
