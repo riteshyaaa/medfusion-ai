@@ -66,6 +66,11 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
               <p className="text-xs uppercase tracking-wider text-white/60 font-bold">Record status</p>
               <p className="text-sm text-white/80 mt-1">{simulated ? "Simulated fixture, not a real model output." : "Provenance was not recorded; stored output is suppressed."}</p>
             </div>
+          ) : result.disease === "Not a valid skin image" ? (
+            <div className="rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
+              <p className="text-xs uppercase tracking-wider text-white/60 font-bold">Image rejected</p>
+              <p className="text-sm text-white/80 mt-1">No confidence score applies — the image is not a usable skin photograph. Re-upload a close-up skin image.</p>
+            </div>
           ) : (
             <div className="flex items-center gap-4 rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
               <div className="relative grid place-items-center">
