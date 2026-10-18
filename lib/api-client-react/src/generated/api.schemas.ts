@@ -286,6 +286,7 @@ export type PredictionResultAiAssessment = {
   model?: string;
   imageType?: PredictionResultAiAssessmentImageType;
   visibleAbnormality?: boolean;
+  description?: string;
   observations?: string[];
   possibleConditions?: PredictionResultAiAssessmentPossibleConditionsItem[];
   uncertainty?: string;

@@ -205,6 +205,7 @@ export const PredictSkinDiseaseResponse = zod.object({
   "model": zod.string().optional(),
   "imageType": zod.enum(['real_skin', 'not_skin', 'unclear']).optional(),
   "visibleAbnormality": zod.boolean().optional(),
+  "description": zod.string().optional(),
   "observations": zod.array(zod.string()).optional(),
   "possibleConditions": zod.array(zod.object({
   "name": zod.string(),

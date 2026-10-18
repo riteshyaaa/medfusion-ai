@@ -253,6 +253,7 @@ test("symptom condition provider rejects fabricated numbers and diagnosis claims
 });
 
 const validSkinResult = JSON.stringify({
+  description: "Common benign nevi typically present as small, evenly pigmented brown macules with well-defined borders and remain stable over years.",
   observations: ["A circular brownish lesion with smooth borders is visible on the forearm."],
   possibleConditions: [
     { name: "Common benign nevus", reason: "Even brown coloration and smooth borders are classically described for ordinary moles." },
@@ -307,6 +308,8 @@ test("nvidia skin analysis sends one image_url content part to the verified visi
   const imageParts = userContent.filter((part) => part.type === "image_url");
   assert.equal(imageParts.length, 1);
   assert.equal(imageParts[0].image_url?.url, "data:image/png;base64,iVBORw0KGgo=");
+  const thinkingKwargs = requestBody.chat_template_kwargs as { enable_thinking?: boolean } | undefined;
+  assert.equal(thinkingKwargs?.enable_thinking, false);
 });
 
 test("skin analysis rejects malformed, diagnosing, or score-bearing model output", async () => {

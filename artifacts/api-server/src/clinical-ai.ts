@@ -14,6 +14,7 @@ const severitySchema = z.enum(["mild", "moderate", "severe", "uncertain"]);
 export const skinAIResultSchema = z.object({
   imageType: z.enum(["real_skin", "not_skin", "unclear"]).default("unclear"),
   visibleAbnormality: z.boolean().default(true),
+  description: z.string().trim().min(1).max(600),
   observations: z.array(z.string().trim().min(1).max(300)).min(1).max(8),
   possibleConditions: z.array(z.object({
     name: z.string().trim().min(1).max(120),
@@ -80,6 +81,7 @@ const skinJsonSchema = {
   properties: {
     imageType: { type: "string", enum: ["real_skin", "not_skin", "unclear"] },
     visibleAbnormality: { type: "boolean" },
+    description: { type: "string" },
     observations: { type: "array", items: { type: "string" } },
     possibleConditions: { type: "array", items: { type: "object", properties: { name: { type: "string" }, reason: { type: "string" } }, required: ["name", "reason"], additionalProperties: false } },
     uncertainty: { type: "string" },
@@ -88,7 +90,7 @@ const skinJsonSchema = {
     nextSteps: { type: "array", items: { type: "string" } },
     consultClinicianWhen: { type: "array", items: { type: "string" } },
   },
-  required: ["imageType", "visibleAbnormality", "observations", "possibleConditions", "uncertainty", "severity", "urgency", "nextSteps", "consultClinicianWhen"],
+  required: ["imageType", "visibleAbnormality", "description", "observations", "possibleConditions", "uncertainty", "severity", "urgency", "nextSteps", "consultClinicianWhen"],
   additionalProperties: false,
 };
 
@@ -126,6 +128,7 @@ const skinSystem = [
   "You are an experienced dermatology AI assistant analyzing a submitted skin image with the depth of a trained diagnostic model.",
   "First check the image itself: if it is a drawing, illustration, 3D render, object, screenshot, or anything that is not a genuine photograph of human skin, set imageType to not_skin.",
   "For a genuine skin photograph, assess like a clinician: skin tone and phototype, lesion color distribution, border regularity, symmetry, diameter, texture, surface changes, and surrounding skin.",
+  "Provide a description field: a two-to-four sentence plain-language clinical description of the most likely condition's typical appearance and course (as a condition, not a claim about the patient).",
   "If no lesion, rash, irritation, or pigment change is visible, set visibleAbnormality to false and say the skin appears within normal limits.",
   "PossibleConditions are exactly four named conditions whose visible features best fit what you observe, ordered from the closest match first to progressively weaker matches, each with the visible feature overlap that supports it. Keep names precise (for example: Atopic dermatitis, Melanocytic nevus, Tinea corporis).",
   "Describe visible features using plain clinical wording; note where image quality limits the assessment. Do not infer identity, age, or ethnicity from the image.",

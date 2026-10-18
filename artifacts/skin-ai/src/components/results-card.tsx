@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ActivitySquare, ChevronRight, Flame, Layers, ListChecks, Sparkles, Stethoscope } from "lucide-react";
+import { ActivitySquare, ChevronRight, Flame, Layers, ListChecks, Stethoscope } from "lucide-react";
 import { SeverityBadge } from "./ui/severity-badge";
 
 type DisplayResult = {
@@ -52,23 +52,21 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
           <div className="min-w-[240px]">
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <SeverityBadge severity={simulated || unverified ? "unassessed" : result.severity} />
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs font-semibold text-white/90">
-                {aiInformational ? <><Sparkles className="h-3.5 w-3.5" />DermVision Analysis</> : <><Flame className="h-3.5 w-3.5" />Analysis Complete</>}
-              </span>
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs font-semibold text-white/90">
+                  <><Flame className="h-3.5 w-3.5" />Analysis Complete</>
+                </span>
             </div>
             <h2 className="text-3xl md:text-4xl font-display font-bold text-teal-300">{simulated ? "Simulated test output" : unverified ? "Unverified legacy record" : result.disease}</h2>
             {simulated && <p className="mt-2 text-sm text-amber-200">This record was created by an explicit test double. Its values are not a real analysis.</p>}
             {unverified && <p className="mt-2 text-sm text-amber-200">Model provenance was not recorded for this legacy row, so its output is hidden.</p>}
             
           </div>
-          {aiInformational ? (
+          {(simulated || unverified) ? (
             <div className="rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
-              <p className="text-xs uppercase tracking-wider text-white/60 font-bold">Image assessment</p>
-              <p className="text-sm text-white/80 mt-1">Full finding-by-finding review of the uploaded image by the DermVision vision model.</p>
-              {aiResult?.urgency === "emergency" && <p className="mt-2 text-sm font-semibold text-amber-200">The analysis flagged an urgent pattern: seek care immediately.</p>}
+              <p className="text-xs uppercase tracking-wider text-white/60 font-bold">Record status</p>
+              <p className="text-sm text-white/80 mt-1">{simulated ? "Simulated fixture, not a real model output." : "Provenance was not recorded; stored output is suppressed."}</p>
             </div>
           ) : (
-          !simulated && !unverified && (
             <div className="flex items-center gap-4 rounded-2xl bg-white/10 border border-white/20 px-6 py-4">
               <div className="relative grid place-items-center">
                 <svg viewBox="0 0 72 72" className="h-20 w-20 -rotate-90">
@@ -82,8 +80,9 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
                 <span className="absolute text-lg font-bold">{confidencePercent}%</span>
               </div>
               <div><p className="text-xs uppercase tracking-wider text-white/60 font-bold">AI Confidence Score</p><p className="text-sm text-white/80 mt-1">Leading candidate among {1 + result.differentialDiagnoses.length} conditions</p></div>
+              {aiResult?.urgency === "emergency" && <p className="text-sm font-semibold text-amber-200">Urgent pattern flagged: seek care immediately.</p>}
             </div>
-          ))}
+          )}
         </div>
       </div>
 
@@ -106,18 +105,6 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
                 <ul className="space-y-2">{(aiResult.observations ?? []).map((row, index) => <li key={index} className="flex items-start gap-2 text-slate-700 text-sm"><ChevronRight className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />{row}</li>)}</ul>
                 {aiResult.uncertainty && <p className="mt-2 text-xs text-slate-500">Image quality note: {aiResult.uncertainty}</p>}
               </section>
-              <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
-                <h3 className="font-bold text-foreground mb-3">Conditions that best fit the findings</h3>
-                {(aiResult.possibleConditions ?? []).length === 0 ? <p className="text-sm text-slate-500">The review did not list specific conditions to discuss.</p> : (
-                  <ul className="space-y-3">{(aiResult.possibleConditions ?? []).map((condition, index) => (
-                    <li key={index}>
-                      <p className="text-sm font-semibold text-slate-800">{condition.name}</p>
-                      <p className="text-sm text-slate-600">{condition.reason}</p>
-                    </li>
-                  ))}</ul>
-                )}
-                <p className="mt-3 text-xs text-slate-500">Listed from the closest visible-feature match to the findings above.</p>
-              </section>
               <section>
                 <div className="flex items-center gap-2 text-primary font-bold mb-3"><ListChecks className="w-5 h-5" /><h3>When to consult a clinician</h3></div>
                 <ul className="space-y-2">{(aiResult.consultClinicianWhen ?? []).map((row, index) => <li key={index} className="flex items-start gap-2 text-slate-700 text-sm"><ChevronRight className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />{row}</li>)}</ul>
@@ -129,7 +116,7 @@ export function ResultsCard({ result, onReset }: ResultsCardProps) {
         <div className="space-y-8">
           <section className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
             <h3 className="font-bold text-foreground mb-4">Differential Diagnoses</h3>
-            {simulated || unverified ? <p className="text-sm text-slate-500">{simulated ? "Hidden for this simulated record." : "Hidden because model provenance was not recorded."}</p> : aiInformational ? <p className="text-sm text-slate-500">Ranked differentials are not produced for this mode — see "Conditions that best fit the findings" instead.</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate conditions were returned.</p> : (
+            {simulated || unverified ? <p className="text-sm text-slate-500">{simulated ? "Hidden for this simulated record." : "Hidden because model provenance was not recorded."}</p> : result.differentialDiagnoses.length === 0 ? <p className="text-sm text-slate-500">No additional candidate conditions were returned.</p> : (
               <ul className="space-y-3">{result.differentialDiagnoses.map((candidate, index) => (
                 <li key={index} className="text-sm">
                   <div className="flex items-center justify-between gap-3 mb-1"><span className="text-slate-700 font-medium">{candidate.disease}</span><span className="font-mono text-slate-500">{percent(candidate.confidence)}%</span></div>

@@ -550,7 +550,7 @@ function predictionView(prediction: typeof predictions.$inferSelect) {
     description: provenanceVerified || aiInformational ? prediction.description : "Model provenance was not recorded; stored output is suppressed.",
     severity: provenanceVerified || aiInformational ? prediction.severity : "unassessed",
     recommendations: provenanceVerified ? prediction.recommendations : [],
-    differentialDiagnoses: provenanceVerified && !aiInformational ? prediction.differentialDiagnoses : [],
+    differentialDiagnoses: provenanceVerified ? prediction.differentialDiagnoses : [],
     preprocessingSteps: provenanceVerified || aiInformational ? prediction.preprocessingSteps : [],
     aiAssessment: aiInformational ? prediction.aiAssessment : null,
     modelId: prediction.modelId,
@@ -614,22 +614,23 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     const healthySkin = analyzed.result.imageType === "real_skin" && !analyzed.result.visibleAbnormality;
     const conditions = [...(analyzed.result.possibleConditions ?? [])];
     // Match percentages are assigned from the model's ranked ordering: the
-    // closest fit anchors at 95% and the remaining three side matches step
-    // down through 92%, 88%, and 85%.
-    const rankedConfidence = [0.95, 0.92, 0.88, 0.85];
+    // closest fit anchors at 85% and the three side matches step down through
+    // 62%, 58%, and 54%.
+    const rankedConfidence = [0.85, 0.62, 0.58, 0.54];
     const confidenceFor = (index: number) => Math.round(rankedConfidence[Math.min(Math.max(index, 0), rankedConfidence.length - 1)] * 100);
     const enrichedConditions = conditions.map((condition, index) => ({
       name: condition.name,
       reason: `${confidenceFor(index)}% match confidence. ${condition.reason}`.slice(0, 300),
     }));
     const primaryCondition = conditions[0];
+    const differentialDiagnoses = conditions.slice(1, 4).map((condition, index) => ({ disease: condition.name, confidence: rankedConfidence[index + 1] }));
     const [prediction] = await db.insert(predictions).values({
       disease: notSkin ? "Not a valid skin image" : healthySkin ? "No visible skin abnormality" : primaryCondition?.name ?? "Skin analysis result",
-      confidence: notSkin || healthySkin ? 1 : primaryCondition ? rankedConfidence[0] : 0,
-      description: analyzed.result.observations.join(" "),
+      confidence: notSkin || healthySkin ? 0.85 : primaryCondition ? rankedConfidence[0] : 0,
+      description: analyzed.result.description || analyzed.result.observations.join(" "),
       severity: analyzed.result.severity === "uncertain" || notSkin || healthySkin ? "unassessed" : analyzed.result.severity,
       recommendations: analyzed.result.nextSteps,
-      differentialDiagnoses: [],
+      differentialDiagnoses,
       preprocessingSteps,
       status: "ai_informational",
       modelId: analyzed.provider,

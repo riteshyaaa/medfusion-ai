@@ -2148,6 +2148,8 @@ components:
               enum: [real_skin, not_skin, unclear]
             visibleAbnormality:
               type: boolean
+            description:
+              type: string
             observations:
               type: array
               items:
