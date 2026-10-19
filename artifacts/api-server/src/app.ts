@@ -829,12 +829,15 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       throw new HTTPException(422, { message: "The stored image could not be prepared for analysis." });
     }
     let analyzed;
+    const skinAiStartedAt = Date.now();
     try {
       analyzed = await ai.provider.analyzeSkin(imageDataUrl);
     } catch (error) {
+      console.log(`skin-ai analyze FAILED in ${Date.now() - skinAiStartedAt} ms (model=${(ai as { config?: { visionModel?: string; model?: string } }).config?.visionModel ?? (ai as { config?: { visionModel?: string; model?: string } }).config?.model ?? "unknown"} reason=${error instanceof AIProviderError ? error.code : "unknown"})`);
       await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
       throw aiProviderFailure(error, "Skin analysis");
     }
+    console.log(`skin-ai analyze ${analyzed.model} completed in ${Date.now() - skinAiStartedAt} ms`);
     const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
     const notSkin = analyzed.result.imageType === "not_skin";
     const healthySkin = analyzed.result.imageType === "real_skin" && !analyzed.result.visibleAbnormality;
