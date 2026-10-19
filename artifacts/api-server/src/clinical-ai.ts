@@ -14,17 +14,17 @@ const severitySchema = z.enum(["mild", "moderate", "severe", "uncertain"]);
 export const skinAIResultSchema = z.object({
   imageType: z.enum(["real_skin", "not_skin", "unclear"]).default("unclear"),
   visibleAbnormality: z.boolean().default(true),
-  description: z.string().trim().min(1).max(280),
-  observations: z.array(z.string().trim().min(1).max(160)).min(1).max(3),
+  description: z.string().trim().min(1).max(600),
+  observations: z.array(z.string().trim().min(1).max(200)).min(1).max(4),
   possibleConditions: z.array(z.object({
     name: z.string().trim().min(1).max(120),
-    reason: z.string().trim().min(1).max(160),
+    reason: z.string().trim().min(1).max(240),
   }).strict()).max(3),
-  uncertainty: z.string().trim().min(1).max(160),
+  uncertainty: z.string().trim().min(1).max(240),
   severity: severitySchema,
   urgency: urgencySchema,
-  nextSteps: z.array(z.string().trim().min(1).max(160)).max(3),
-  consultClinicianWhen: z.array(z.string().trim().min(1).max(160)).max(3),
+  nextSteps: z.array(z.string().trim().min(1).max(220)).max(5),
+  consultClinicianWhen: z.array(z.string().trim().min(1).max(220)).max(4),
 }).strict();
 
 export const symptomAIResultSchema = z.object({
@@ -180,7 +180,7 @@ const skinSystem = [
   "You are a dermatology assessment tool. If the image is a drawing, render, object, screenshot, or not a photo of human skin, set imageType to not_skin.",
   "For genuine skin photos assess tone, colour distribution, border, symmetry, texture, and surrounding skin; say the skin appears within normal limits if nothing abnormal is visible.",
   "PossibleConditions are up to 3 named conditions that best fit what is visible, closest match first, each justified by visible-feature overlap. Use plain clinical wording and note image-quality limits. Do not infer identity or ethnicity.",
-  "No percentages, confidence scores, or citations in any field. Use wording like may fit or commonly presents as.",
+  "The description field must be a substantial 3-5 sentence clinical description; recommendations must be concrete and cover observation, skin care, and clinician consultation. No percentages or citations in any field. Use wording like may fit or commonly presents as.",
   "Return only the requested JSON object.",
 ].join(" ");
 
@@ -334,7 +334,7 @@ export function createClinicalAIProvider(
       if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
         return Promise.reject(new AIProviderError("provider_request_rejected"));
       }
-      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Be very concise: one-sentence description, at most 3 short observations, 3 conditions with one-clause reasons, 3 brief next steps, one-sentence uncertainty. Output the JSON directly.", imageDataUrl, 600) as Promise<AIAnalysisOutput<SkinAIResult>>;
+      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Write a thorough clinical description: 3-5 sentences covering the lesion's colour, borders, texture, size pattern, and the typical course of the most likely condition. Give 4-5 concrete recommendations covering how to observe the area, general skin care, and when to consult a clinician. Keep observations short (1-2 clauses each). Output the JSON directly.", imageDataUrl, 850) as Promise<AIAnalysisOutput<SkinAIResult>>;
     },
     analyzeSymptoms(input) {
       return call(
