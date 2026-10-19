@@ -510,10 +510,7 @@ export default function ReportAnalysis() {
                   })()}
                   {latestInterpretation && (
                     <article className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Provider: {latestInterpretation.provider} · {latestInterpretation.providerModel} · {new Date(latestInterpretation.createdAt).toLocaleString()} · prompt version {latestInterpretation.promptVersion ?? "unknown"}{(() => { const all = detail?.interpretations ?? []; return all.length > 1 ? " · " + all.length + " attempts total" : ""; })()}
-                      </p>
-                      <h3 className="mt-2 font-semibold text-slate-900">{statusLabel(String(latestInterpretation.sections?.documentType ?? detail.documentType))}</h3>
+                      <h3 className="font-semibold text-slate-900">{statusLabel(String(latestInterpretation.sections?.documentType ?? detail.documentType))}</h3>
                       <p className="mt-2 text-sm text-slate-700">{String(latestInterpretation.sections?.summary ?? "")}</p>
                       {Array.isArray(latestInterpretation.sections?.findingsExplained) && (latestInterpretation.sections.findingsExplained as Array<{ label: string; explanation: string }>).length > 0 && (
                         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
