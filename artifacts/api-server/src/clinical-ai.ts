@@ -14,17 +14,17 @@ const severitySchema = z.enum(["mild", "moderate", "severe", "uncertain"]);
 export const skinAIResultSchema = z.object({
   imageType: z.enum(["real_skin", "not_skin", "unclear"]).default("unclear"),
   visibleAbnormality: z.boolean().default(true),
-  description: z.string().trim().min(1).max(600),
-  observations: z.array(z.string().trim().min(1).max(300)).min(1).max(8),
+  description: z.string().trim().min(1).max(350),
+  observations: z.array(z.string().trim().min(1).max(200)).min(1).max(5),
   possibleConditions: z.array(z.object({
     name: z.string().trim().min(1).max(120),
-    reason: z.string().trim().min(1).max(300),
-  }).strict()).max(5),
-  uncertainty: z.string().trim().min(1).max(500),
+    reason: z.string().trim().min(1).max(200),
+  }).strict()).max(4),
+  uncertainty: z.string().trim().min(1).max(300),
   severity: severitySchema,
   urgency: urgencySchema,
-  nextSteps: z.array(z.string().trim().min(1).max(300)).max(8),
-  consultClinicianWhen: z.array(z.string().trim().min(1).max(300)).max(8),
+  nextSteps: z.array(z.string().trim().min(1).max(200)).max(5),
+  consultClinicianWhen: z.array(z.string().trim().min(1).max(200)).max(4),
 }).strict();
 
 export const symptomAIResultSchema = z.object({
@@ -339,7 +339,7 @@ export function createClinicalAIProvider(
       if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
         return Promise.reject(new AIProviderError("provider_request_rejected"));
       }
-      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Analyze efficiently and output the JSON directly.", imageDataUrl, 1_600) as Promise<AIAnalysisOutput<SkinAIResult>>;
+      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Be concise: short description, at most 5 brief observations, 3 conditions, 4 brief next steps. Output the JSON directly.", imageDataUrl, 1_100) as Promise<AIAnalysisOutput<SkinAIResult>>;
     },
     analyzeSymptoms(input) {
       return call(
