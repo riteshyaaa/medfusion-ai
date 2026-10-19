@@ -1504,7 +1504,7 @@ paths:
       operationId: interpretDocument
       tags: [documents]
       summary: Generate a consent-gated interpretation of confirmed findings
-      description: Sends only structured findings (corrected values take precedence) to the configured provider. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules and rejected output is never stored.
+      description: Sends only structured findings (corrected values take precedence) to the configured provider. For narrative documents without structured findings, the extracted plain text is sent instead once its reviewed status gate passes. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules; failed attempts are recorded with an error code so users can see and retry them, and rejected provider output itself is never stored.
       security:
         - cookieAuth: []
       parameters:
@@ -1558,6 +1558,58 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Provider unavailable or external processing disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents/trends:
+    get:
+      operationId: listDocumentTrends
+      tags: [documents]
+      summary: History of a finding's value across the user's documents
+      description: Matches findings by a normalized label key and an identical unit only. No unit conversion is applied, so values stored under different units are never merged.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: documentId
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: label
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: unit
+          in: query
+          schema:
+            type: string
+            maxLength: 60
+      responses:
+        "200":
+          description: Conservative trend series (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentTrendResponse"
+        "400":
+          description: Invalid trend query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
           content:
             application/json:
               schema:
@@ -1820,6 +1872,41 @@ paths:
             text/plain:
               schema:
                 type: string
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reports/{id}/export.pdf:
+    get:
+      operationId: exportReportPdf
+      tags: [reports]
+      summary: Export a draft report as a PDF document
+      description: Renders the same draft content as the plain text export into a server-generated PDF.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF report export
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
         "401":
           description: Not authenticated
           content:
@@ -3252,6 +3339,9 @@ components:
         confidence:
           type: number
           nullable: true
+        ambiguous:
+          type: boolean
+          description: True when characters or values were unreadable in the source and require user confirmation.
         sourceText:
           type: string
           nullable: true
@@ -3294,6 +3384,10 @@ components:
           type: string
         providerModel:
           type: string
+        promptVersion:
+          type: string
+          nullable: true
+          description: Version of the interpretation prompt and validation rules used for this attempt.
         status:
           type: string
           enum: [completed, failed]
@@ -3302,6 +3396,7 @@ components:
           nullable: true
         sections:
           type: object
+          nullable: true
         createdAt:
           type: string
       required:
@@ -3310,7 +3405,6 @@ components:
         - provider
         - providerModel
         - status
-        - sections
         - createdAt
     DocumentDetail:
       allOf:
@@ -3371,6 +3465,62 @@ components:
         - total
         - page
         - limit
+    DocumentTrendEntry:
+      type: object
+      properties:
+        documentId:
+          type: integer
+        fileName:
+          type: string
+        documentDate:
+          type: string
+        extractedAt:
+          type: string
+          nullable: true
+        findingId:
+          type: integer
+        label:
+          type: string
+        valueText:
+          type: string
+          nullable: true
+        numericValue:
+          type: number
+          nullable: true
+        unit:
+          type: string
+          nullable: true
+        referenceRange:
+          type: string
+          nullable: true
+        resultFlag:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [candidate, confirmed, corrected, rejected]
+        pageNumber:
+          type: integer
+          nullable: true
+      required:
+        - documentId
+        - fileName
+        - documentDate
+        - findingId
+        - label
+        - status
+    DocumentTrendResponse:
+      type: object
+      properties:
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentTrendEntry"
+        matchingStrategy:
+          type: string
+      required:
+        - series
+        - matchingStrategy
     UpdateDocumentFindingRequest:
       type: object
       properties:

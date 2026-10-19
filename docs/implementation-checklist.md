@@ -132,3 +132,29 @@ Implemented without adding any new model or fabricating output. The skin classif
 - `pnpm run build` — passed across workspace packages and Vite. The existing large-bundle warning remains.
 
 **Gate 6 decision:** Pass for report upload/extraction/review, consent-gated interpretation, cardiac status honesty, case workspace, and report export, with local deterministic tests and no live provider, OCR-network, or model calls. No patient data is fabricated and no unavailable model is simulated outside `NODE_ENV=test`.
+
+## Phase 6.1: Report Analysis correctness, review preservation, and exports
+
+Upgrade of the existing Report Analysis module only — no new pipeline: all additions live inside the same extraction → review → consent-gated interpretation flow.
+
+### Checklist
+
+- [x] Extraction correctness: locale-safe decimal parsing (`0,8` → 0.8), thousands separators (`1,876`, `1.87.625`), scientific notation (`8.6e-1`), negative values, inequality values kept verbatim (`<60`, `>250`) and compared conservatively against a parsed reference range, multi-word qualitative negation (`Not detected` → `normal`), and multi-word analyte labels without separators (`Total cholesterol >250 …`). Flag derivation never invents `normal`; out-of-range values map to `high`/`low`, everything else stays `unknown`.
+- [x] Migration `0008_secret_mad_thinker.sql` (applied): `document_findings.ambiguous` (boolean, default false), `document_findings.normalized_label` (match key written by extraction), `document_interpretations.prompt_version`. Additive only; no destructive statements.
+- [x] Reprocess preserves human review: confirmed/corrected rows are re-matched across re-extraction via the normalized label key and kept verbatim; only unreviewed candidate rows are replaced. Documents stuck in `processing` after a server restart become reprocessable again (10-minute staleness window).
+- [x] Interpretation honesty: failed provider attempts are persisted (`status = failed`, `errorCode = provider_malformed_response` / `provider_rate_limited` / `provider_unavailable`) with `promptVersion = document-interpretation-v2` so users can see and retry them; rejected provider output itself is still never stored.
+- [x] Narrative-document eligibility: documents with no structured findings but ≥200 characters of extracted text can be interpreted from the plain text; the invention validator allows only numbers verbatim in the supplied text, and diagnosis/treatment-claim patterns are unchanged.
+- [x] History/trends: `GET /api/documents/trends?documentId=&label=&unit=` matches findings across the user's documents by normalized label and identical unit only (no unit conversion, rejected findings excluded, newest first, capped at 50) and returns the matching strategy for honest UI rendering.
+- [x] PDF export: `GET /api/reports/{id}/export.pdf` renders the identical draft content into a server-generated PDF built with a small dependency-free writer (`src/report-export.ts`); the plain-text export route is unchanged.
+- [x] Frontend: ambiguous findings show an "unreadable?" badge, failed interpretations show a red card with the recorded error codes and a Retry button, completed interpretations show their prompt version and attempt count, and the Reports page gained `.txt`/`.pdf` export buttons.
+- [x] OpenAPI: `DocumentFinding.ambiguous`, `DocumentInterpretation.promptVersion` (nullable `sections`), `/documents/trends` + `DocumentTrendEntry`/`DocumentTrendResponse`, `/reports/{id}/export.pdf`; all React Query/Zod clients regenerated.
+- [x] Regression tests: 5 new extraction tests (locales, inequalities, qualitative negation, conservative flags, match-key stability) and 1 new integration test (trend matching including unit rejection, failed-interpretation persistence with prompt version, PDF export bytes, cross-user 404s); the existing lifecycle test now also asserts reprocess preserves the user's corrected value without duplicates.
+
+### Phase 6.1 commands and results
+
+- `pnpm --filter @workspace/db generate && pnpm --filter @workspace/db migrate` — migration `0008` generated and applied (columns above).
+- `pnpm --filter @workspace/api-spec codegen && pnpm --filter @workspace/api-zod build` — OpenAPI regenerated into both clients; Zod library rebuilt.
+- `pnpm --filter @workspace/api-server test` (with `DATABASE_URL`) — passed: 89 tests, 0 failures.
+- `pnpm --filter @workspace/skin-ai typecheck` and `build` — passed.
+
+**Gate 6.1 decision:** Pass. The upgrade stays additive, preserves consent gates and ownership checks, never stores rejected provider output, and keeps all honesty boundaries intact; the only behavior weakening (interpretation now possible for narrative documents) is gated by the same consent + external-processing checks and uses a stricter validator that pins generated numbers to the supplied text.

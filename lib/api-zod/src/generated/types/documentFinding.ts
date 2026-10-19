@@ -26,6 +26,8 @@ export interface DocumentFinding {
   resultFlag?: string | null;
   /** @nullable */
   confidence?: number | null;
+  /** True when characters or values were unreadable in the source and require user confirmation. */
+  ambiguous?: boolean;
   /** @nullable */
   sourceText?: string | null;
   status: DocumentFindingStatus;

@@ -22,7 +22,12 @@ export type DocumentInterpretationInput = {
   pageCount: number | null;
   extractionMethod: "pdf_text" | "pdf_embedded_image_ocr" | "image_ocr" | "none";
   findings: InterpretationFindingInput[];
+  narrativeText?: string;
 };
+
+// Bumped whenever the interpretation prompt or validation rules change so that
+// stored interpretations can be attributed to the version that produced them.
+export const DOCUMENT_INTERPRETATION_PROMPT_VERSION = "document-interpretation-v2";
 
 const interpretationSectionsSchema = z.object({
   documentType: z.string().trim().min(1).max(120),
@@ -89,7 +94,7 @@ export const documentInterpretationJsonSchema = {
 const systemPrompt = [
   "You explain already-extracted medical report findings in plain language for a research prototype.",
   "You are not giving a diagnosis and must not tell a person what condition they have.",
-  "Use only the supplied findings. Never add values, units, reference ranges, dates, percentages, or facts that are not present in the supplied data.",
+  "Use only the supplied findings and, when present, the supplied narrativeText. Never add values, units, reference ranges, dates, percentages, or facts that are not present in the supplied data.",
   "Never invent laboratory results or reference intervals. If something is missing, list it under missingInformation instead.",
   "Quote the supplied valueText, unit, referenceRange, and pageNumber exactly as provided when referring to a finding.",
   "Do not fabricate citations. Do not recommend specific medications or doses. Suggest questions a clinician could clarify.",
@@ -113,6 +118,12 @@ function userPrompt(input: DocumentInterpretationInput): string {
       pageNumber: finding.pageNumber,
       sourceLine: finding.sourceText.slice(0, 240),
     })),
+    narrativeText: input.narrativeText === undefined
+      ? undefined
+      : {
+          characterLimitNote: "Plain extracted text from a document with no structured findings. Explain its content at a general educational level.",
+          text: input.narrativeText.slice(0, 12_000),
+        },
   });
 }
 
@@ -134,7 +145,7 @@ function normalize(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function assertNoInventedNumbers(sections: DocumentInterpretationSections, findings: InterpretationFindingInput[]): void {
+function assertNoInventedNumbers(sections: DocumentInterpretationSections, findings: InterpretationFindingInput[], narrativeNumbers: string[] = []): void {
   const allowedStrings: string[] = [];
   for (const finding of findings) {
     for (const value of [finding.label, finding.valueText, finding.unit, finding.referenceRange]) {
@@ -146,6 +157,9 @@ function assertNoInventedNumbers(sections: DocumentInterpretationSections, findi
   for (const value of allowedStrings) {
     for (const token of value.match(/\d+(?:[.,]\d+)?/g) ?? []) allowedTokens.add(token.replace(",", "."));
   }
+  // Narrative documents have no structured findings; every number that appears
+  // verbatim in the extracted narrative text is a legitimate fact to restate.
+  for (const token of narrativeNumbers) allowedTokens.add(token);
   const freeTextFields: string[] = [
     sections.summary,
     ...sections.findingsExplained.map((entry) => entry.explanation),
@@ -201,11 +215,14 @@ function assertFindingsMatchInput(sections: DocumentInterpretationSections, find
   }
 }
 
-export function validateInterpretationSections(decoded: unknown, findings: InterpretationFindingInput[]): DocumentInterpretationSections {
+export function validateInterpretationSections(decoded: unknown, findings: InterpretationFindingInput[], narrativeText?: string): DocumentInterpretationSections {
   const parsed = interpretationSectionsSchema.safeParse(decoded);
   if (!parsed.success) throw new InterpretationValidationError("provider output does not match the required schema");
+  const narrativeNumbers = narrativeText
+    ? [...new Set((narrativeText.match(/\d+(?:[.,]\d+)?/g) ?? []).map((token) => token.replace(",", ".")))]
+    : [];
   assertFindingsMatchInput(parsed.data, findings);
-  assertNoInventedNumbers(parsed.data, findings);
+  assertNoInventedNumbers(parsed.data, findings, narrativeNumbers);
   return parsed.data;
 }
 
@@ -239,7 +256,7 @@ export function createDocumentInterpreter(config: Parameters<typeof executeProvi
         maxOutputTokens: 2_400,
       }, options);
       const decoded = decodeStructuredProviderText(config, responsePayload);
-      const sections = validateInterpretationSections(decoded, input.findings);
+      const sections = validateInterpretationSections(decoded, input.findings, input.narrativeText);
       return { provider: config.provider, model: config.model, sections };
     },
   };

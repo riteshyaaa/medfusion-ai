@@ -615,6 +615,9 @@ test("document report analysis extracts, reviews findings, gates interpretation,
   const reprocessed = await waitForDocument(cookie, documentId);
   assert.equal(reprocessed.processingStatus, "extracted");
   assert.ok((reprocessed.findingCount ?? 0) >= 3, "reprocessing rebuilds extracted findings");
+  const reprocessedHemoglobin = reprocessed.findings!.filter((finding) => finding.label === "Hemoglobin");
+  assert.equal(reprocessedHemoglobin.length, 1, "reprocess does not duplicate preserved findings");
+  assert.equal(reprocessedHemoglobin[0]!.correctedValueText, "13.6", "reprocess preserves the user's corrected value");
 
   const workspace = await jsonRequest(`/cases/${caseId}/workspace`, "GET", undefined, cookie);
   assert.equal(workspace.status, 200);
@@ -649,6 +652,89 @@ test("document report analysis extracts, reviews findings, gates interpretation,
 
   assert.equal((await jsonRequest(`/documents/${corruptId}`, "DELETE", undefined, cookie)).status, 204);
   assert.equal((await jsonRequest(`/documents/${corruptId}`, "GET", undefined, cookie)).status, 404);
+});
+
+test("document trends match conservatively, failed interpretations persist, and PDF export works", async () => {
+  const account = await register(`owner-doc2-${randomUUID()}@example.test`);
+  const cookie = account.cookie;
+  const patientResponse = await jsonRequest("/patients", "POST", { firstName: "Trend", lastName: "Fixture" }, cookie);
+  const patientId = (await patientResponse.json() as { patient: { id: number } }).patient.id;
+  const caseId = (await (await jsonRequest("/cases", "POST", { patientId, type: "skin_analysis" }, cookie)).json() as { case: { id: number } }).case.id;
+
+  setTestOcrProvider({
+    id: "test-ocr-a",
+    recognize: async () => ({ text: "Hemoglobin 9.2 g/dL (13.0 - 17.0)\nDiagnosis: Anemia evaluation", confidence: 0.98 }),
+  });
+  const png1 = await sharp({ create: { width: 24, height: 12, channels: 3, background: "#ffffff" } }).png().toBuffer();
+  const created1 = await uploadDocument(cookie, png1, "image/png", "early.png");
+  const document1Id = (await created1.json() as { document: DocumentView }).document.id;
+  await waitForDocument(cookie, document1Id);
+
+  setTestOcrProvider({
+    id: "test-ocr-b",
+    recognize: async () => ({ text: "Hemoglobin 11.1 g/dL (13.0 - 17.0)\nDiagnosis: Anemia evaluation", confidence: 0.98 }),
+  });
+  const png2 = await sharp({ create: { width: 24, height: 12, channels: 3, background: "#ffffff" } }).png().toBuffer();
+  const created2 = await uploadDocument(cookie, png2, "image/png", "later.png");
+  const document2Id = (await created2.json() as { document: DocumentView }).document.id;
+  await waitForDocument(cookie, document2Id);
+
+  const unauthorizedTrend = await app.request("/api/documents/trends?documentId=1&label=Hemoglobin");
+  assert.equal(unauthorizedTrend.status, 401);
+
+  let trend = await jsonRequest(`/documents/trends?documentId=${document1Id}&label=Hemoglobin&unit=g/dL`, "GET", undefined, cookie);
+  assert.equal(trend.status, 200);
+  let trendBody = await trend.json() as { series: Array<{ documentId: number; numericValue: number | null; unit: string | null; resultFlag: string }>; matchingStrategy: string };
+  assert.ok(trendBody.matchingStrategy.includes("no unit conversion"));
+  assert.equal(trendBody.series.length, 2, "two documents contain a matching normalized label");
+  assert.equal(trendBody.series[0]!.documentId, document2Id, "trend series is ordered newest first");
+  assert.equal(trendBody.series[0]!.numericValue, 11.1);
+  assert.equal(trendBody.series[1]!.numericValue, 9.2);
+  assert.equal(trendBody.series.every((entry) => entry.unit === "g/dL"), true);
+
+  trend = await jsonRequest(`/documents/trends?documentId=${document1Id}&label=Hemoglobin&unit=mmol%2FL`, "GET", undefined, cookie);
+  trendBody = await trend.json() as { series: Array<{ documentId: number; numericValue: number | null; unit: string | null; resultFlag: string }>; matchingStrategy: string };
+  assert.equal(trendBody.series.length, 0, "different units are never merged into one series");
+
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  try {
+    setTestDocumentInterpreter({
+      async interpret() {
+        throw new Error("simulated provider outage");
+      },
+    });
+    const failedInterpretation = await jsonRequest(`/documents/${document1Id}/interpretations`, "POST", { consentToExternalProcessing: true }, cookie);
+    assert.equal(failedInterpretation.status, 503);
+    const afterFailure = await jsonRequest(`/documents/${document1Id}`, "GET", undefined, cookie);
+    const afterFailureBody = await afterFailure.json() as { document: { interpretations: Array<{ status: string; errorCode: string | null; promptVersion: string }> } };
+    const failedRecord = afterFailureBody.document.interpretations.find((interpretation) => interpretation.status === "failed");
+    assert.ok(failedRecord, "failed interpretation attempts are persisted");
+    assert.equal(failedRecord!.errorCode, "provider_unavailable");
+    assert.match(failedRecord!.promptVersion ?? "", /^document-interpretation-v/);
+  } finally {
+    setTestDocumentInterpreter(undefined);
+    delete process.env.AI_DATA_SHARING_ENABLED;
+    delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  }
+
+  const reportResponse = await jsonRequest("/reports", "POST", {
+    caseId,
+    title: "PDF export report",
+    type: "comprehensive",
+  }, cookie);
+  assert.equal(reportResponse.status, 201);
+  const reportId = (await reportResponse.json() as { report: { id: number } }).report.id;
+  const pdfResponse = await app.request(`/api/reports/${reportId}/export.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(pdfResponse.status, 200);
+  assert.equal(pdfResponse.headers.get("content-type"), "application/pdf");
+  const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
+  assert.match(pdfBytes.subarray(0, 8).toString("latin1"), /^%PDF-1\.\d/);
+  assert.ok(pdfBytes.length > 400, "PDF contains page and content objects");
+
+  const foreign = await register(`owner-doc2-b-${randomUUID()}@example.test`);
+  assert.equal((await jsonRequest(`/documents/trends?documentId=${document1Id}&label=Hemoglobin`, "GET", undefined, foreign.cookie)).status, 404);
+  assert.equal((await app.request(`/api/reports/${reportId}/export.pdf`, { headers: { Cookie: foreign.cookie } })).status, 404);
 });
 
 test("record pages consume generated API hooks instead of mock arrays", async () => {

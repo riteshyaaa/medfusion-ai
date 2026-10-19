@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, jsonb, real, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, integer, jsonb, real, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { users } from "./users";
@@ -38,6 +38,8 @@ export const documentFindings = pgTable("document_findings", {
   referenceRange: text("reference_range"),
   resultFlag: text("result_flag", { enum: ["normal", "high", "low", "abnormal", "unknown"] }).notNull().default("unknown"),
   confidence: real("confidence"),
+  ambiguous: boolean("ambiguous").notNull().default(false),
+  normalizedLabel: text("normalized_label"),
   sourceText: text("source_text").notNull(),
   status: text("status", { enum: ["candidate", "confirmed", "corrected", "rejected"] }).notNull().default("candidate"),
   correctedLabel: text("corrected_label"),
@@ -55,6 +57,7 @@ export const documentInterpretations = pgTable("document_interpretations", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   provider: text("provider").notNull(),
   providerModel: text("provider_model").notNull(),
+  promptVersion: text("prompt_version"),
   status: text("status", { enum: ["completed", "failed"] }).notNull().default("completed"),
   errorCode: text("error_code"),
   sections: jsonb("sections").$type<Record<string, unknown>>(),

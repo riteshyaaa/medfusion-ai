@@ -45,12 +45,14 @@ import type {
   DocumentInterpretationResponse,
   DocumentListResponse,
   DocumentResponse,
+  DocumentTrendResponse,
   ErrorResponse,
   GetPredictionHistoryParams,
   HealthStatus,
   InterpretDocumentRequest,
   ListCardiacAssessmentsParams,
   ListCasesParams,
+  ListDocumentTrendsParams,
   ListDocumentsParams,
   ListPatientsParams,
   ListReportsParams,
@@ -3940,7 +3942,7 @@ export const getInterpretDocumentUrl = (id: number,) => {
 }
 
 /**
- * Sends only structured findings (corrected values take precedence) to the configured provider. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules and rejected output is never stored.
+ * Sends only structured findings (corrected values take precedence) to the configured provider. For narrative documents without structured findings, the extracted plain text is sent instead once its reviewed status gate passes. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules; failed attempts are recorded with an error code so users can see and retry them, and rejected provider output itself is never stored.
  * @summary Generate a consent-gated interpretation of confirmed findings
  */
 export const interpretDocument = async (id: number,
@@ -4020,6 +4022,115 @@ export const useInterpretDocument = <TError = ErrorType<ErrorResponse>,
       > => {
       return useMutation(getInterpretDocumentMutationOptions(options), queryClient);
     }
+
+export const getListDocumentTrendsUrl = (params: ListDocumentTrendsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/documents/trends?${stringifiedParams}` : `/api/documents/trends`
+}
+
+/**
+ * Matches findings by a normalized label key and an identical unit only. No unit conversion is applied, so values stored under different units are never merged.
+ * @summary History of a finding's value across the user's documents
+ */
+export const listDocumentTrends = async (params: ListDocumentTrendsParams, options?: Parameters<typeof customFetch>[1]): Promise<DocumentTrendResponse> => {
+
+  return customFetch<DocumentTrendResponse>(getListDocumentTrendsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDocumentTrendsQueryKey = (params?: ListDocumentTrendsParams,) => {
+    return [
+    `/api/documents/trends`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListDocumentTrendsQueryOptions = <TData = Awaited<ReturnType<typeof listDocumentTrends>>, TError = ErrorType<ErrorResponse>>(params: ListDocumentTrendsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDocumentTrendsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDocumentTrends>>> = ({ signal }) => listDocumentTrends(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListDocumentTrendsQueryResult = NonNullable<Awaited<ReturnType<typeof listDocumentTrends>>>
+export type ListDocumentTrendsQueryError = ErrorType<ErrorResponse>
+
+
+export function useListDocumentTrends<TData = Awaited<ReturnType<typeof listDocumentTrends>>, TError = ErrorType<ErrorResponse>>(
+ params: ListDocumentTrendsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listDocumentTrends>>,
+          TError,
+          Awaited<ReturnType<typeof listDocumentTrends>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListDocumentTrends<TData = Awaited<ReturnType<typeof listDocumentTrends>>, TError = ErrorType<ErrorResponse>>(
+ params: ListDocumentTrendsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listDocumentTrends>>,
+          TError,
+          Awaited<ReturnType<typeof listDocumentTrends>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListDocumentTrends<TData = Awaited<ReturnType<typeof listDocumentTrends>>, TError = ErrorType<ErrorResponse>>(
+ params: ListDocumentTrendsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary History of a finding's value across the user's documents
+ */
+
+export function useListDocumentTrends<TData = Awaited<ReturnType<typeof listDocumentTrends>>, TError = ErrorType<ErrorResponse>>(
+ params: ListDocumentTrendsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listDocumentTrends>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListDocumentTrendsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetCardiacModelStatusUrl = () => {
 
@@ -4925,6 +5036,108 @@ export function useExportReport<TData = Awaited<ReturnType<typeof exportReport>>
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getExportReportQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportReportPdfUrl = (id: number,) => {
+
+
+
+
+  return `/api/reports/${id}/export.pdf`
+}
+
+/**
+ * Renders the same draft content as the plain text export into a server-generated PDF.
+ * @summary Export a draft report as a PDF document
+ */
+export const exportReportPdf = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportReportPdfUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportReportPdfQueryKey = (id: number,) => {
+    return [
+    `/api/reports/${id}/export.pdf`
+    ] as const;
+    }
+
+
+export const getExportReportPdfQueryOptions = <TData = Awaited<ReturnType<typeof exportReportPdf>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportReportPdfQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportReportPdf>>> = ({ signal }) => exportReportPdf(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportReportPdfQueryResult = NonNullable<Awaited<ReturnType<typeof exportReportPdf>>>
+export type ExportReportPdfQueryError = ErrorType<ErrorResponse>
+
+
+export function useExportReportPdf<TData = Awaited<ReturnType<typeof exportReportPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportReportPdf>>,
+          TError,
+          Awaited<ReturnType<typeof exportReportPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportReportPdf<TData = Awaited<ReturnType<typeof exportReportPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportReportPdf>>,
+          TError,
+          Awaited<ReturnType<typeof exportReportPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportReportPdf<TData = Awaited<ReturnType<typeof exportReportPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Export a draft report as a PDF document
+ */
+
+export function useExportReportPdf<TData = Awaited<ReturnType<typeof exportReportPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportReportPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportReportPdfQueryOptions(id,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

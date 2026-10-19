@@ -7,7 +7,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
 import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, symptomAiEvaluations, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments } from "@workspace/db/schema";
-import { eq, desc, and, or, ilike, count, sql, inArray, isNull } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, sql, inArray, isNull, ne } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHash, randomUUID } from "node:crypto";
@@ -20,7 +20,9 @@ import { getResearchSkinInferenceProvider, getSkinInferenceStatus, SkinInference
 import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
 import { getOcrStatus } from "./document-extraction";
 import { scheduleDocumentProcessing } from "./document-service";
-import { InterpretationValidationError, getDocumentInterpreter } from "./document-interpreter";
+import { DOCUMENT_INTERPRETATION_PROMPT_VERSION, InterpretationValidationError, getDocumentInterpreter } from "./document-interpreter";
+import { findingMatchKey } from "./document-extraction";
+import { buildReportPdf } from "./report-export";
 import { cardiacModelStatus, hasApprovedCardiacModel, assessCardiacRisk, CardiacFeatureError } from "./cardiac";
 import { getSymptomClassifierStatus } from "./symptom-classifier";
 import {
@@ -816,6 +818,7 @@ function findingView(finding: DocumentFindingRow) {
     referenceRange: finding.referenceRange,
     resultFlag: finding.resultFlag,
     confidence: finding.confidence,
+    ambiguous: finding.ambiguous,
     sourceText: finding.sourceText,
     status: finding.status,
     correctedLabel: finding.correctedLabel,
@@ -833,6 +836,7 @@ function interpretationView(interpretation: DocumentInterpretationRow) {
     documentId: interpretation.documentId,
     provider: interpretation.provider,
     providerModel: interpretation.providerModel,
+    promptVersion: interpretation.promptVersion,
     status: interpretation.status,
     errorCode: interpretation.errorCode,
     sections: interpretation.sections,
@@ -949,6 +953,63 @@ app.get("/documents", requireAuth, async (c) => {
   });
 });
 
+const trendQuerySchema = z.object({
+  documentId: z.coerce.number().int().positive(),
+  label: z.string().trim().min(1).max(120),
+  unit: z.string().trim().max(60).optional(),
+});
+
+// History/trend comparison matches findings across the user's documents using
+// the normalized label key and an identical unit only. No unit conversion is
+// performed: values stored under different units are never merged, and the
+// response records the matching strategy so the UI can render it honestly.
+app.get("/documents/trends", requireAuth, async (c) => {
+  const user = c.get("user");
+  const query = trendQuerySchema.safeParse({ documentId: c.req.query("documentId"), label: c.req.query("label"), unit: c.req.query("unit") ?? undefined });
+  if (!query.success) throw new HTTPException(400, { message: "Invalid trend query" });
+  const document = await db.query.documents.findFirst({ where: and(eq(documents.id, query.data.documentId), eq(documents.userId, user.id)) });
+  if (!document) throw new HTTPException(404, { message: "Document not found" });
+  const key = findingMatchKey(query.data.label);
+  const filters = [
+    eq(documents.userId, user.id),
+    eq(documentFindings.normalizedLabel, key),
+    ne(documentFindings.status, "rejected"),
+  ];
+  if (query.data.unit !== undefined) filters.push(eq(documentFindings.unit, query.data.unit));
+  const rows = await db
+    .select({ finding: documentFindings, document: documents })
+    .from(documentFindings)
+    .innerJoin(documents, eq(documentFindings.documentId, documents.id))
+    .where(and(...filters))
+    .orderBy(desc(documents.createdAt), desc(documentFindings.id))
+    .limit(50);
+  const series = rows
+    .map(({ finding, document }) => ({
+      documentId: document.id,
+      fileName: document.originalFileName,
+      documentDate: document.createdAt,
+      extractedAt: document.extractedAt,
+      findingId: finding.id,
+      label: finding.correctedLabel ?? finding.label,
+      valueText: finding.correctedValueText ?? finding.valueText,
+      numericValue: finding.correctedValueText ? null : finding.numericValue,
+      unit: finding.correctedUnit ?? finding.unit,
+      referenceRange: finding.correctedReferenceRange ?? finding.referenceRange,
+      resultFlag: finding.resultFlag,
+      status: finding.status,
+      pageNumber: finding.pageNumber,
+    }))
+    .sort((a, b) => new Date(b.documentDate).getTime() - new Date(a.documentDate).getTime());
+  return c.json({
+    series,
+    matchingStrategy: "exact normalized label and identical unit; no unit conversion is applied",
+  });
+});
+
+const explanationRequestSchema = z.object({
+  predictionId: z.number().int().positive(),
+  consentToExternalProcessing: z.boolean(),
+});
 app.get("/documents/:id", requireAuth, async (c) => {
   const user = c.get("user");
   const id = parseId(c.req.param("id"));
@@ -1061,8 +1122,15 @@ app.post("/documents/:id/interpretations", requireAuth, jsonBody(interpretReques
   }
   const findings = await db.query.documentFindings.findMany({ where: eq(documentFindings.documentId, id), orderBy: [documentFindings.id] });
   const usableFindings = findings.filter((finding) => finding.status !== "rejected").slice(0, 100);
-  if (usableFindings.length === 0) {
-    throw codedError(409, "no_findings", "No extracted findings are available for interpretation.");
+  // Documents without structured findings (e.g. narrative radiology reports)
+  // can still be interpreted from the extracted plain text. The text is
+  // de-identifiable only in the sense that it is what the user uploaded and
+  // consented to; numbers in the generated output are validated against it.
+  const narrativeText = usableFindings.length === 0
+    ? (document.textPages ?? []).map((page) => page.text).join("\n")
+    : undefined;
+  if (usableFindings.length === 0 && (narrativeText ?? "").replace(/\s+/g, "").length < 200) {
+    throw codedError(409, "no_findings", "No extracted findings or readable narrative text are available for interpretation.");
   }
   if (!externalHealthDataTransferEnabled()) {
     await logAudit(c, "document_interpretation", "generate", "failure", "document", id.toString(), { reason: "external_processing_disabled" });
@@ -1073,6 +1141,22 @@ app.post("/documents/:id/interpretations", requireAuth, jsonBody(interpretReques
     await logAudit(c, "document_interpretation", "generate", "failure", "document", id.toString(), { reason: "provider_unavailable" });
     throw codedError(503, "provider_unavailable", "The configured interpretation provider is unavailable.");
   }
+  const recordFailedInterpretation = async (errorCode: string) => {
+    try {
+      await db.insert(documentInterpretations).values({
+        documentId: id,
+        userId: user.id,
+        provider: "unknown",
+        providerModel: "unknown",
+        promptVersion: DOCUMENT_INTERPRETATION_PROMPT_VERSION,
+        status: "failed",
+        errorCode,
+        sections: null,
+      });
+    } catch (insertError) {
+      console.error(JSON.stringify({ event: "failed_interpretation_persist_error", documentId: id, errorType: insertError instanceof Error ? insertError.name : "unknown" }));
+    }
+  };
   try {
     const result = await interpreter.interpreter!.interpret({
       documentType: document.documentType,
@@ -1086,12 +1170,14 @@ app.post("/documents/:id/interpretations", requireAuth, jsonBody(interpretReques
         pageNumber: finding.pageNumber,
         sourceText: finding.sourceText,
       })),
+      narrativeText,
     });
     const [interpretation] = await db.insert(documentInterpretations).values({
       documentId: id,
       userId: user.id,
       provider: result.provider,
       providerModel: result.model,
+      promptVersion: DOCUMENT_INTERPRETATION_PROMPT_VERSION,
       status: "completed",
       sections: result.sections as unknown as Record<string, unknown>,
     }).returning();
@@ -1102,22 +1188,20 @@ app.post("/documents/:id/interpretations", requireAuth, jsonBody(interpretReques
     }, 201);
   } catch (error) {
     if (error instanceof InterpretationValidationError) {
+      await recordFailedInterpretation("provider_malformed_response");
       await logAudit(c, "document_interpretation", "generate", "error", "document", id.toString(), { reason: "invalid_provider_output" });
       throw codedError(502, "provider_malformed_response", "The interpretation provider returned output that failed safety validation. Nothing was saved.");
     }
     const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
     const outcome = code === "provider_rate_limited" ? "failure" : "error";
     await logAudit(c, "document_interpretation", "generate", outcome, "document", id.toString(), { reason: code });
+    await recordFailedInterpretation(code);
     if (code === "provider_rate_limited") throw codedError(429, "provider_rate_limited", "The interpretation provider is rate limited. Try again later.");
     if (code === "provider_malformed_response") throw codedError(502, "provider_malformed_response", "The interpretation provider returned malformed output. Nothing was saved.");
     throw codedError(503, "provider_unavailable", "The interpretation provider could not complete this request.");
   }
 });
 
-const explanationRequestSchema = z.object({
-  predictionId: z.number().int().positive(),
-  consentToExternalProcessing: z.boolean(),
-});
 
 app.post("/ai/explanations", requireAuth, jsonBody(explanationRequestSchema), async (c) => {
   const user = c.get("user");
@@ -1854,6 +1938,19 @@ app.get("/reports/:id/export", requireAuth, async (c) => {
   c.header("Content-Disposition", `attachment; filename="${report.reportNumber}.txt"`);
   c.header("Cache-Control", "private, no-store");
   return c.body(renderReportText(report));
+});
+
+app.get("/reports/:id/export.pdf", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const report = await db.query.reports.findFirst({ where: and(eq(reports.id, id), eq(reports.authorId, user.id)) });
+  if (!report) throw new HTTPException(404, { message: "Report not found" });
+  await logAudit(c, "report", "export", "success", "report", report.id.toString(), { format: "pdf" });
+  const pdf = buildReportPdf(renderReportText(report));
+  c.header("Content-Type", "application/pdf");
+  c.header("Content-Disposition", `attachment; filename="${report.reportNumber}.pdf"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(new Uint8Array(pdf));
 });
 
 app.patch("/reports/:id", requireAuth, jsonBody(updateReportSchema), async (c) => {

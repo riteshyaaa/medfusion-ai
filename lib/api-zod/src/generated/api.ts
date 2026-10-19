@@ -1444,6 +1444,7 @@ export const GetDocumentResponse = zod.object({
   "referenceRange": zod.string().nullish(),
   "resultFlag": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "ambiguous": zod.boolean().optional().describe('True when characters or values were unreadable in the source and require user confirmation.'),
   "sourceText": zod.string().nullish(),
   "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
   "correctedLabel": zod.string().nullish(),
@@ -1458,11 +1459,12 @@ export const GetDocumentResponse = zod.object({
   "documentId": zod.number().int(),
   "provider": zod.string(),
   "providerModel": zod.string(),
+  "promptVersion": zod.string().nullish().describe('Version of the interpretation prompt and validation rules used for this attempt.'),
   "status": zod.enum(['completed', 'failed']),
   "errorCode": zod.string().nullish(),
   "sections": zod.object({
 
-}).passthrough(),
+}).passthrough().nullish(),
   "createdAt": zod.string()
 })).optional()
 }))
@@ -1547,6 +1549,7 @@ export const UpdateDocumentFindingResponse = zod.object({
   "referenceRange": zod.string().nullish(),
   "resultFlag": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "ambiguous": zod.boolean().optional().describe('True when characters or values were unreadable in the source and require user confirmation.'),
   "sourceText": zod.string().nullish(),
   "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
   "correctedLabel": zod.string().nullish(),
@@ -1560,7 +1563,7 @@ export const UpdateDocumentFindingResponse = zod.object({
 
 
 /**
- * Sends only structured findings (corrected values take precedence) to the configured provider. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules and rejected output is never stored.
+ * Sends only structured findings (corrected values take precedence) to the configured provider. For narrative documents without structured findings, the extracted plain text is sent instead once its reviewed status gate passes. Requires explicit consent plus server-side external processing gates. Provider output is validated against safety rules; failed attempts are recorded with an error code so users can see and retry them, and rejected provider output itself is never stored.
  * @summary Generate a consent-gated interpretation of confirmed findings
  */
 export const InterpretDocumentParams = zod.object({
@@ -1577,14 +1580,52 @@ export const InterpretDocumentResponse = zod.object({
   "documentId": zod.number().int(),
   "provider": zod.string(),
   "providerModel": zod.string(),
+  "promptVersion": zod.string().nullish().describe('Version of the interpretation prompt and validation rules used for this attempt.'),
   "status": zod.enum(['completed', 'failed']),
   "errorCode": zod.string().nullish(),
   "sections": zod.object({
 
-}).passthrough(),
+}).passthrough().nullish(),
   "createdAt": zod.string()
 }),
   "notice": zod.string()
+})
+
+
+/**
+ * Matches findings by a normalized label key and an identical unit only. No unit conversion is applied, so values stored under different units are never merged.
+ * @summary History of a finding's value across the user's documents
+ */
+
+export const listDocumentTrendsQueryLabelMax = 120;
+
+export const listDocumentTrendsQueryUnitMax = 60;
+
+
+
+export const ListDocumentTrendsQueryParams = zod.object({
+  "documentId": zod.coerce.number().int().min(1),
+  "label": zod.coerce.string().min(1).max(listDocumentTrendsQueryLabelMax),
+  "unit": zod.coerce.string().max(listDocumentTrendsQueryUnitMax).optional()
+})
+
+export const ListDocumentTrendsResponse = zod.object({
+  "series": zod.array(zod.object({
+  "documentId": zod.number().int(),
+  "fileName": zod.string(),
+  "documentDate": zod.string(),
+  "extractedAt": zod.string().nullish(),
+  "findingId": zod.number().int(),
+  "label": zod.string(),
+  "valueText": zod.string().nullish(),
+  "numericValue": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "referenceRange": zod.string().nullish(),
+  "resultFlag": zod.string().nullish(),
+  "status": zod.enum(['candidate', 'confirmed', 'corrected', 'rejected']),
+  "pageNumber": zod.number().int().nullish()
+})),
+  "matchingStrategy": zod.string()
 })
 
 
@@ -2017,5 +2058,16 @@ export const ExportReportParams = zod.object({
 })
 
 export const ExportReportResponse = zod.string()
+
+
+/**
+ * Renders the same draft content as the plain text export into a server-generated PDF.
+ * @summary Export a draft report as a PDF document
+ */
+export const ExportReportPdfParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ExportReportPdfResponse = zod.unknown()
 
 

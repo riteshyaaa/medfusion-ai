@@ -5,6 +5,7 @@ import {
   detectDocumentType,
   extractDocument,
   extractFindingsFromText,
+  findingMatchKey,
   setTestOcrProvider,
 } from "../src/document-extraction";
 import {
@@ -260,6 +261,83 @@ test("extractDocument parses a text-layer PDF and notifies on corrupt PDFs", asy
   const unsupported = await extractDocument({ bytes: Buffer.from("plain text"), mimeType: "text/plain" }, { ...process.env });
   assert.equal(unsupported.status, "unsupported");
   assert.equal(unsupported.errorCode, "unsupported_type");
+});
+
+test("numeric parsing handles locale decimals, thousands separators, scientific notation, and negatives", () => {
+  const commaDecimal = extractFindingsFromText("Creatinine 0,8 mg/dL (0,7 - 1,3)", options);
+  const finding = findingByLabel(commaDecimal.findings, "Creatinine");
+  assert.ok(finding);
+  assert.equal(finding.valueText, "0,8");
+  assert.equal(finding.numericValue, 0.8);
+
+  const thousands = extractFindingsFromText("Total leukocyte count 1,876 /uL", options);
+  const wbc = findingByLabel(thousands.findings, "Total leukocyte count");
+  assert.ok(wbc);
+  assert.equal(wbc.numericValue, 1876);
+
+  const dotThousands = extractFindingsFromText("Platelet count 1.87.625 /uL", options);
+  const platelets = findingByLabel(dotThousands.findings, "Platelet count");
+  assert.ok(platelets);
+  assert.equal(platelets.numericValue, 187625);
+
+  const scientific = extractFindingsFromText("Serum iron 8.6e-1 umol/L", options);
+  const iron = findingByLabel(scientific.findings, "Serum iron");
+  assert.ok(iron);
+  assert.ok(Math.abs((iron.numericValue ?? 0) - 0.86) < 1e-9);
+
+  const negative = extractFindingsFromText("C-reactive protein -0.4 mg/L", options);
+  const crp = findingByLabel(negative.findings, "CRP");
+  assert.ok(crp);
+  assert.equal(crp.numericValue, -0.4);
+});
+
+test("inequality values are kept verbatim and compared against the reference range conservatively", () => {
+  const high = extractFindingsFromText("Total cholesterol >250 mg/dL (<200)", options);
+  const cholesterol = findingByLabel(high.findings, "Total cholesterol");
+  assert.ok(cholesterol);
+  assert.equal(cholesterol.valueText, ">250");
+  assert.equal(cholesterol.resultFlag, "high");
+
+  const low = extractFindingsFromText("Fasting glucose <60 mg/dL (70 - 100)", options);
+  const glucose = findingByLabel(low.findings, "Fasting glucose");
+  assert.ok(glucose);
+  assert.equal(glucose.valueText, "<60");
+  assert.equal(glucose.resultFlag, "low");
+
+  const withoutRange = extractFindingsFromText("Total cholesterol >250 mg/dL", options);
+  assert.equal(findingByLabel(withoutRange.findings, "Total cholesterol")?.resultFlag, "unknown");
+});
+
+test("qualitative results with multi-word negations map to conservative flags", () => {
+  const notDetected = extractFindingsFromText("HIV: Not detected", options);
+  const hiv = findingByLabel(notDetected.findings, "HIV");
+  assert.ok(hiv);
+  assert.equal(hiv.valueText, "Not detected");
+  assert.equal(hiv.resultFlag, "normal");
+
+  const detected = extractFindingsFromText("Urine protein: Present", options);
+  const protein = findingByLabel(detected.findings, "Urine protein");
+  assert.ok(protein);
+  assert.equal(protein.valueText, "Present");
+  assert.equal(protein.resultFlag, "abnormal");
+});
+
+test("in-range numeric values with a real range are not auto-marked normal", () => {
+  const inRange = extractFindingsFromText("Hemoglobin 13.5 g/dL (13.0 - 17.0) without a flag word", options);
+  const hemoglobin = findingByLabel(inRange.findings, "Hemoglobin");
+  assert.ok(hemoglobin);
+  assert.equal(hemoglobin.resultFlag, "unknown");
+
+  const outOfRange = extractFindingsFromText("Hemoglobin 19.9 g/dL (13.0 - 17.0)", options);
+  const elevated = findingByLabel(outOfRange.findings, "Hemoglobin");
+  assert.ok(elevated);
+  assert.equal(elevated.resultFlag, "high");
+});
+
+test("findingMatchKey produces stable comparison keys for reprocess and trend matching", () => {
+  assert.equal(findingMatchKey("Hemoglobin"), findingMatchKey("hemoglobin"));
+  assert.equal(findingMatchKey("LDL cholesterol (mg/dL)"), findingMatchKey("ldl cholesterol mg dl"));
+  assert.notEqual(findingMatchKey("HDL cholesterol"), findingMatchKey("LDL cholesterol"));
 });
 
 after(() => {

@@ -57,6 +57,13 @@
       "when": 1792351384800,
       "tag": "0007_normal_slipstream",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792394073516,
+      "tag": "0008_secret_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

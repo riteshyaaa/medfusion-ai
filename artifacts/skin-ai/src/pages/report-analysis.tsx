@@ -420,6 +420,7 @@ export default function ReportAnalysis() {
                                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${findingStatusStyles[finding.status] ?? "bg-slate-100 text-slate-700"}`}>
                                     {statusLabel(finding.status)}
                                   </span>
+                                  {finding.ambiguous && <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800" title="Some characters in this row were unreadable during extraction">unreadable?</span>}
                                 </td>
                                 <td className="px-4 py-3">
                                   {inEdit ? (
@@ -473,7 +474,7 @@ export default function ReportAnalysis() {
                     <Button
                       className="gap-2"
                       onClick={() => interpretDocument.mutate({ id: detail.id, data: { consentToExternalProcessing: true } })}
-                      disabled={!consent || interpretDocument.isPending || detailProcessing || (detail.findings ?? []).filter((finding) => finding.status !== "rejected").length === 0}
+                      disabled={!consent || interpretDocument.isPending || detailProcessing || ((detail.findings ?? []).filter((finding) => finding.status !== "rejected").length === 0 && (detail.textPages ?? []).length === 0)}
                     >
                       <Sparkles className="h-4 w-4" />
                       {interpretDocument.isPending ? "Generating…" : "Generate explanation"}
@@ -481,10 +482,36 @@ export default function ReportAnalysis() {
                     <span className="text-xs text-slate-500">Requires consent, extracted findings, and an enabled provider on the server.</span>
                   </div>
 
+                  {(() => {
+                    const interpretations = detail?.interpretations ?? [];
+                    const failed = interpretations.filter((entry) => entry.status === "failed");
+                    if (failed.length === 0) return null;
+                    const attemptWord = failed.length === 1 ? "attempt" : failed.length + " attempts";
+                    return (
+                      <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-red-800">The last {attemptWord} failed before any output was produced.</p>
+                            <p className="mt-1 text-xs text-red-700">
+                              {failed.map((entry) => (entry.errorCode ?? "unknown_error").replace(/_/g, " ")).join(", ")} — nothing was saved from the failed provider responses.
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => interpretDocument.mutate({ id: detail.id, data: { consentToExternalProcessing: consent } })}
+                            disabled={!consent || interpretDocument.isPending || detailProcessing}
+                          >
+                            Retry
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {latestInterpretation && (
                     <article className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Provider: {latestInterpretation.provider} · {latestInterpretation.providerModel} · {new Date(latestInterpretation.createdAt).toLocaleString()}
+                        Provider: {latestInterpretation.provider} · {latestInterpretation.providerModel} · {new Date(latestInterpretation.createdAt).toLocaleString()} · prompt version {latestInterpretation.promptVersion ?? "unknown"}{(() => { const all = detail?.interpretations ?? []; return all.length > 1 ? " · " + all.length + " attempts total" : ""; })()}
                       </p>
                       <h3 className="mt-2 font-semibold text-slate-900">{statusLabel(String(latestInterpretation.sections?.documentType ?? detail.documentType))}</h3>
                       <p className="mt-2 text-sm text-slate-700">{String(latestInterpretation.sections?.summary ?? "")}</p>

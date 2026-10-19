@@ -6,4 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type DocumentInterpretationSections = { [key: string]: unknown };
+/**
+ * @nullable
+ */
+export type DocumentInterpretationSections = { [key: string]: unknown } | null;

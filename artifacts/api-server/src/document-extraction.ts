@@ -251,8 +251,8 @@ export type ExtractionFinding = {
 const FLAG_WORDS: Array<{ flag: FindingFlag; pattern: RegExp }> = [
   { flag: "high", pattern: /^(?:h|high|elevated|increased|above normal)$/i },
   { flag: "low", pattern: /^(?:l|low|decreased|reduced|below normal)$/i },
-  { flag: "abnormal", pattern: /^(?:a|abn|abnormal|borderline|positive|reactive)$/i },
-  { flag: "normal", pattern: /^(?:n|norm|normal|negative|non[- ]?reactive)$/i },
+  { flag: "abnormal", pattern: /^(?:a|abn|abnormal|borderline|positive|reactive|detected|trace|present)$/i },
+  { flag: "normal", pattern: /^(?:n|norm|normal|negative|non[- ]?reactive|not\s+detected|not\s+present|absent|nil)$/i },
 ];
 
 const UNIT_PATTERN = /^(?:%|x?10\^?\d+(?:\.\d+)?\s*\/\s*[a-zµμ]+|cells?\/[µu]l|\/[µu]l|[a-zµμ%]{1,8}(?:\s*\/\s*[a-zµμ0-9^.]{1,8})?|mm\s*\/\s*hr|mmhg|bpm|fl|pg)$/i;
@@ -332,8 +332,8 @@ const ANALYTES: Analyte[] = [
   { label: "Respiratory rate", pattern: words("rr", "respiratory rate"), category: "vital_sign" },
 ];
 
-const QUALITATIVE_VALUE = /^(?:positive|negative|non[- ]?reactive|reactive|trace|present|absent|normal|nil|not detected|detected)$/i;
-const VALUE_PATTERN = /^(?:[<>]=?\s*)?\d+(?:[.,]\d+)?(?:\s*[*#])?/;
+const QUALITATIVE_VALUE = /^(?:not detected|not present|non[- ]?reactive|positive|negative|reactive|trace|present|absent|normal|nil|detected)$/i;
+const VALUE_PATTERN = /^(?:[<>≥≤]=?\s*)?[+-]?\d+(?:\s?[.,]\d+)*(?:\s?[eE][+-]?\d+)?(?:\s*[*#])?/;
 const BP_VALUE_PATTERN = /^\d{2,3}\s*\/\s*\d{2,3}\s*(?:mmhg)?/i;
 const MEDICATION_PATTERN = /^([A-Za-z][A-Za-z0-9\-]{2,39})\s+(\d+(?:\.\d+)?)\s*(mg|mcg|g|ml|iu|units?)\b/i;
 const DIAGNOSIS_LINE = /^(?:final\s+|provisional\s+|working\s+)?(diagnosis|impression|assessment|conclusion)\s*[:\-–]\s*(.{2,500})$/i;
@@ -349,10 +349,69 @@ function normalizeLine(line: string): { text: string; ambiguous: boolean } {
   return { text, ambiguous };
 }
 
+function normalizeNumberToken(value: string): string {
+  const cleaned = value.replace(/[\s*#]/g, "").replace(/^\+/, "").trim();
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  if (hasComma && hasDot) return cleaned.replace(/,/g, "");
+  if (hasComma) {
+    const parts = cleaned.split(",");
+    const lastGroup = parts[parts.length - 1]!;
+    if (parts.length > 1 && lastGroup.length === 3) return cleaned.replace(/,/g, "");
+    if (parts.length === 2 && (lastGroup.length === 1 || lastGroup.length === 2)) return `${parts[0]}.${lastGroup}`;
+    return cleaned.replace(/,/g, "");
+  }
+  if (hasDot) {
+    const parts = cleaned.split(".");
+    if (parts.length > 2) return cleaned.replace(/\./g, "");
+  }
+  return cleaned;
+}
+
 function parseNumeric(value: string): number | null {
-  const cleaned = value.replace(/^[<>]=?\s*/, "").replace(/[*#HhLl]$/, "").trim().replace(/,/g, ".");
+  const cleaned = normalizeNumberToken(value.replace(/^[<>≥≤]=?\s*/, ""));
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function findingMatchKey(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim().replace(/[^a-z0-9]+/g, "");
+}
+
+function boundsFromReference(referenceRange: string | null): { lower: number | null; upper: number | null } {
+  if (!referenceRange) return { lower: null, upper: null };
+  const range = referenceRange.match(/(-?\d+(?:\.\d+)?)\s*[-–—]\s*(-?\d+(?:\.\d+)?)/);
+  if (range) {
+    const lower = Number(normalizeNumberToken(range[1]!));
+    const upper = Number(normalizeNumberToken(range[2]!));
+    if (Number.isFinite(lower) && Number.isFinite(upper)) return { lower, upper };
+  }
+  const below = referenceRange.match(/(?:<|≤|less\s+than)\s*(\d+(?:\.\d+)?)/i);
+  if (below) return { lower: null, upper: Number(below[1]!) };
+  const above = referenceRange.match(/(?:>|≥|greater\s+than|above)\s*(\d+(?:\.\d+)?)/i);
+  if (above) return { lower: Number(above[1]!), upper: null };
+  const single = referenceRange.match(/-?\d+(?:\.\d+)?/);
+  if (single) {
+    const value = Number(normalizeNumberToken(single[0]!));
+    if (Number.isFinite(value)) return { lower: value, upper: value };
+  }
+  return { lower: null, upper: null };
+}
+
+// Derives a flag from the numeric value, an optional inequality prefix, and the
+// parsed reference range. Conservatively never produces "normal": the absence
+// of evidence a value is out of range is recorded as "unknown" instead.
+function deriveNumericFlag(valueText: string, numericValue: number, referenceRange: string | null): FindingFlag {
+  const { lower, upper } = boundsFromReference(referenceRange);
+  const inequality = valueText.match(/^(<|>|≤|≥)/);
+  if (inequality) {
+    const opens = inequality[1] === "<" || inequality[1] === "≤";
+    if (opens && upper !== null && numericValue < upper) return "low";
+    if (!opens && lower !== null && numericValue > lower) return "high";
+  }
+  if (upper !== null && numericValue > upper && (lower === null || upper > lower)) return "high";
+  if (lower !== null && numericValue < lower && (upper === null || upper > lower)) return "low";
+  return "unknown";
 }
 
 function findReferenceRange(remainder: string): string | null {
@@ -399,68 +458,80 @@ export function extractFindingsFromText(text: string, options: FindingExtraction
 
     let matched = false;
     for (const analyte of ANALYTES) {
-      const candidates: Array<{ head: string; rest: string }> = [];
+      const candidates: Array<{ rest: string }> = [];
       if (head !== undefined && remainderAfterSeparator !== undefined && analyte.pattern.test(head)) {
-        candidates.push({ head, rest: remainderAfterSeparator });
+        candidates.push({ rest: remainderAfterSeparator });
       }
-      if (candidates.length === 0) {
+      const labelMatch = line.match(analyteLabelPrefix(analyte));
+      if (labelMatch) {
+        candidates.push({ rest: labelMatch[1]!.trim() });
+      }
+      if (head === undefined) {
         const match = line.match(/^([A-Za-z][A-Za-z0-9 +()/%.\-]{0,60}?)\s+(.+)$/);
         if (match && analyte.pattern.test(match[1]!.trim())) {
-          candidates.push({ head: match[1]!.trim(), rest: match[2]!.trim() });
+          candidates.push({ rest: match[2]!.trim() });
         }
       }
       if (candidates.length === 0) continue;
-      const { rest } = candidates[0]!;
+      for (const { rest } of candidates) {
+        let valueText: string | null = null;
+        let numericValue: number | null = null;
+        let unit: string | null = null;
+        let resultFlag: FindingFlag = "unknown";
+        let referenceRange: string | null = null;
+        let leftover = rest;
 
-      let valueText: string | null = null;
-      let numericValue: number | null = null;
-      let unit: string | null = null;
-      let resultFlag: FindingFlag = "unknown";
-      let leftover = rest;
-
-      const bpMatch = analyte.category === "vital_sign" ? rest.match(BP_VALUE_PATTERN) : null;
-      const valueMatch = bpMatch ?? matchValue(rest, analyte.valuePattern);
-      if (valueMatch) {
-        valueText = valueMatch[0].trim();
-        numericValue = analyte.label === "Blood pressure" ? null : parseNumeric(valueText);
-        leftover = rest.slice(valueMatch[0].length).trim();
-        if (bpMatch) {
-          const [systolic, diastolic] = valueText.split("/").map((part) => Number(part.replace(/[^\d.]/g, "")));
-          if (Number.isFinite(systolic) && Number.isFinite(diastolic)) numericValue = null;
-        }
-        const unitMatch = leftover.match(/^([A-Za-zµμ%][A-Za-z0-9µμ%^./*-]{0,11})/);
-        if (unitMatch && !FLAG_WORDS.some((candidate) => candidate.pattern.test(unitMatch[1]!))) {
-          if (UNIT_PATTERN.test(unitMatch[1]!)) {
-            unit = unitMatch[1]!;
-            leftover = leftover.slice(unitMatch[0].length).trim();
+        const bpMatch = analyte.category === "vital_sign" ? rest.match(BP_VALUE_PATTERN) : null;
+        const valueMatch = bpMatch ?? matchValue(rest, analyte.valuePattern);
+        if (valueMatch) {
+          valueText = valueMatch[0].trim();
+          numericValue = analyte.label === "Blood pressure" ? null : parseNumeric(valueText);
+          leftover = rest.slice(valueMatch[0].length).trim();
+          if (bpMatch) {
+            const [systolic, diastolic] = valueText.split("/").map((part) => Number(part.replace(/[^\d.]/g, "")));
+            if (Number.isFinite(systolic) && Number.isFinite(diastolic)) numericValue = null;
+          }
+          const unitMatch = leftover.match(/^([A-Za-zµμ%][A-Za-z0-9µμ%^./*-]{0,11})/);
+          if (unitMatch && !FLAG_WORDS.some((candidate) => candidate.pattern.test(unitMatch[1]!))) {
+            if (UNIT_PATTERN.test(unitMatch[1]!)) {
+              unit = unitMatch[1]!;
+              leftover = leftover.slice(unitMatch[0].length).trim();
+            }
+          }
+          referenceRange = findReferenceRange(leftover);
+          resultFlag = matchFlag(leftover.split(/\s+/)[0] ?? "");
+          if (resultFlag === "unknown" && numericValue !== null) {
+            resultFlag = deriveNumericFlag(valueText, numericValue, referenceRange);
+          }
+        } else {
+          const qualitative = rest.match(QUALITATIVE_VALUE);
+          if (qualitative) {
+            valueText = qualitative[0].trim();
+            leftover = rest.slice(valueText.length).trim();
+            referenceRange = findReferenceRange(leftover);
+            resultFlag = matchFlag(valueText);
           }
         }
-        resultFlag = matchFlag(leftover.split(/\s+/)[0] ?? "");
-      } else if (QUALITATIVE_VALUE.test(rest.split(/\s+/)[0] ?? "")) {
-        const qualitative = rest.split(/\s+/)[0]!;
-        valueText = qualitative;
-        leftover = rest.slice(qualitative.length).trim();
-        resultFlag = matchFlag(qualitative);
-      }
 
-      if (valueText === null) continue;
-      const referenceRange = findReferenceRange(leftover);
-      if (ambiguous) warnings.push(`Line on page ${options.pageNumber ?? "?"} contains unreadable characters; value requires confirmation.`);
-      push({
-        pageNumber: options.pageNumber,
-        category: analyte.category,
-        label: analyte.label,
-        valueText,
-        numericValue,
-        unit,
-        referenceRange,
-        resultFlag,
-        confidence: options.confidence,
-        sourceText: rawLine.trim().slice(0, 300),
-        ambiguous,
-      });
-      matched = true;
-      break;
+        if (valueText === null) continue;
+        if (ambiguous) warnings.push(`Line on page ${options.pageNumber ?? "?"} contains unreadable characters; value requires confirmation.`);
+        push({
+          pageNumber: options.pageNumber,
+          category: analyte.category,
+          label: analyte.label,
+          valueText,
+          numericValue,
+          unit,
+          referenceRange,
+          resultFlag,
+          confidence: options.confidence,
+          sourceText: rawLine.trim().slice(0, 300),
+          ambiguous,
+        });
+        matched = true;
+        break;
+      }
+      if (matched) break;
     }
     if (matched) continue;
 
@@ -500,6 +571,18 @@ export function extractFindingsFromText(text: string, options: FindingExtraction
     }
   }
   return { findings, warnings };
+}
+
+const labelPrefixPatterns = new WeakMap<Analyte, RegExp>();
+
+function analyteLabelPrefix(analyte: Analyte): RegExp {
+  let pattern = labelPrefixPatterns.get(analyte);
+  if (!pattern) {
+    const source = analyte.pattern.source.replace(/^\^\(\?:/, "").replace(/\)\$$/, "");
+    pattern = new RegExp(`^(?:${source})\\s+([\\s\\S]+)$`, "i");
+    labelPrefixPatterns.set(analyte, pattern);
+  }
+  return pattern;
 }
 
 function matchValue(rest: string, valuePattern?: RegExp): RegExpMatchArray | null {

@@ -1184,6 +1184,8 @@ export interface DocumentFinding {
   resultFlag?: string | null;
   /** @nullable */
   confidence?: number | null;
+  /** True when characters or values were unreadable in the source and require user confirmation. */
+  ambiguous?: boolean;
   /** @nullable */
   sourceText?: string | null;
   status: DocumentFindingStatus;
@@ -1208,17 +1210,26 @@ export const DocumentInterpretationStatus = {
   failed: 'failed',
 } as const;
 
-export type DocumentInterpretationSections = { [key: string]: unknown };
+/**
+ * @nullable
+ */
+export type DocumentInterpretationSections = { [key: string]: unknown } | null;
 
 export interface DocumentInterpretation {
   id: number;
   documentId: number;
   provider: string;
   providerModel: string;
+  /**
+     * Version of the interpretation prompt and validation rules used for this attempt.
+     * @nullable
+     */
+  promptVersion?: string | null;
   status: DocumentInterpretationStatus;
   /** @nullable */
   errorCode?: string | null;
-  sections: DocumentInterpretationSections;
+  /** @nullable */
+  sections?: DocumentInterpretationSections;
   createdAt: string;
 }
 
@@ -1258,6 +1269,44 @@ export interface DocumentListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export type DocumentTrendEntryStatus = typeof DocumentTrendEntryStatus[keyof typeof DocumentTrendEntryStatus];
+
+
+export const DocumentTrendEntryStatus = {
+  candidate: 'candidate',
+  confirmed: 'confirmed',
+  corrected: 'corrected',
+  rejected: 'rejected',
+} as const;
+
+export interface DocumentTrendEntry {
+  documentId: number;
+  fileName: string;
+  documentDate: string;
+  /** @nullable */
+  extractedAt?: string | null;
+  findingId: number;
+  label: string;
+  /** @nullable */
+  valueText?: string | null;
+  /** @nullable */
+  numericValue?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  referenceRange?: string | null;
+  /** @nullable */
+  resultFlag?: string | null;
+  status: DocumentTrendEntryStatus;
+  /** @nullable */
+  pageNumber?: number | null;
+}
+
+export interface DocumentTrendResponse {
+  series: DocumentTrendEntry[];
+  matchingStrategy: string;
 }
 
 export type UpdateDocumentFindingRequestStatus = typeof UpdateDocumentFindingRequestStatus[keyof typeof UpdateDocumentFindingRequestStatus];
@@ -1758,6 +1807,22 @@ export const ListDocumentsStatus = {
   failed: 'failed',
   unsupported: 'unsupported',
 } as const;
+
+export type ListDocumentTrendsParams = {
+/**
+ * @minimum 1
+ */
+documentId: number;
+/**
+ * @minLength 1
+ * @maxLength 120
+ */
+label: string;
+/**
+ * @maxLength 60
+ */
+unit?: string;
+};
 
 export type ListCardiacAssessmentsParams = {
 page?: number;

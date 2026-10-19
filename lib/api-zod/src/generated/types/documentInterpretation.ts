@@ -13,9 +13,15 @@ export interface DocumentInterpretation {
   documentId: number;
   provider: string;
   providerModel: string;
+  /**
+     * Version of the interpretation prompt and validation rules used for this attempt.
+     * @nullable
+     */
+  promptVersion?: string | null;
   status: DocumentInterpretationStatus;
   /** @nullable */
   errorCode?: string | null;
-  sections: DocumentInterpretationSections;
+  /** @nullable */
+  sections?: DocumentInterpretationSections;
   createdAt: string;
 }
