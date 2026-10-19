@@ -1024,6 +1024,72 @@ test("non-skin uploads are screened out locally and never reach the AI vision mo
   }
 });
 
+test("AI match confidences vary per image: top in 85-95%, differentials below 65%, deterministic for the same image", async () => {
+  const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
+  const { default: sharp } = await import("sharp");
+  const owner = await register(`confidence-owner-${randomUUID()}@example.test`);
+
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  try {
+    const tan = await sharp({ create: { width: 96, height: 96, channels: 3, background: { r: 203, g: 169, b: 140 } } })
+      .png().toBuffer();
+    const uploadResponse = await upload(owner.cookie, tan);
+    assert.equal(uploadResponse.status, 201);
+    const uploadId = (await uploadResponse.json() as { upload: { id: number } }).upload.id;
+
+    let seedBase = 0;
+    setTestClinicalAIProvider({
+      async analyzeSkin() {
+        seedBase += 1;
+        return {
+          provider: "test",
+          model: "test-double",
+          result: {
+            imageType: "real_skin",
+            visibleAbnormality: true,
+            description: "A lesion-like region.", observations: ["Irregular edge."],
+            possibleConditions: [
+              { name: `First Condition ${seedBase}`, reason: "closest fit" },
+              { name: "Second Condition", reason: "plausible alternative" },
+              { name: "Third Condition", reason: "weaker fit" },
+              { name: "Fourth Condition", reason: "least likely" },
+            ],
+            uncertainty: "Educational assessment only; no clinical diagnosis was made.",
+            severity: "uncertain",
+            urgency: "routine",
+            nextSteps: ["Monitor the area."],
+            consultClinicianWhen: ["The lesion changes quickly."],
+          },
+        };
+      },
+      async analyzeSymptoms() { throw new Error("not used"); },
+      async analyzeCardiac() { throw new Error("not used"); },
+      async explainCardiacAssessment() { throw new Error("not used"); },
+      async evaluateSymptoms() { throw new Error("not used"); },
+    });
+
+    const first = await jsonRequest("/predict", "POST", { uploadId, consentToExternalProcessing: true }, owner.cookie);
+    assert.equal(first.status, 201);
+    const firstBody = await first.json() as { confidence: number; differentialDiagnoses: Array<{ disease: string; confidence: number }>; aiAssessment: { possibleConditions: Array<{ reason: string }> } };
+    assert.ok(firstBody.confidence >= 0.85 && firstBody.confidence <= 0.95, `top confidence ${firstBody.confidence} must be within [0.85, 0.95]`);
+    assert.equal(firstBody.differentialDiagnoses.length, 3);
+    assert.ok(firstBody.differentialDiagnoses.every((row) => row.confidence < 0.65), "differentials must stay below 65%");
+    assert.ok(firstBody.differentialDiagnoses.every((row, index) => index === 0 || row.confidence < firstBody.differentialDiagnoses[index - 1].confidence), "differentials must decrease");
+    assert.match(firstBody.aiAssessment.possibleConditions[0].reason, /^(8[5-9]|9[0-5])% match confidence/);
+
+    const second = await jsonRequest("/predict", "POST", { uploadId, consentToExternalProcessing: true }, owner.cookie);
+    assert.equal(second.status, 201);
+    const secondBody = await second.json() as { confidence: number; differentialDiagnoses: Array<{ disease: string; confidence: number }> };
+    assert.equal(secondBody.confidence, firstBody.confidence, "the same image must yield the same top percentage");
+    assert.deepEqual(secondBody.differentialDiagnoses.map((row) => row.confidence), firstBody.differentialDiagnoses.map((row) => row.confidence));
+  } finally {
+    setTestClinicalAIProvider(undefined);
+    delete process.env.AI_DATA_SHARING_ENABLED;
+    delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  }
+});
+
 test("symptom submission runs one AI pipeline with urgent skip, honest failure preservation, reopen without provider calls, and warning preservation", async () => {
   const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
   const { AIProviderError } = await import("../src/ai-providers");
