@@ -480,11 +480,23 @@ test("API foundation persists data, enforces owner access, and fails closed with
   });
   const simulatedPrediction = await jsonRequest("/predict", "POST", { uploadId }, cookieA);
   assert.equal(simulatedPrediction.status, 201);
-  const prediction = await simulatedPrediction.json() as { id: number; status: string; scoreSemantics: string; userId?: number; imageBase64?: string };
+  const prediction = await simulatedPrediction.json() as { id: number; status: string; scoreSemantics: string; userId?: number; imageBase64?: string; uploadId?: number | null };
   assert.equal(prediction.status, "simulated");
   assert.equal(prediction.scoreSemantics, "simulated");
   assert.equal("userId" in prediction, false);
   assert.equal("imageBase64" in prediction, false);
+  assert.equal(prediction.uploadId, uploadId, "the prediction exposes its analyzed upload id for owner-scoped image retrieval");
+  const ownedImage = await app.request(`/api/uploads/${uploadId}/file`, { headers: { Cookie: cookieA } });
+  assert.equal(ownedImage.status, 200);
+  assert.match(ownedImage.headers.get("Content-Type") ?? "", /image\/(jpeg|png)/);
+  const ownedImageBytes = new Uint8Array(await ownedImage.arrayBuffer());
+  assert.ok(ownedImageBytes.byteLength > 100, "stored image content must stream back");
+  const foreignImage = await app.request(`/api/uploads/${uploadId}/file`, { headers: { Cookie: cookieB } });
+  assert.equal(foreignImage.status, 404);
+  const anonymousImage = await app.request(`/api/uploads/${uploadId}/file`);
+  assert.equal(anonymousImage.status, 401);
+  const missingImage = await app.request(`/api/uploads/999999/file`, { headers: { Cookie: cookieA } });
+  assert.equal(missingImage.status, 404);
   const predictionId = prediction.id;
   const explanationUnauthenticated = await jsonRequest("/ai/explanations", "POST", {
     predictionId,

@@ -2481,6 +2481,10 @@ components:
             type: string
         fileName:
           type: string
+        uploadId:
+          type: integer
+          nullable: true
+          description: ID of the analyzed image; fetch it via GET /uploads/{id}/file while signed in.
         modelId:
           type: string
           nullable: true

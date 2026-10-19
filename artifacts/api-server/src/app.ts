@@ -784,11 +784,31 @@ function predictionView(prediction: typeof predictions.$inferSelect) {
     modelVersion: prediction.modelVersion,
     scoreSemantics: prediction.scoreSemantics,
     preprocessingVersion: prediction.preprocessingVersion,
+    uploadId: prediction.uploadId,
     status: prediction.status,
     fileName: prediction.fileName,
     createdAt: prediction.createdAt,
   };
 }
+
+app.get("/uploads/:id/file", requireAuth, async (c) => {
+  // Owner-scoped streaming of the stored, normalized image. Cookies are sent
+  // automatically by same-origin <img> requests; no public/static access exists.
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const upload = await db.query.uploads.findFirst({ where: and(eq(uploads.id, id), eq(uploads.userId, user.id)) });
+  if (!upload) throw new HTTPException(404, { message: "Upload not found" });
+  let bytes: Buffer;
+  try {
+    bytes = await storage.read(upload.storageKey);
+  } catch {
+    throw new HTTPException(404, { message: "Stored image is unavailable" });
+  }
+  c.header("Content-Type", upload.mimeType ?? "image/jpeg");
+  c.header("Content-Disposition", `inline; filename="${(upload.originalFileName ?? "upload.jpg").replace(/["\\\r\n]/g, "_")}"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(new Uint8Array(bytes));
+});
 
 app.delete("/uploads/:id", requireAuth, async (c) => {
   const user = c.get("user");

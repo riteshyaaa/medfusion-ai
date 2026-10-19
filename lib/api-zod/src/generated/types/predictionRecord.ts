@@ -19,6 +19,11 @@ export interface PredictionRecord {
   differentialDiagnoses: DifferentialDiagnosis[];
   preprocessingSteps: string[];
   fileName?: string;
+  /**
+     * ID of the analyzed image; fetch it via GET /uploads/{id}/file while signed in.
+     * @nullable
+     */
+  uploadId?: number | null;
   /** @nullable */
   modelId?: string | null;
   /** @nullable */
