@@ -359,7 +359,10 @@ function requestFor(config: ProviderConfig, options: StructuredRequestOptions): 
     headers.Authorization = "Bearer " + config.apiKey;
     // NVIDIA Chat Completions hosted support for structured output was not
     // verified, so the required JSON shape is embedded in the prompt itself.
-    const userText = `${options.user}\n\nReturn ONLY a JSON object (no markdown, no surrounding text) matching exactly this JSON schema:\n${JSON.stringify(options.jsonSchema)}`;
+    // A concrete template (first enum values, correct array/object nesting)
+    // measurably beats the raw schema dump: small hosted models copy the
+    // template instead of inventing types like "imageType": "Skin".
+    const userText = `${options.user}\n\nReturn ONLY a JSON object (no markdown, no surrounding text). Copy this template EXACTLY: identical key names, same array/object shapes, values exactly like the lowercase enum values shown. Replace only the filler text <...>:\n${JSON.stringify(schemaToTemplate(options.jsonSchema), null, 2)}`;
     body = {
       model: config.visionModel ?? config.model,
       messages: [
@@ -406,6 +409,23 @@ function semaphoreFor(maximum: number): Semaphore {
     semaphoreByLimit.set(maximum, semaphore);
   }
   return semaphore;
+}
+
+function schemaToTemplate(schema: unknown): unknown {
+  if (typeof schema !== "object" || schema === null) return "<text>";
+  const s = schema as Record<string, unknown>;
+  if (Array.isArray(s.enum)) return s.enum[0];
+  if (s.type === "array") return [schemaToTemplate(s.items)];
+  if (s.type === "object" && typeof s.properties === "object" && s.properties !== null) {
+    const template: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(s.properties as Record<string, unknown>)) {
+      template[key] = schemaToTemplate(value);
+    }
+    return template;
+  }
+  if (s.type === "boolean") return true;
+  if (s.type === "number" || s.type === "integer") return 0;
+  return "<text>";
 }
 
 async function executeStructuredRequest(
