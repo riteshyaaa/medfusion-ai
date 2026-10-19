@@ -5,7 +5,7 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
-import type { SymptomAiEvaluationResult } from './symptomAiEvaluationResult.ts';
+import type { SymptomAiEvaluationResultProperty } from './symptomAiEvaluationResultProperty.ts';
 import type { SymptomAiEvaluationStatus } from './symptomAiEvaluationStatus.ts';
 
 export interface SymptomAiEvaluation {
@@ -17,8 +17,7 @@ export interface SymptomAiEvaluation {
   status: SymptomAiEvaluationStatus;
   /** @nullable */
   errorCode?: string | null;
-  consentAt: string;
-  /** @nullable */
-  result?: SymptomAiEvaluationResult;
-  createdAt: string;
+  consentAt: Date;
+  result?: SymptomAiEvaluationResultProperty;
+  createdAt: Date;
 }

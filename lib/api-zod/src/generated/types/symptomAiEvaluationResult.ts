@@ -7,10 +7,7 @@
  */
 import type { SymptomAiEvaluationResultPossibleConsiderationsItem } from './symptomAiEvaluationResultPossibleConsiderationsItem.ts';
 
-/**
- * @nullable
- */
-export type SymptomAiEvaluationResult = {
+export interface SymptomAiEvaluationResult {
   summary?: string;
   reportedSymptoms?: string[];
   possibleConsiderations?: SymptomAiEvaluationResultPossibleConsiderationsItem[];
@@ -22,4 +19,4 @@ export type SymptomAiEvaluationResult = {
   disclaimer?: string;
   urgencyLevel?: string;
   redFlagsTriggered?: string[];
-} | null;
+}

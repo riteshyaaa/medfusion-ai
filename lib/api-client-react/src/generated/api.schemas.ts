@@ -649,6 +649,29 @@ export type SymptomAssessmentGuidance = {
   possibleConditions?: SymptomAssessmentGuidancePossibleConditionsItem[];
 };
 
+export type SymptomAssessmentAgeGroup = typeof SymptomAssessmentAgeGroup[keyof typeof SymptomAssessmentAgeGroup];
+
+
+export const SymptomAssessmentAgeGroup = {
+  child: 'child',
+  adolescent: 'adolescent',
+  adult: 'adult',
+  older_adult: 'older_adult',
+  unknown: 'unknown',
+  prefer_not_to_say: 'prefer_not_to_say',
+} as const;
+
+export type SymptomAssessmentPreviousEpisodes = typeof SymptomAssessmentPreviousEpisodes[keyof typeof SymptomAssessmentPreviousEpisodes];
+
+
+export const SymptomAssessmentPreviousEpisodes = {
+  first_episode: 'first_episode',
+  recurrent: 'recurrent',
+  unknown: 'unknown',
+} as const;
+
+export type SymptomAssessmentNormalizedInput = { [key: string]: unknown };
+
 export type SymptomAssessmentClassificationStatus = typeof SymptomAssessmentClassificationStatus[keyof typeof SymptomAssessmentClassificationStatus];
 
 
@@ -680,6 +703,11 @@ export type SymptomAssessmentClassification = {
   diagnosticLimitations?: string[];
 } | null;
 
+export interface SymptomFollowUpAnswer {
+  questionId: string;
+  answer: string;
+}
+
 export interface SymptomAssessment {
   id: number;
   primarySymptom: string;
@@ -696,6 +724,16 @@ export interface SymptomAssessment {
   urgencyLevel: SymptomAssessmentUrgencyLevel;
   guidance: SymptomAssessmentGuidance;
   selectedSymptoms?: string[];
+  ageGroup?: SymptomAssessmentAgeGroup;
+  factorsThatHelp?: string[];
+  factorsThatWorsen?: string[];
+  previousEpisodes?: SymptomAssessmentPreviousEpisodes;
+  additionalNotes?: string;
+  questionnaireAnswers?: SymptomFollowUpAnswer[];
+  questionnaireVersion?: string;
+  inputSchemaVersion?: string;
+  ruleSetVersion?: string;
+  normalizedInput?: SymptomAssessmentNormalizedInput;
   /** @nullable */
   classification?: SymptomAssessmentClassification;
   status: string;
@@ -703,18 +741,29 @@ export interface SymptomAssessment {
   updatedAt: string;
 }
 
-export interface SymptomAiConditionsRequest {
-  consentToExternalProcessing: true;
-}
+/**
+ * Authoritative deterministic urgency state mapped from the rule engine.
+ */
+export type SymptomAssessmentResponseUrgencyState = typeof SymptomAssessmentResponseUrgencyState[keyof typeof SymptomAssessmentResponseUrgencyState];
 
-export interface AIConditionSuggestion {
-  condition: string;
-  rationale: string;
-}
 
-export interface SymptomEvaluationConsent {
-  consentToExternalProcessing: true;
-}
+export const SymptomAssessmentResponseUrgencyState = {
+  routine_guidance: 'routine_guidance',
+  needs_more_information: 'needs_more_information',
+  urgent_guidance: 'urgent_guidance',
+  emergency_guidance: 'emergency_guidance',
+} as const;
+
+export type SymptomAssessmentResponseAiStatus = typeof SymptomAssessmentResponseAiStatus[keyof typeof SymptomAssessmentResponseAiStatus];
+
+
+export const SymptomAssessmentResponseAiStatus = {
+  completed: 'completed',
+  failed: 'failed',
+  skipped_urgent: 'skipped_urgent',
+  not_requested: 'not_requested',
+  unavailable: 'unavailable',
+} as const;
 
 export type SymptomAiEvaluationStatus = typeof SymptomAiEvaluationStatus[keyof typeof SymptomAiEvaluationStatus];
 
@@ -724,18 +773,15 @@ export const SymptomAiEvaluationStatus = {
   failed: 'failed',
 } as const;
 
-export type SymptomAiEvaluationResultPossibleConsiderationsItem = {
+export type SymptomAiEvaluationResultPropertyPossibleConsiderationsItem = {
   name: string;
   whyDiscussed: string;
 };
 
-/**
- * @nullable
- */
-export type SymptomAiEvaluationResult = {
+export type SymptomAiEvaluationResultProperty = {
   summary?: string;
   reportedSymptoms?: string[];
-  possibleConsiderations?: SymptomAiEvaluationResultPossibleConsiderationsItem[];
+  possibleConsiderations?: SymptomAiEvaluationResultPropertyPossibleConsiderationsItem[];
   supportingInformation?: string;
   missingInformation?: string;
   urgencyContext?: string;
@@ -756,34 +802,70 @@ export interface SymptomAiEvaluation {
   /** @nullable */
   errorCode?: string | null;
   consentAt: string;
-  /** @nullable */
-  result?: SymptomAiEvaluationResult;
+  result?: SymptomAiEvaluationResultProperty;
   createdAt: string;
+}
+
+export interface SymptomAssessmentResponse {
+  assessment: SymptomAssessment;
+  /** Authoritative deterministic urgency state mapped from the rule engine. */
+  urgencyState?: SymptomAssessmentResponseUrgencyState;
+  aiStatus?: SymptomAssessmentResponseAiStatus;
+  aiErrorCode?: string;
+  aiMessage?: string;
+  evaluation?: SymptomAiEvaluation;
+}
+
+export interface SymptomEvaluationConsent {
+  consentToExternalProcessing: true;
+}
+
+export type SymptomAiEvaluationResultPossibleConsiderationsItem = {
+  name: string;
+  whyDiscussed: string;
+};
+
+export interface SymptomAiEvaluationResult {
+  summary?: string;
+  reportedSymptoms?: string[];
+  possibleConsiderations?: SymptomAiEvaluationResultPossibleConsiderationsItem[];
+  supportingInformation?: string;
+  missingInformation?: string;
+  urgencyContext?: string;
+  limitations?: string;
+  followUpQuestions?: string[];
+  disclaimer?: string;
+  urgencyLevel?: string;
+  redFlagsTriggered?: string[];
 }
 
 export interface SymptomAiEvaluationResponse {
   evaluation: SymptomAiEvaluation;
-  previousEvaluationId?: number;
 }
 
 export interface SymptomAiEvaluationListResponse {
   evaluations: SymptomAiEvaluation[];
 }
 
-export type SymptomAIConditionsResponseAnalysis = {
-  provider: string;
-  model: string;
-  topConditions: AIConditionSuggestion[];
-  note: string;
-  instructionNotice: string;
-};
+export type SymptomFollowUpQuestionType = typeof SymptomFollowUpQuestionType[keyof typeof SymptomFollowUpQuestionType];
 
-export interface SymptomAIConditionsResponse {
-  analysis: SymptomAIConditionsResponseAnalysis;
+
+export const SymptomFollowUpQuestionType = {
+  yes_no_unknown: 'yes_no_unknown',
+  choice: 'choice',
+} as const;
+
+export interface SymptomFollowUpQuestion {
+  id: string;
+  prompt: string;
+  type: SymptomFollowUpQuestionType;
+  options?: string[];
+  allowUnknown: boolean;
 }
 
-export interface SymptomAssessmentResponse {
-  assessment: SymptomAssessment;
+export interface SymptomFollowUpQuestionsResponse {
+  questionSetVersion: string;
+  questions: SymptomFollowUpQuestion[];
 }
 
 export interface SymptomAssessmentListResponse {
@@ -793,8 +875,36 @@ export interface SymptomAssessmentListResponse {
   limit: number;
 }
 
+export type CreateSymptomAssessmentRequestAgeGroup = typeof CreateSymptomAssessmentRequestAgeGroup[keyof typeof CreateSymptomAssessmentRequestAgeGroup];
+
+
+export const CreateSymptomAssessmentRequestAgeGroup = {
+  child: 'child',
+  adolescent: 'adolescent',
+  adult: 'adult',
+  older_adult: 'older_adult',
+  unknown: 'unknown',
+  prefer_not_to_say: 'prefer_not_to_say',
+} as const;
+
+export type CreateSymptomAssessmentRequestPreviousEpisodes = typeof CreateSymptomAssessmentRequestPreviousEpisodes[keyof typeof CreateSymptomAssessmentRequestPreviousEpisodes];
+
+
+export const CreateSymptomAssessmentRequestPreviousEpisodes = {
+  first_episode: 'first_episode',
+  recurrent: 'recurrent',
+  unknown: 'unknown',
+} as const;
+
+export type CreateSymptomAssessmentRequestQuestionnaireAnswersItem = {
+  questionId: string;
+  answer: string;
+};
+
 export interface CreateSymptomAssessmentRequest {
   caseId?: number;
+  /** Consent to send the normalized assessment fields to the external AI provider for an educational evaluation. The server independently enforces its own data-transfer gates. */
+  consentToExternalProcessing?: boolean;
   primarySymptom: string;
   symptomCategory: string;
   onset?: string;
@@ -810,6 +920,22 @@ export interface CreateSymptomAssessmentRequest {
      * @items.maxLength 300
      */
   selectedSymptoms?: string[];
+  ageGroup?: CreateSymptomAssessmentRequestAgeGroup;
+  /**
+     * @maxItems 10
+     * @items.maxLength 300
+     */
+  factorsThatHelp?: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 300
+     */
+  factorsThatWorsen?: string[];
+  previousEpisodes?: CreateSymptomAssessmentRequestPreviousEpisodes;
+  /** @maxLength 2000 */
+  additionalNotes?: string;
+  /** @maxItems 12 */
+  questionnaireAnswers?: CreateSymptomAssessmentRequestQuestionnaireAnswersItem[];
 }
 
 export type ReviewStatus = typeof ReviewStatus[keyof typeof ReviewStatus];
@@ -1641,4 +1767,33 @@ page?: number;
 limit?: number;
 caseId?: number;
 };
+
+export type ListSymptomFollowUpQuestionsParams = {
+category?: ListSymptomFollowUpQuestionsCategory;
+/**
+ * Primary symptom free text used for topic matching
+ * @maxLength 1000
+ */
+primary?: string;
+/**
+ * Comma-separated catalogue symptom ids
+ * @maxLength 4000
+ */
+symptoms?: string;
+};
+
+export type ListSymptomFollowUpQuestionsCategory = typeof ListSymptomFollowUpQuestionsCategory[keyof typeof ListSymptomFollowUpQuestionsCategory];
+
+
+export const ListSymptomFollowUpQuestionsCategory = {
+  skin: 'skin',
+  general: 'general',
+  neurological: 'neurological',
+  cardiovascular: 'cardiovascular',
+  respiratory: 'respiratory',
+  gastrointestinal: 'gastrointestinal',
+  musculoskeletal: 'musculoskeletal',
+  psychiatric: 'psychiatric',
+  other: 'other',
+} as const;
 

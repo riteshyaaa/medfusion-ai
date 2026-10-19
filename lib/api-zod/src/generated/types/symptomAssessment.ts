@@ -5,9 +5,13 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { SymptomAssessmentAgeGroup } from './symptomAssessmentAgeGroup.ts';
 import type { SymptomAssessmentClassification } from './symptomAssessmentClassification.ts';
 import type { SymptomAssessmentGuidance } from './symptomAssessmentGuidance.ts';
+import type { SymptomAssessmentNormalizedInput } from './symptomAssessmentNormalizedInput.ts';
+import type { SymptomAssessmentPreviousEpisodes } from './symptomAssessmentPreviousEpisodes.ts';
 import type { SymptomAssessmentUrgencyLevel } from './symptomAssessmentUrgencyLevel.ts';
+import type { SymptomFollowUpAnswer } from './symptomFollowUpAnswer.ts';
 
 export interface SymptomAssessment {
   id: number;
@@ -25,6 +29,16 @@ export interface SymptomAssessment {
   urgencyLevel: SymptomAssessmentUrgencyLevel;
   guidance: SymptomAssessmentGuidance;
   selectedSymptoms?: string[];
+  ageGroup?: SymptomAssessmentAgeGroup;
+  factorsThatHelp?: string[];
+  factorsThatWorsen?: string[];
+  previousEpisodes?: SymptomAssessmentPreviousEpisodes;
+  additionalNotes?: string;
+  questionnaireAnswers?: SymptomFollowUpAnswer[];
+  questionnaireVersion?: string;
+  inputSchemaVersion?: string;
+  ruleSetVersion?: string;
+  normalizedInput?: SymptomAssessmentNormalizedInput;
   /** @nullable */
   classification?: SymptomAssessmentClassification;
   status: string;

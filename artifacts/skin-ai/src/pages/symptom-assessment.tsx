@@ -1,9 +1,9 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateSymptomAssessment, useCreateSymptomAiConditions, useGetSymptomClassifierStatus, useListCases, useListSymptomAssessments } from "@workspace/api-client-react";
+import { useCreateSymptomAssessment, useCreateSymptomAiEvaluation, useGetSymptomClassifierStatus, useListCases, useListSymptomAssessments, useListSymptomFollowUpQuestions, type SymptomAssessment } from "@workspace/api-client-react";
 import { AIEvaluationModal, type AIEvaluationModalAssessment } from "@/components/ai-evaluation-modal";
-import { AlertTriangle, ArrowLeft, ClipboardList, Search, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ClipboardList, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/layout";
@@ -14,6 +14,12 @@ const urgencyStyle: Record<string, string> = {
   urgent: "border-amber-300 bg-amber-50 text-amber-900",
   routine: "border-blue-200 bg-blue-50 text-blue-900",
   self_care: "border-slate-200 bg-slate-50 text-slate-800",
+};
+const urgencyStateLabel: Record<string, string> = {
+  routine_guidance: "Routine guidance",
+  needs_more_information: "Needs more information",
+  urgent_guidance: "Urgent — seek care promptly",
+  emergency_guidance: "Emergency — seek care now",
 };
 
 const quickStarters: Array<{ label: string; category: (typeof categories)[number] }> = [
@@ -27,6 +33,8 @@ const quickStarters: Array<{ label: string; category: (typeof categories)[number
   { label: "Anxiety or low mood", category: "psychiatric" },
 ];
 
+type SavedAssessment = SymptomAssessment;
+
 export default function SymptomAssessment() {
   const [primarySymptom, setPrimarySymptom] = useState("");
   const [category, setCategory] = useState<(typeof categories)[number]>("general");
@@ -38,6 +46,12 @@ export default function SymptomAssessment() {
   const [caseId, setCaseId] = useState("");
   const [symptomSearch, setSymptomSearch] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [ageGroup, setAgeGroup] = useState("");
+  const [factorsThatHelp, setFactorsThatHelp] = useState("");
+  const [factorsThatWorsen, setFactorsThatWorsen] = useState("");
+  const [previousEpisodes, setPreviousEpisodes] = useState("");
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [aiConsent, setAiConsent] = useState(false);
   const [evaluationFor, setEvaluationFor] = useState<AIEvaluationModalAssessment | null>(null);
   const queryClient = useQueryClient();
@@ -58,16 +72,28 @@ export default function SymptomAssessment() {
     return catalogue.filter((display) => display.includes(query) || catalogueLookup.get(display)?.includes(query)).slice(0, 60);
   }, [catalogue, catalogueLookup, symptomSearch]);
 
+  const followUpQuery = useListSymptomFollowUpQuestions({
+    category,
+    ...(primarySymptom.trim().length >= 3 ? { primary: primarySymptom.trim() } : {}),
+    ...(selectedSymptoms.length > 0 ? { symptoms: selectedSymptoms.join(",") } : {}),
+  }, {
+    query: {
+      enabled: primarySymptom.trim().length >= 3 || selectedSymptoms.length > 0,
+      refetchOnWindowFocus: false,
+    },
+  });
+  const openQuestions = (followUpQuery.data?.questions ?? []).filter((question) => !(question.id in answers));
+
   const createAssessment = useCreateSymptomAssessment({ mutation: {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/symptom-assessments"] });
       setPrimarySymptom("");
       setAssociated("");
       setAiConsent(false);
-      aiConditions.reset();
+      setAnswers({});
     },
   } });
-  const aiConditions = useCreateSymptomAiConditions();
+  const retryEvaluation = useCreateSymptomAiEvaluation();
 
   const toggleSymptom = (display: string) => {
     const id = catalogueLookup.get(display);
@@ -87,10 +113,17 @@ export default function SymptomAssessment() {
       ...(caseId ? { caseId: Number(caseId) } : {}),
       associatedSymptoms: associated.split(",").map((item) => item.trim()).filter(Boolean),
       selectedSymptoms,
+      ...(ageGroup ? { ageGroup: ageGroup as SymptomAssessment["ageGroup"] } : {}),
+      factorsThatHelp: factorsThatHelp.split(",").map((item) => item.trim()).filter(Boolean),
+      factorsThatWorsen: factorsThatWorsen.split(",").map((item) => item.trim()).filter(Boolean),
+      ...(previousEpisodes ? { previousEpisodes: previousEpisodes as SymptomAssessment["previousEpisodes"] } : {}),
+      ...(additionalNotes.trim() ? { additionalNotes: additionalNotes.trim() } : {}),
+      questionnaireAnswers: Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer })),
+      consentToExternalProcessing: aiConsent,
     } });
   };
 
-  const loadAssessment = (item: NonNullable<typeof assessmentsQuery.data>["assessments"][number]) => {
+  const loadAssessment = (item: SavedAssessment) => {
     setPrimarySymptom(item.primarySymptom);
     if ((categories as readonly string[]).includes(item.symptomCategory)) setCategory(item.symptomCategory as (typeof categories)[number]);
     setOnset(item.onset ?? "");
@@ -100,19 +133,25 @@ export default function SymptomAssessment() {
     setAssociated((item.associatedSymptoms ?? []).join(", "));
     setCaseId("caseId" in item && item.caseId ? String(item.caseId) : "");
     setSelectedSymptoms(item.selectedSymptoms ?? []);
+    const record = item as SavedAssessment & { questionnaireAnswers?: Array<{ questionId: string; answer: string }> };
+    setAnswers(Object.fromEntries((record.questionnaireAnswers ?? []).map((row) => [row.questionId, row.answer])));
     createAssessment.reset();
+    retryEvaluation.reset();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const latest = createAssessment.data?.assessment;
+  const latestOutcome = createAssessment.data;
   const previous = (assessmentsQuery.data?.assessments ?? []).filter((item) => item.id !== latest?.id);
   const classification = latest?.classification;
+  const shownEvaluation = retryEvaluation.data?.evaluation ?? createAssessment.data?.evaluation;
+  const evaluationRetryPending = retryEvaluation.isPending;
 
   return (
     <Layout>
       <div className="max-w-5xl mx-auto pt-8 pb-20">
         <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-primary font-medium mb-6"><ArrowLeft className="w-4 h-4" />Back to Overview</Link>
-        <div className="mb-8"><h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Symptom Assessment</h1><p className="text-slate-600 mt-2 max-w-2xl">Describe your symptoms, get urgency guidance, and see a ranked list of the conditions most associated with the pattern you report.</p></div>
+        <div className="mb-8"><h1 className="text-4xl md:text-5xl font-display font-extrabold text-slate-900 tracking-tight">Symptom Assessment</h1><p className="text-slate-600 mt-2 max-w-2xl">Describe your symptoms, answer the follow-up questions that apply, and receive deterministic safety guidance plus an optional structured AI evaluation saved to your record.</p></div>
 
         <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><div><h2 className="font-semibold">Urgent symptoms</h2><p className="mt-1 text-sm">If you believe you may be experiencing a medical emergency, contact local emergency services or seek immediate care now. Do not wait for or rely on this assessment.</p></div></div>
 
@@ -189,23 +228,69 @@ export default function SymptomAssessment() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="space-y-1 text-sm font-medium md:col-span-2">Primary symptom<textarea value={primarySymptom} onChange={(event) => setPrimarySymptom(event.target.value)} required maxLength={1_000} rows={3} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Describe what you are experiencing" /></label>
             <label className="space-y-1 text-sm font-medium">Category<select value={category} onChange={(event) => setCategory(event.target.value as (typeof categories)[number])} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{categories.map((value) => <option key={value} value={value}>{value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</option>)}</select></label>
+            <label className="space-y-1 text-sm font-medium">Age group (optional)<select value={ageGroup} onChange={(event) => setAgeGroup(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Prefer not to say</option><option value="child">Child</option><option value="adolescent">Adolescent</option><option value="adult">Adult</option><option value="older_adult">Older adult</option><option value="unknown">Not sure</option></select></label>
             <label className="space-y-1 text-sm font-medium">Linked case (optional)<select value={caseId} onChange={(event) => setCaseId(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">No case</option>{(casesQuery.data?.cases ?? []).map((item) => <option key={item.id} value={item.id}>{item.caseNumber}</option>)}</select></label>
+            <label className="space-y-1 text-sm font-medium">Previous episodes (optional)<select value={previousEpisodes} onChange={(event) => setPreviousEpisodes(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Not recorded</option><option value="first_episode">First episode</option><option value="recurrent">Has happened before</option><option value="unknown">Not sure</option></select></label>
             <label className="space-y-1 text-sm font-medium">Onset<Input value={onset} onChange={(event) => setOnset(event.target.value)} maxLength={200} placeholder="When it began" /></label>
-            <label className="space-y-1 text-sm font-medium">Duration<Input value={duration} onChange={(event) => setDuration(event.target.value)} maxLength={200} placeholder="How long it has lasted" /></label>
+            <label className="space-y-1 text-sm font-medium">Duration<Input value={duration} onChange={(event) => setDuration(event.target.value)} maxLength={200} placeholder="How long it has lasted — kept exactly as you word it" /></label>
             <label className="space-y-1 text-sm font-medium">Reported severity<select value={severity} onChange={(event) => setSeverity(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Not recorded</option><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option></select></label>
             <label className="space-y-1 text-sm font-medium">Progression<select value={progression} onChange={(event) => setProgression(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Not recorded</option><option value="improving">Improving</option><option value="stable">Stable</option><option value="worsening">Worsening</option><option value="fluctuating">Fluctuating</option></select></label>
             <label className="space-y-1 text-sm font-medium md:col-span-2">Other reported symptoms (comma-separated free text)<Input value={associated} onChange={(event) => setAssociated(event.target.value)} maxLength={2_000} placeholder="Optional — kept as text, never fed to the classifier as a match" /></label>
+            <label className="space-y-1 text-sm font-medium md:col-span-2">What makes it better or worse (optional, comma-separated)<Input value={factorsThatHelp} onChange={(event) => setFactorsThatHelp(event.target.value)} maxLength={2_000} placeholder="e.g. rest, paracetamol" /></label>
+            <label className="space-y-1 text-sm font-medium md:col-span-2">Worsened by (optional, comma-separated)<Input value={factorsThatWorsen} onChange={(event) => setFactorsThatWorsen(event.target.value)} maxLength={2_000} placeholder="e.g. walking, lying flat, certain foods" /></label>
+            <label className="space-y-1 text-sm font-medium md:col-span-2">Additional notes (optional)<textarea value={additionalNotes} onChange={(event) => setAdditionalNotes(event.target.value)} maxLength={2_000} rows={2} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Anything else you consider relevant" /></label>
           </div>
+
+          {(followUpQuery.isLoading || openQuestions.length > 0) && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-sky-900">Follow-up questions for this pattern (v{followUpQuery.data?.questionSetVersion ?? "…"})</p>
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">{openQuestions.length} still needed</span>
+              </div>
+              <p className="mt-1 text-xs text-sky-900/80">Answers never replace the safety rules — a “yes” can raise urgency immediately. “Not sure” is always allowed and is stored as unknown, not as a no.</p>
+              {followUpQuery.isLoading && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-sky-900"><Loader2 className="h-4 w-4 animate-spin" />Loading relevant questions…</p>}
+              {followUpQuery.isError && <p role="status" className="mt-3 text-sm text-sky-900">Questions could not be loaded; you can still submit the assessment.</p>}
+              <div className="mt-3 space-y-3">
+                {openQuestions.map((question) => (
+                  <div key={question.id} className="rounded-lg border border-sky-200 bg-white p-3">
+                    <p className="text-sm font-medium text-slate-800">{question.prompt}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(question.type === "choice" ? (question.options ?? []) : ["yes", "no", "not sure"]).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => setAnswers((current) => ({ ...current, [question.id]: option }))}
+                          aria-pressed={answers[question.id] === option}
+                          className={`rounded-full border px-3 py-1 text-xs transition-colors ${answers[question.id] === option ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-sky-500 hover:text-sky-700"}`}
+                        >
+                          {option === "not sure" ? "Not sure" : option.charAt(0).toUpperCase() + option.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {openQuestions.length === 0 && !followUpQuery.isLoading && <p className="mt-3 text-xs text-sky-900">All suggested follow-up questions answered — you can submit now.</p>}
+            </div>
+          )}
+          {followUpQuery.data && openQuestions.length === 0 && (followUpQuery.data.questions?.length ?? 0) > 0 && (
+            <p className="text-xs text-slate-500">All {followUpQuery.data.questions?.length} suggested follow-up questions answered.</p>
+          )}
+
+          <label className="flex items-start gap-2 text-sm font-medium">
+            <input type="checkbox" checked={aiConsent} onChange={(event) => setAiConsent(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+            <span>Also ask the external AI engine for a structured educational evaluation, consented server-side. It adds context only; the deterministic guidance above and below always outranks it.</span>
+          </label>
           {casesQuery.isError && <p role="status" className="text-sm text-slate-500">Cases could not be loaded; you can still save without linking one.</p>}
           {createAssessment.isError && <p role="alert" className="text-sm text-destructive">Assessment was not saved. Check the fields and retry.</p>}
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={createAssessment.isPending || primarySymptom.trim().length < 3}>{createAssessment.isPending ? "Saving assessment…" : "Save and assess"}</Button>
-            <Button type="button" variant="ghost" onClick={() => { setPrimarySymptom(""); setAssociated(""); setOnset(""); setDuration(""); setSeverity(""); setProgression(""); setCategory("general"); setCaseId(""); setSelectedSymptoms([]); setSymptomSearch(""); createAssessment.reset(); }}>Clear form</Button>
+            <Button type="submit" disabled={createAssessment.isPending || primarySymptom.trim().length < 3}>{createAssessment.isPending ? "Saving and assessing…" : "Save and assess"}</Button>
+            <Button type="button" variant="ghost" onClick={() => { setPrimarySymptom(""); setAssociated(""); setOnset(""); setDuration(""); setSeverity(""); setProgression(""); setCategory("general"); setCaseId(""); setSelectedSymptoms([]); setSymptomSearch(""); setAgeGroup(""); setFactorsThatHelp(""); setFactorsThatWorsen(""); setPreviousEpisodes(""); setAdditionalNotes(""); setAnswers({}); setAiConsent(false); createAssessment.reset(); retryEvaluation.reset(); }}>Clear form</Button>
             <span className="text-xs text-slate-500">At least 3 characters are required. Your text is stored exactly as entered.</span>
           </div>
         </form>
 
-        {latest && <section className={`mt-6 rounded-2xl border p-6 ${urgencyStyle[latest.urgencyLevel] ?? urgencyStyle.routine}`} aria-live="polite"><p className="text-xs font-semibold uppercase tracking-wide">Persisted rule-based result · record #{latest.id}</p><h2 className="mt-1 text-2xl font-bold">{latest.urgencyLevel.replace(/_/g, " ").toUpperCase()} guidance</h2><p className="mt-2 text-sm">This is a rule-based urgency level, not a disease prediction. It reflects only the terms and fields you entered.</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(latest.guidance.recommendations ?? []).map((recommendation, index) => <li key={index}>{recommendation}</li>)}</ul>{latest.redFlagsTriggered?.length ? <p className="mt-3 text-sm font-medium">Matched warning terms in your text: {latest.redFlagsTriggered.join(", ")}</p> : <p className="mt-3 text-sm">No warning terms were matched in your text.</p>}
+        {latest && <section className={`mt-6 rounded-2xl border p-6 ${urgencyStyle[latest.urgencyLevel] ?? urgencyStyle.routine}`} aria-live="polite"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold uppercase tracking-wide">Persisted rule-based result · record #{latest.id}</p><span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">{urgencyStateLabel[createAssessment.data?.urgencyState ?? ""] ?? "Guidance"}</span></div><h2 className="mt-1 text-2xl font-bold">{latest.urgencyLevel.replace(/_/g, " ").toUpperCase()} guidance</h2><p className="mt-2 text-sm">This is a rule-based urgency level, not a disease prediction. It reflects only the terms and fields you entered.</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(latest.guidance.recommendations ?? []).map((recommendation, index) => <li key={index}>{recommendation}</li>)}</ul>{latest.redFlagsTriggered?.length ? <p className="mt-3 text-sm font-medium">Matched warning terms in your text: {latest.redFlagsTriggered.join(", ")}</p> : <p className="mt-3 text-sm">No warning terms were matched in your text.</p>}
           <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             <div><dt className="opacity-70">Primary symptom, as entered</dt><dd className="font-medium">{latest.primarySymptom}</dd></div>
             <div><dt className="opacity-70">Category</dt><dd className="font-medium">{latest.symptomCategory.replace(/_/g, " ")}</dd></div>
@@ -225,7 +310,7 @@ export default function SymptomAssessment() {
           <section className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-6" aria-live="polite">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-amber-900">Which conditions match what you selected</h2>
-              <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">Match scores</span>
+              <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">Research ranking</span>
             </div>
             <p className="mt-2 text-sm text-amber-900">{classification.notice}</p>
             {classification.status === "completed" && classification.rankedConditions && (
@@ -255,44 +340,66 @@ export default function SymptomAssessment() {
           </section>
         )}
 
-        {latest && (
+        {latest && shownEvaluation?.status === "failed" && (
+          <section className="mt-6 rounded-2xl border border-orange-300 bg-orange-50 p-6" aria-live="polite">
+            <h2 className="text-lg font-bold text-orange-900">AI evaluation could not complete</h2>
+            <p role="alert" className="mt-2 text-sm text-orange-900">{latestOutcome?.aiMessage ?? "The analysis engine did not return a usable evaluation."}</p>
+            <p className="mt-1 text-sm">Your assessment #{latest.id} and the rule-based guidance were saved unchanged. Nothing was fabricated to fill the gap.</p>
+            {retryEvaluation.isError && <p role="alert" className="mt-2 text-sm text-destructive">The retry also failed. The saved assessment is unchanged; you can try again later.</p>}
+            <Button type="button" variant="outline" size="sm" className="mt-3" disabled={evaluationRetryPending} onClick={() => retryEvaluation.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}>
+              {evaluationRetryPending ? "Retrying evaluation…" : "Retry AI evaluation"}
+            </Button>
+          </section>
+        )}
+
+        {latest && shownEvaluation?.status === "completed" && shownEvaluation.result && typeof shownEvaluation.result === "object" && (
           <section className="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-6" aria-live="polite">
             <div className="flex flex-wrap items-center gap-2">
-              <Sparkles className="h-5 w-5 text-indigo-700" />
-              <h2 className="text-lg font-bold text-indigo-900">AI second option: commonly associated conditions</h2>
-              <span className="rounded-full bg-indigo-200 px-3 py-0.5 text-xs font-bold text-indigo-900">Guided evaluation</span>
+              <h2 className="text-lg font-bold text-indigo-900">AI assessment interpretation</h2>
+              <span className="rounded-full bg-indigo-200 px-3 py-0.5 text-xs font-bold text-indigo-900">Educational only</span>
             </div>
-            <p className="mt-2 text-sm text-indigo-900">
-              Generate a detailed evaluation of this saved record with advanced medical AI: what the pattern classically fits, what extra information would help, and clear follow-up questions.
-            </p>
-            <p className="mt-2 text-sm text-indigo-900">The evaluation uses your primary symptom text, category, severity/progression, selected symptom labels, and matched urgency flags.</p>
-            <label className="mt-3 flex items-center gap-2 text-sm font-medium text-indigo-900">
-              <input type="checkbox" checked={aiConsent} onChange={(event) => { setAiConsent(event.target.checked); }} className="h-4 w-4 rounded border-slate-300" />
-              I consent to sending the fields above for analysis.
-            </label>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button type="button" disabled={!aiConsent || aiConditions.isPending || latest.urgencyLevel === "emergency"} onClick={() => aiConditions.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}>
-                {aiConditions.isPending ? "Analyzing symptoms…" : "Explore conditions with AI"}
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>Detailed Evaluation of this record</Button>
-              <span className="text-xs text-indigo-700">{latest.urgencyLevel === "emergency" ? "Detailed Evaluation is available for emergency records too; the emergency card stays on top." : "The Detailed Evaluation is saved to the record; only the classified conditions above are temporary."}</span>
+            <p className="mt-1 text-xs text-indigo-800">Provider {shownEvaluation.provider} · model {shownEvaluation.model} · prompt v{shownEvaluation.promptVersion} · saved {new Date(shownEvaluation.createdAt).toLocaleString()}</p>
+            <div className="mt-4 space-y-4">
+              {(() => {
+                const result = shownEvaluation.result as Record<string, unknown>;
+                return (
+                  <>
+                    {typeof result.summary === "string" && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Summary of what you reported</p><p className="mt-1 text-sm text-slate-700">{result.summary}</p></div>}
+                    {Array.isArray(result.reportedSymptoms) && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Reported symptoms as understood</p><p className="mt-1 text-sm text-slate-700">{(result.reportedSymptoms as string[]).join("; ")}</p></div>}
+                    {Array.isArray(result.possibleConsiderations) && result.possibleConsiderations.length > 0 && (
+                      <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Patterns this may fit (not a diagnosis)</p>
+                        <ol className="mt-2 space-y-2">
+                          {(result.possibleConsiderations as Array<{ name: string; whyDiscussed: string }>).map((row) => (
+                            <li key={row.name} className="rounded-lg bg-white p-3 border border-indigo-200"><p className="text-sm font-semibold text-slate-800">{row.name}</p><p className="mt-1 text-sm text-slate-600">{row.whyDiscussed}</p></li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {typeof result.supportingInformation === "string" && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Supporting information</p><p className="mt-1 text-sm text-slate-700">{result.supportingInformation}</p></div>}
+                    {typeof result.missingInformation === "string" && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Missing information</p><p className="mt-1 text-sm text-slate-700">{result.missingInformation}</p></div>}
+                    {typeof result.urgencyContext === "string" && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Urgency context (AI view — the rule-based card above stays authoritative)</p><p className="mt-1 text-sm text-slate-700">{result.urgencyContext}</p></div>}
+                    {Array.isArray(result.followUpQuestions) && result.followUpQuestions.length > 0 && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Questions a clinician may explore next</p><ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">{(result.followUpQuestions as string[]).map((item, index) => <li key={index}>{item}</li>)}</ul></div>}
+                    {typeof result.limitations === "string" && <div><p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Limitations</p><p className="mt-1 text-sm text-slate-700">{result.limitations}</p></div>}
+                    <p className="text-xs italic text-indigo-900">{String(result.disclaimer ?? "Educational information only, not a diagnosis.")}</p>
+                  </>
+                );
+              })()}
             </div>
-            {aiConditions.isError && <p role="alert" className="mt-3 text-sm text-destructive">The AI result was not produced. Nothing was stored. Check the message and retry later.</p>}
-            {aiConditions.data?.analysis && (
-              <div className="mt-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900">Top commonly associated conditions · model {aiConditions.data.analysis.model}</p>
-                <ol className="space-y-2">
-                  {aiConditions.data.analysis.topConditions.map((row, index) => (
-                    <li key={row.condition} className="rounded-lg bg-white p-3 border border-indigo-200">
-                      <p className="text-sm font-semibold text-slate-800">{index + 1}. {row.condition}</p>
-                      <p className="mt-1 text-sm text-slate-600">{row.rationale}</p>
-                    </li>
-                  ))}
-                </ol>
-                <p className="text-xs text-indigo-800">{aiConditions.data.analysis.note}</p>
-                
-              </div>
-            )}
+          </section>
+        )}
+
+        {latest && !shownEvaluation && createAssessment.data?.aiStatus === "skipped_urgent" && (
+          <section className="mt-6 rounded-2xl border border-slate-300 bg-slate-50 p-6" aria-live="polite">
+            <h2 className="text-lg font-bold text-slate-900">AI evaluation skipped for urgency</h2>
+            <p className="mt-2 text-sm text-slate-700">{createAssessment.data?.aiMessage ?? "Urgent guidance was returned immediately without waiting for the AI engine."}</p>
+            <p className="mt-1 text-sm text-slate-600">If you still want the saved educational view later, reopen this record with “Detailed Evaluation” and run it explicitly with consent.</p>
+          </section>
+        )}
+
+        {latest && !shownEvaluation && (createAssessment.data?.aiStatus === "unavailable") && (
+          <section className="mt-6 rounded-2xl border border-slate-300 bg-slate-50 p-6" aria-live="polite">
+            <h2 className="text-lg font-bold text-slate-900">AI evaluation unavailable</h2>
+            <p role="status" className="mt-2 text-sm text-slate-700">{createAssessment.data?.aiMessage ?? "The AI engine did not run for this record."}</p>
           </section>
         )}
 
@@ -300,11 +407,11 @@ export default function SymptomAssessment() {
           {assessmentsQuery.isLoading && <p role="status" className="p-6 text-sm text-slate-500">Loading saved assessments…</p>}
           {assessmentsQuery.isError && <div className="p-6"><p role="alert" className="text-sm text-slate-600">Saved assessments could not be loaded.</p><Button variant="outline" className="mt-2" onClick={() => void assessmentsQuery.refetch()}>Retry</Button></div>}
           {!assessmentsQuery.isLoading && !assessmentsQuery.isError && previous.length === 0 && !latest && <p className="p-6 text-sm text-slate-500">No saved assessments yet.</p>}
-          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>Detailed Evaluation</Button><Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load & edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
+          {[...(latest ? [latest] : []), ...previous].map((item) => <article key={item.id} className="border-b last:border-b-0 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">{item.primarySymptom}</h3><div className="flex items-center gap-2"><span className={`rounded-full border px-3 py-1 text-xs font-semibold ${urgencyStyle[item.urgencyLevel] ?? urgencyStyle.routine}`}>{item.urgencyLevel.replace(/_/g, " ")}</span>{item.classification?.status === "completed" && <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">classified</span>}<Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => setEvaluationFor({ id: item.id, primarySymptom: item.primarySymptom, selectedSymptoms: item.selectedSymptoms ?? [], urgencyLevel: item.urgencyLevel, redFlagsTriggered: item.redFlagsTriggered ?? [] })}>Detailed Evaluation</Button><Button type="button" variant="outline" className="h-7 px-2 py-0 text-xs" onClick={() => loadAssessment(item)}>Load &amp; edit</Button></div></div><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.symptomCategory.replace(/_/g, " ")}</p></article>)}
         </section>
-        <p className="mt-6 text-sm text-slate-500">Guidance is generated from the details you enter. For any persistent or worsening symptom, consult a doctor.</p>
+        <p className="mt-6 text-sm text-slate-500">Guidance is generated from the details you enter and structured rules — never a diagnosis. For any persistent or worsening symptom, consult a doctor.</p>
       </div>
-    
+
       <AIEvaluationModal assessment={evaluationFor} onClose={() => setEvaluationFor(null)} />
     </Layout>
   );

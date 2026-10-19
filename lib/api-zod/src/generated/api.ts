@@ -699,6 +699,21 @@ export const ListSymptomAssessmentsResponse = zod.object({
 })).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
+  "ageGroup": zod.enum(['child', 'adolescent', 'adult', 'older_adult', 'unknown', 'prefer_not_to_say']).optional(),
+  "factorsThatHelp": zod.array(zod.string()).optional(),
+  "factorsThatWorsen": zod.array(zod.string()).optional(),
+  "previousEpisodes": zod.enum(['first_episode', 'recurrent', 'unknown']).optional(),
+  "additionalNotes": zod.string().optional(),
+  "questionnaireAnswers": zod.array(zod.object({
+  "questionId": zod.string(),
+  "answer": zod.string()
+})).optional(),
+  "questionnaireVersion": zod.string().optional(),
+  "inputSchemaVersion": zod.string().optional(),
+  "ruleSetVersion": zod.string().optional(),
+  "normalizedInput": zod.object({
+
+}).passthrough().optional(),
   "classification": zod.object({
   "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
   "modelId": zod.string().nullable(),
@@ -730,10 +745,23 @@ export const createSymptomAssessmentBodySelectedSymptomsItemMax = 300;
 
 export const createSymptomAssessmentBodySelectedSymptomsMax = 60;
 
+export const createSymptomAssessmentBodyFactorsThatHelpItemMax = 300;
+
+export const createSymptomAssessmentBodyFactorsThatHelpMax = 10;
+
+export const createSymptomAssessmentBodyFactorsThatWorsenItemMax = 300;
+
+export const createSymptomAssessmentBodyFactorsThatWorsenMax = 10;
+
+export const createSymptomAssessmentBodyAdditionalNotesMax = 2000;
+
+export const createSymptomAssessmentBodyQuestionnaireAnswersMax = 12;
+
 
 
 export const CreateSymptomAssessmentBody = zod.object({
   "caseId": zod.number().int().optional(),
+  "consentToExternalProcessing": zod.boolean().optional().describe('Consent to send the normalized assessment fields to the external AI provider for an educational evaluation. The server independently enforces its own data-transfer gates.'),
   "primarySymptom": zod.string(),
   "symptomCategory": zod.string(),
   "onset": zod.string().optional(),
@@ -744,7 +772,16 @@ export const CreateSymptomAssessmentBody = zod.object({
   "medicalHistory": zod.array(zod.string()).optional(),
   "medications": zod.array(zod.string()).optional(),
   "allergies": zod.array(zod.string()).optional(),
-  "selectedSymptoms": zod.array(zod.string().max(createSymptomAssessmentBodySelectedSymptomsItemMax)).max(createSymptomAssessmentBodySelectedSymptomsMax).optional()
+  "selectedSymptoms": zod.array(zod.string().max(createSymptomAssessmentBodySelectedSymptomsItemMax)).max(createSymptomAssessmentBodySelectedSymptomsMax).optional(),
+  "ageGroup": zod.enum(['child', 'adolescent', 'adult', 'older_adult', 'unknown', 'prefer_not_to_say']).optional(),
+  "factorsThatHelp": zod.array(zod.string().max(createSymptomAssessmentBodyFactorsThatHelpItemMax)).max(createSymptomAssessmentBodyFactorsThatHelpMax).optional(),
+  "factorsThatWorsen": zod.array(zod.string().max(createSymptomAssessmentBodyFactorsThatWorsenItemMax)).max(createSymptomAssessmentBodyFactorsThatWorsenMax).optional(),
+  "previousEpisodes": zod.enum(['first_episode', 'recurrent', 'unknown']).optional(),
+  "additionalNotes": zod.string().max(createSymptomAssessmentBodyAdditionalNotesMax).optional(),
+  "questionnaireAnswers": zod.array(zod.object({
+  "questionId": zod.string(),
+  "answer": zod.string()
+})).max(createSymptomAssessmentBodyQuestionnaireAnswersMax).optional()
 })
 
 export const CreateSymptomAssessmentResponse = zod.object({
@@ -773,6 +810,21 @@ export const CreateSymptomAssessmentResponse = zod.object({
 })).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
+  "ageGroup": zod.enum(['child', 'adolescent', 'adult', 'older_adult', 'unknown', 'prefer_not_to_say']).optional(),
+  "factorsThatHelp": zod.array(zod.string()).optional(),
+  "factorsThatWorsen": zod.array(zod.string()).optional(),
+  "previousEpisodes": zod.enum(['first_episode', 'recurrent', 'unknown']).optional(),
+  "additionalNotes": zod.string().optional(),
+  "questionnaireAnswers": zod.array(zod.object({
+  "questionId": zod.string(),
+  "answer": zod.string()
+})).optional(),
+  "questionnaireVersion": zod.string().optional(),
+  "inputSchemaVersion": zod.string().optional(),
+  "ruleSetVersion": zod.string().optional(),
+  "normalizedInput": zod.object({
+
+}).passthrough().optional(),
   "classification": zod.object({
   "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
   "modelId": zod.string().nullable(),
@@ -790,7 +842,38 @@ export const CreateSymptomAssessmentResponse = zod.object({
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
-})
+}),
+  "urgencyState": zod.enum(['routine_guidance', 'needs_more_information', 'urgent_guidance', 'emergency_guidance']).optional().describe('Authoritative deterministic urgency state mapped from the rule engine.'),
+  "aiStatus": zod.enum(['completed', 'failed', 'skipped_urgent', 'not_requested', 'unavailable']).optional(),
+  "aiErrorCode": zod.string().optional(),
+  "aiMessage": zod.string().optional(),
+  "evaluation": zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "consentAt": zod.date(),
+  "result": zod.union([zod.object({
+  "summary": zod.string().optional(),
+  "reportedSymptoms": zod.array(zod.string()).optional(),
+  "possibleConsiderations": zod.array(zod.object({
+  "name": zod.string(),
+  "whyDiscussed": zod.string()
+})).optional(),
+  "supportingInformation": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "urgencyContext": zod.string().optional(),
+  "limitations": zod.string().optional(),
+  "followUpQuestions": zod.array(zod.string()).optional(),
+  "disclaimer": zod.string().optional(),
+  "urgencyLevel": zod.string().optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional()
+}),zod.null()]).optional(),
+  "createdAt": zod.date()
+}).optional()
 })
 
 
@@ -810,8 +893,8 @@ export const ListSymptomAiEvaluationsResponse = zod.object({
   "promptVersion": zod.string(),
   "status": zod.enum(['completed', 'failed']),
   "errorCode": zod.string().nullish(),
-  "consentAt": zod.string(),
-  "result": zod.object({
+  "consentAt": zod.date(),
+  "result": zod.union([zod.object({
   "summary": zod.string().optional(),
   "reportedSymptoms": zod.array(zod.string()).optional(),
   "possibleConsiderations": zod.array(zod.object({
@@ -826,8 +909,8 @@ export const ListSymptomAiEvaluationsResponse = zod.object({
   "disclaimer": zod.string().optional(),
   "urgencyLevel": zod.string().optional(),
   "redFlagsTriggered": zod.array(zod.string()).optional()
-}).nullish(),
-  "createdAt": zod.string()
+}),zod.null()]).optional(),
+  "createdAt": zod.date()
 }))
 })
 
@@ -853,8 +936,8 @@ export const CreateSymptomAiEvaluationResponse = zod.object({
   "promptVersion": zod.string(),
   "status": zod.enum(['completed', 'failed']),
   "errorCode": zod.string().nullish(),
-  "consentAt": zod.string(),
-  "result": zod.object({
+  "consentAt": zod.date(),
+  "result": zod.union([zod.object({
   "summary": zod.string().optional(),
   "reportedSymptoms": zod.array(zod.string()).optional(),
   "possibleConsiderations": zod.array(zod.object({
@@ -869,10 +952,9 @@ export const CreateSymptomAiEvaluationResponse = zod.object({
   "disclaimer": zod.string().optional(),
   "urgencyLevel": zod.string().optional(),
   "redFlagsTriggered": zod.array(zod.string()).optional()
-}).nullish(),
-  "createdAt": zod.string()
-}),
-  "previousEvaluationId": zod.number().int().optional()
+}),zod.null()]).optional(),
+  "createdAt": zod.date()
+})
 })
 
 
@@ -897,8 +979,8 @@ export const ReevaluateSymptomAiEvaluationResponse = zod.object({
   "promptVersion": zod.string(),
   "status": zod.enum(['completed', 'failed']),
   "errorCode": zod.string().nullish(),
-  "consentAt": zod.string(),
-  "result": zod.object({
+  "consentAt": zod.date(),
+  "result": zod.union([zod.object({
   "summary": zod.string().optional(),
   "reportedSymptoms": zod.array(zod.string()).optional(),
   "possibleConsiderations": zod.array(zod.object({
@@ -913,35 +995,8 @@ export const ReevaluateSymptomAiEvaluationResponse = zod.object({
   "disclaimer": zod.string().optional(),
   "urgencyLevel": zod.string().optional(),
   "redFlagsTriggered": zod.array(zod.string()).optional()
-}).nullish(),
-  "createdAt": zod.string()
-}),
-  "previousEvaluationId": zod.number().int().optional()
-})
-
-
-/**
- * Ephemeral, education-only analysis. Requires operator AI-health-data flags and explicit consent; sends only the recorded, structured symptom fields. Never mutates the assessment.
- * @summary Consent-gated AI exploration of commonly associated conditions
- */
-export const CreateSymptomAiConditionsParams = zod.object({
-  "id": zod.coerce.number().int()
-})
-
-export const CreateSymptomAiConditionsBody = zod.object({
-  "consentToExternalProcessing": zod.literal(true)
-})
-
-export const CreateSymptomAiConditionsResponse = zod.object({
-  "analysis": zod.object({
-  "provider": zod.string(),
-  "model": zod.string(),
-  "topConditions": zod.array(zod.object({
-  "condition": zod.string(),
-  "rationale": zod.string()
-})),
-  "note": zod.string(),
-  "instructionNotice": zod.string()
+}),zod.null()]).optional(),
+  "createdAt": zod.date()
 })
 })
 
@@ -979,6 +1034,21 @@ export const GetSymptomAssessmentResponse = zod.object({
 })).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
+  "ageGroup": zod.enum(['child', 'adolescent', 'adult', 'older_adult', 'unknown', 'prefer_not_to_say']).optional(),
+  "factorsThatHelp": zod.array(zod.string()).optional(),
+  "factorsThatWorsen": zod.array(zod.string()).optional(),
+  "previousEpisodes": zod.enum(['first_episode', 'recurrent', 'unknown']).optional(),
+  "additionalNotes": zod.string().optional(),
+  "questionnaireAnswers": zod.array(zod.object({
+  "questionId": zod.string(),
+  "answer": zod.string()
+})).optional(),
+  "questionnaireVersion": zod.string().optional(),
+  "inputSchemaVersion": zod.string().optional(),
+  "ruleSetVersion": zod.string().optional(),
+  "normalizedInput": zod.object({
+
+}).passthrough().optional(),
   "classification": zod.object({
   "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
   "modelId": zod.string().nullable(),
@@ -996,7 +1066,38 @@ export const GetSymptomAssessmentResponse = zod.object({
   "status": zod.string(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
-})
+}),
+  "urgencyState": zod.enum(['routine_guidance', 'needs_more_information', 'urgent_guidance', 'emergency_guidance']).optional().describe('Authoritative deterministic urgency state mapped from the rule engine.'),
+  "aiStatus": zod.enum(['completed', 'failed', 'skipped_urgent', 'not_requested', 'unavailable']).optional(),
+  "aiErrorCode": zod.string().optional(),
+  "aiMessage": zod.string().optional(),
+  "evaluation": zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "consentAt": zod.date(),
+  "result": zod.union([zod.object({
+  "summary": zod.string().optional(),
+  "reportedSymptoms": zod.array(zod.string()).optional(),
+  "possibleConsiderations": zod.array(zod.object({
+  "name": zod.string(),
+  "whyDiscussed": zod.string()
+})).optional(),
+  "supportingInformation": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "urgencyContext": zod.string().optional(),
+  "limitations": zod.string().optional(),
+  "followUpQuestions": zod.array(zod.string()).optional(),
+  "disclaimer": zod.string().optional(),
+  "urgencyLevel": zod.string().optional(),
+  "redFlagsTriggered": zod.array(zod.string()).optional()
+}),zod.null()]).optional(),
+  "createdAt": zod.date()
+}).optional()
 })
 
 
@@ -1658,6 +1759,35 @@ export const GetCardiacAssessmentResponse = zod.object({
 
 
 /**
+ * Deterministically selects questions from the versioned curated catalogue based on the chosen category, primary symptom text, and catalogue symptom ids. Questions are educational intake aids; answers feed the deterministic safety rules, which always outrank the AI.
+ * @summary Curated follow-up questions applicable to the reported pattern
+ */
+export const listSymptomFollowUpQuestionsQueryCategoryDefault = `general`;
+export const listSymptomFollowUpQuestionsQueryPrimaryMax = 1000;
+
+export const listSymptomFollowUpQuestionsQuerySymptomsMax = 4000;
+
+
+
+export const ListSymptomFollowUpQuestionsQueryParams = zod.object({
+  "category": zod.enum(['skin', 'general', 'neurological', 'cardiovascular', 'respiratory', 'gastrointestinal', 'musculoskeletal', 'psychiatric', 'other']).default(listSymptomFollowUpQuestionsQueryCategoryDefault),
+  "primary": zod.coerce.string().max(listSymptomFollowUpQuestionsQueryPrimaryMax).optional().describe('Primary symptom free text used for topic matching'),
+  "symptoms": zod.coerce.string().max(listSymptomFollowUpQuestionsQuerySymptomsMax).optional().describe('Comma-separated catalogue symptom ids')
+})
+
+export const ListSymptomFollowUpQuestionsResponse = zod.object({
+  "questionSetVersion": zod.string(),
+  "questions": zod.array(zod.object({
+  "id": zod.string(),
+  "prompt": zod.string(),
+  "type": zod.enum(['yes_no_unknown', 'choice']),
+  "options": zod.array(zod.string()).optional(),
+  "allowUnknown": zod.boolean()
+}))
+})
+
+
+/**
  * Reports whether the checksum-verified research-only symptom classifier is installed and returns the curated symptom vocabulary for building the multi-select interface. Scores from this classifier are uncalibrated posteriors and must never be presented as diagnoses.
  * @summary Symptom classifier availability, catalogue, and provenance
  */
@@ -1801,6 +1931,21 @@ export const GetCaseWorkspaceResponse = zod.object({
 })).optional()
 }),
   "selectedSymptoms": zod.array(zod.string()).optional(),
+  "ageGroup": zod.enum(['child', 'adolescent', 'adult', 'older_adult', 'unknown', 'prefer_not_to_say']).optional(),
+  "factorsThatHelp": zod.array(zod.string()).optional(),
+  "factorsThatWorsen": zod.array(zod.string()).optional(),
+  "previousEpisodes": zod.enum(['first_episode', 'recurrent', 'unknown']).optional(),
+  "additionalNotes": zod.string().optional(),
+  "questionnaireAnswers": zod.array(zod.object({
+  "questionId": zod.string(),
+  "answer": zod.string()
+})).optional(),
+  "questionnaireVersion": zod.string().optional(),
+  "inputSchemaVersion": zod.string().optional(),
+  "ruleSetVersion": zod.string().optional(),
+  "normalizedInput": zod.object({
+
+}).passthrough().optional(),
   "classification": zod.object({
   "status": zod.enum(['completed', 'not_available', 'insufficient_input']),
   "modelId": zod.string().nullable(),

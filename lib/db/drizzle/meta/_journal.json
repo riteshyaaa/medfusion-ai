@@ -50,6 +50,13 @@
       "when": 1792246161264,
       "tag": "0006_dazzling_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792351384800,
+      "tag": "0007_normal_slipstream",
+      "breakpoints": true
     }
   ]
 }

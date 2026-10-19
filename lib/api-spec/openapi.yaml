@@ -925,66 +925,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  /symptom-assessments/{id}/ai-conditions:
-    post:
-      operationId: createSymptomAiConditions
-      tags: [symptom-assessments]
-      summary: Consent-gated AI exploration of commonly associated conditions
-      description: >
-        Ephemeral, education-only analysis. Requires operator AI-health-data flags
-        and explicit consent; sends only the recorded, structured symptom fields.
-        Never mutates the assessment.
-      security:
-        - cookieAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SymptomAiConditionsRequest"
-      responses:
-        "200":
-          description: AI condition exploration result (ephemeral)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SymptomAIConditionsResponse"
-        "401":
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Health-data transfer not approved
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Assessment not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: AI provider failure
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
-          description: AI provider unconfigured or disabled
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
   /symptom-assessments/{id}:
     get:
       operationId: getSymptomAssessment
@@ -1740,6 +1680,56 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /symptoms/follow-up-questions:
+    get:
+      operationId: listSymptomFollowUpQuestions
+      tags: [symptoms]
+      summary: Curated follow-up questions applicable to the reported pattern
+      description: >
+        Deterministically selects questions from the versioned curated
+        catalogue based on the chosen category, primary symptom text, and
+        catalogue symptom ids. Questions are educational intake aids; answers
+        feed the deterministic safety rules, which always outrank the AI.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [skin, general, neurological, cardiovascular, respiratory, gastrointestinal, musculoskeletal, psychiatric, other]
+            default: general
+        - name: primary
+          in: query
+          description: Primary symptom free text used for topic matching
+          schema:
+            type: string
+            maxLength: 1000
+        - name: symptoms
+          in: query
+          description: Comma-separated catalogue symptom ids
+          schema:
+            type: string
+            maxLength: 4000
+      responses:
+        "200":
+          description: Applicable follow-up questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SymptomFollowUpQuestionsResponse"
+        "400":
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
           content:
             application/json:
               schema:
@@ -2646,6 +2636,34 @@ components:
           type: array
           items:
             type: string
+        ageGroup:
+          type: string
+          enum: [child, adolescent, adult, older_adult, unknown, prefer_not_to_say]
+        factorsThatHelp:
+          type: array
+          items:
+            type: string
+        factorsThatWorsen:
+          type: array
+          items:
+            type: string
+        previousEpisodes:
+          type: string
+          enum: [first_episode, recurrent, unknown]
+        additionalNotes:
+          type: string
+        questionnaireAnswers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomFollowUpAnswer"
+        questionnaireVersion:
+          type: string
+        inputSchemaVersion:
+          type: string
+        ruleSetVersion:
+          type: string
+        normalizedInput:
+          type: object
         classification:
           type: object
           nullable: true
@@ -2707,21 +2725,26 @@ components:
         - status
         - createdAt
         - updatedAt
-    SymptomAiConditionsRequest:
-      type: object
-      required: [consentToExternalProcessing]
-      properties:
-        consentToExternalProcessing:
-          type: boolean
-          enum: [true]
-    AIConditionSuggestion:
+    SymptomAssessmentResponse:
       type: object
       properties:
-        condition:
+        assessment:
+          $ref: "#/components/schemas/SymptomAssessment"
+        urgencyState:
           type: string
-        rationale:
+          enum: [routine_guidance, needs_more_information, urgent_guidance, emergency_guidance]
+          description: Authoritative deterministic urgency state mapped from the rule engine.
+        aiStatus:
           type: string
-      required: [condition, rationale]
+          enum: [completed, failed, skipped_urgent, not_requested, unavailable]
+        aiErrorCode:
+          type: string
+        aiMessage:
+          type: string
+        evaluation:
+          $ref: "#/components/schemas/SymptomAiEvaluation"
+      required:
+        - assessment
     SymptomEvaluationConsent:
       type: object
       required: [consentToExternalProcessing]
@@ -2729,8 +2752,48 @@ components:
         consentToExternalProcessing:
           type: boolean
           enum: [true]
+    SymptomAiEvaluationResult:
+      type: object
+      properties:
+        summary:
+          type: string
+        reportedSymptoms:
+          type: array
+          items:
+            type: string
+        possibleConsiderations:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              whyDiscussed:
+                type: string
+            required: [name, whyDiscussed]
+        supportingInformation:
+          type: string
+        missingInformation:
+          type: string
+        urgencyContext:
+          type: string
+        limitations:
+          type: string
+        followUpQuestions:
+          type: array
+          items:
+            type: string
+        disclaimer:
+          type: string
+        urgencyLevel:
+          type: string
+        redFlagsTriggered:
+          type: array
+          items:
+            type: string
     SymptomAiEvaluation:
       type: object
+      required: [id, assessmentId, provider, model, promptVersion, status, consentAt, createdAt]
       properties:
         id:
           type: integer
@@ -2750,100 +2813,100 @@ components:
           nullable: true
         consentAt:
           type: string
+          format: date-time
         result:
+          allOf:
+            - type: object
+              properties:
+                summary:
+                  type: string
+                reportedSymptoms:
+                  type: array
+                  items:
+                    type: string
+                possibleConsiderations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      whyDiscussed:
+                        type: string
+                    required: [name, whyDiscussed]
+                supportingInformation:
+                  type: string
+                missingInformation:
+                  type: string
+                urgencyContext:
+                  type: string
+                limitations:
+                  type: string
+                followUpQuestions:
+                  type: array
+                  items:
+                    type: string
+                disclaimer:
+                  type: string
+                urgencyLevel:
+                  type: string
+                redFlagsTriggered:
+                  type: array
+                  items:
+                    type: string
           nullable: true
-          type: object
-          properties:
-            summary:
-              type: string
-            reportedSymptoms:
-              type: array
-              items:
-                type: string
-            possibleConsiderations:
-              type: array
-              items:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  whyDiscussed:
-                    type: string
-                required: [name, whyDiscussed]
-            supportingInformation:
-              type: string
-            missingInformation:
-              type: string
-            urgencyContext:
-              type: string
-            limitations:
-              type: string
-            followUpQuestions:
-              type: array
-              items:
-                type: string
-            disclaimer:
-              type: string
-            urgencyLevel:
-              type: string
-            redFlagsTriggered:
-              type: array
-              items:
-                type: string
         createdAt:
           type: string
-      required:
-        - id
-        - assessmentId
-        - provider
-        - model
-        - promptVersion
-        - status
-        - consentAt
-        - createdAt
+          format: date-time
     SymptomAiEvaluationResponse:
       type: object
+      required: [evaluation]
       properties:
         evaluation:
           $ref: "#/components/schemas/SymptomAiEvaluation"
-        previousEvaluationId:
-          type: integer
-      required: [evaluation]
     SymptomAiEvaluationListResponse:
       type: object
+      required: [evaluations]
       properties:
         evaluations:
           type: array
           items:
             $ref: "#/components/schemas/SymptomAiEvaluation"
-      required: [evaluations]
-    SymptomAIConditionsResponse:
+    SymptomFollowUpAnswer:
       type: object
       properties:
-        analysis:
-          type: object
-          properties:
-            provider:
-              type: string
-            model:
-              type: string
-            topConditions:
-              type: array
-              items:
-                $ref: "#/components/schemas/AIConditionSuggestion"
-            note:
-              type: string
-            instructionNotice:
-              type: string
-          required: [provider, model, topConditions, note, instructionNotice]
-      required: [analysis]
-    SymptomAssessmentResponse:
+        questionId:
+          type: string
+        answer:
+          type: string
+      required: [questionId, answer]
+    SymptomFollowUpQuestion:
       type: object
       properties:
-        assessment:
-          $ref: "#/components/schemas/SymptomAssessment"
-      required:
-        - assessment
+        id:
+          type: string
+        prompt:
+          type: string
+        type:
+          type: string
+          enum: [yes_no_unknown, choice]
+        options:
+          type: array
+          items:
+            type: string
+        allowUnknown:
+          type: boolean
+      required: [id, prompt, type, allowUnknown]
+    SymptomFollowUpQuestionsResponse:
+      type: object
+      properties:
+        questionSetVersion:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymptomFollowUpQuestion"
+      required: [questionSetVersion, questions]
     SymptomAssessmentListResponse:
       type: object
       properties:
@@ -2867,6 +2930,9 @@ components:
       properties:
         caseId:
           type: integer
+        consentToExternalProcessing:
+          type: boolean
+          description: Consent to send the normalized assessment fields to the external AI provider for an educational evaluation. The server independently enforces its own data-transfer gates.
         primarySymptom:
           type: string
         symptomCategory:
@@ -2901,6 +2967,38 @@ components:
           items:
             type: string
             maxLength: 300
+        ageGroup:
+          type: string
+          enum: [child, adolescent, adult, older_adult, unknown, prefer_not_to_say]
+        factorsThatHelp:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 300
+        factorsThatWorsen:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 300
+        previousEpisodes:
+          type: string
+          enum: [first_episode, recurrent, unknown]
+        additionalNotes:
+          type: string
+          maxLength: 2000
+        questionnaireAnswers:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            properties:
+              questionId:
+                type: string
+              answer:
+                type: string
+            required: [questionId, answer]
       required:
         - primarySymptom
         - symptomCategory

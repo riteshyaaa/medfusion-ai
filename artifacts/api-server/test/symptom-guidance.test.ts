@@ -110,3 +110,66 @@ test("body fluid deficit: dehydration plus vomiting is urgent", () => {
   ));
   assert.equal(result.urgencyLevel, "urgent");
 });
+
+test("questionnaire escalation raises routine base input to urgent with preserved rule id", () => {
+  const result = assessSymptomGuidance(baseInput({
+    primarySymptom: "belly discomfort",
+    symptomCategory: "gastrointestinal",
+    followUpEvidence: [],
+    followUpEscalations: [{
+      urgency: "urgent",
+      flagLabel: "abdominal pain localised to the lower right side",
+      guidance: ["Pain settling in the lower right abdomen is a pattern doctors examine urgently."],
+    }],
+  }));
+  assert.equal(result.urgencyLevel, "urgent");
+  assert.ok(result.redFlagsTriggered.includes("abdominal pain localised to the lower right side"));
+  assert.match(result.recommendations[0], /lower right abdomen/i);
+});
+
+test("questionnaire evidence feeds the curated emergency entries", () => {
+  const result = assessSymptomGuidance(baseInput({
+    primarySymptom: "a stubborn cough",
+    symptomCategory: "respiratory",
+    followUpEvidence: ["blood in sputum"],
+    followUpEscalations: [],
+  }));
+  assert.equal(result.urgencyLevel, "emergency");
+  assert.ok(result.redFlagsTriggered.includes("uncontrolled bleeding"));
+});
+
+test("questionnaire answers can raise an emergency escalation", () => {
+  const result = assessSymptomGuidance(baseInput({
+    primarySymptom: "continuous dizziness",
+    symptomCategory: "general",
+    followUpEscalations: [{
+      urgency: "emergency",
+      flagLabel: "fainting with dizziness",
+      guidance: ["Emergency assessment needed."],
+    }],
+  }));
+  assert.equal(result.urgencyLevel, "emergency");
+  assert.ok(result.redFlagsTriggered.includes("fainting with dizziness"));
+});
+
+test("missing questionnaire answers never act as negative evidence", () => {
+  const withEvidence = assessSymptomGuidance(baseInput({
+    primarySymptom: "headache",
+    symptomCategory: "neurological",
+    followUpEvidence: ["worst ever headache"],
+  }));
+  const withoutEvidence = assessSymptomGuidance(baseInput({ primarySymptom: "headache", symptomCategory: "neurological" }));
+  assert.equal(withEvidence.urgencyLevel, "emergency");
+  assert.equal(withoutEvidence.urgencyLevel === "emergency", false);
+  assert.equal(withoutEvidence.urgencyLevel, "routine");
+});
+
+test("urgency states map deterministically from level and classifier status", async () => {
+  const { urgencyStateFor, SYMPTOM_RULE_SET_VERSION } = await import("../src/symptom-guidance");
+  assert.equal(SYMPTOM_RULE_SET_VERSION, "symptom-rules-v2");
+  assert.equal(urgencyStateFor("routine", "completed"), "routine_guidance");
+  assert.equal(urgencyStateFor("routine", "insufficient_input"), "needs_more_information");
+  assert.equal(urgencyStateFor("routine", "not_available"), "needs_more_information");
+  assert.equal(urgencyStateFor("urgent", "insufficient_input"), "urgent_guidance");
+  assert.equal(urgencyStateFor("emergency", "completed"), "emergency_guidance");
+});

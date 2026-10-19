@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   AIProviderError,
   configuredExplanationProvider,
-  configuredSymptomConditionProvider,
   configuredVisionConfig,
   externalHealthDataTransferEnabled,
   getAIProviderStatus,
@@ -206,50 +205,6 @@ test("provider concurrency stays within the configured bound", async () => {
   assert.ok(configured.provider);
   await Promise.all([configured.provider.explain(fakeInput), configured.provider.explain(fakeInput)]);
   assert.equal(maximumActive, 1);
-});
-
-test("symptom condition provider returns at most three validated suggestions", async () => {
-  const valid = JSON.stringify({
-    topConditions: [
-      { condition: "Viral upper respiratory infection", rationale: "Runny nose and sneezing are classic features of the common cold." },
-      { condition: "Seasonal allergy", rationale: "Repetitive sneezing and nasal discharge commonly occur with allergic rhinitis." },
-      { condition: "Acute sinusitis", rationale: "Congestion with facial pressure is a typical presenting pattern." },
-    ],
-    note: "Educational exploration only. Professional assessment is required for any real concern.",
-  });
-  const provider = configuredSymptomConditionProvider(envFor("nvidia"), {
-    fetchImpl: async (_url, init) => {
-      const request = JSON.parse(String(init?.body));
-      assert.equal(request.model, "nvidia/nemotron-3-super-120b-a12b");
-      assert.ok(String(request.messages[0].content).includes("no percentages or invented statistics"));
-      return rawResponse("nvidia", valid);
-    },
-  });
-  assert.ok(provider.provider);
-  const result = await provider.provider.analyze({ primarySymptom: "runny nose and sneezing", symptomCategory: "respiratory", selectedSymptoms: ["runny nose", "sneezing"] });
-  assert.equal(result.topConditions.length, 3);
-  assert.equal(result.provider, "nvidia");
-  assert.match(result.note, /Educational exploration only/);
-});
-
-test("symptom condition provider rejects fabricated numbers and diagnosis claims", async () => {
-  const withNumbers = JSON.stringify({
-    topConditions: [{ condition: "Common cold", rationale: "Typically affects 90% of adults annually." }],
-    note: "Educational only.",
-  });
-  const numbers = configuredSymptomConditionProvider(envFor("nvidia"), { fetchImpl: async () => rawResponse("nvidia", withNumbers) });
-  assert.ok(numbers.provider);
-  await assert.rejects(numbers.provider.analyze({ primarySymptom: "sneezing", symptomCategory: "respiratory" }),
-    (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
-
-  const withClaim = JSON.stringify({
-    topConditions: [{ condition: "Common cold", rationale: "You should take antibiotics immediately." }],
-    note: "Educational only.",
-  });
-  const claims = configuredSymptomConditionProvider(envFor("nvidia"), { fetchImpl: async () => rawResponse("nvidia", withClaim) });
-  assert.ok(claims.provider);
-  await assert.rejects(claims.provider.analyze({ primarySymptom: "sneezing", symptomCategory: "respiratory" }),
-    (error: unknown) => error instanceof AIProviderError && error.code === "provider_malformed_response");
 });
 
 const validSkinResult = JSON.stringify({

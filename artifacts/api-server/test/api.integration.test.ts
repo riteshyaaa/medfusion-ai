@@ -765,3 +765,165 @@ test("saved symptom AI evaluations are consent-gated, owner-scoped, keep failed 
     delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
   }
 });
+
+test("symptom submission runs one AI pipeline with urgent skip, honest failure preservation, reopen without provider calls, and warning preservation", async () => {
+  const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
+  const { AIProviderError } = await import("../src/ai-providers");
+  const owner = await register(`pipeline-owner-${randomUUID()}@example.test`);
+  const cookieOwner = owner.cookie;
+  const stranger = await register(`pipeline-stranger-${randomUUID()}@example.test`);
+
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  let evaluationCalls = 0;
+  let behavior: "reject_call" | "malformed" | "routine_ok" | "claim_safe" = "reject_call";
+  setTestClinicalAIProvider({
+    async analyzeSkin() { throw new Error("not used"); },
+    async analyzeSymptoms() { throw new Error("not used"); },
+    async analyzeCardiac() { throw new Error("not used"); },
+    async evaluateSymptoms() {
+      evaluationCalls += 1;
+      if (behavior === "reject_call") throw new Error("provider must not be called for urgent inputs");
+      if (behavior === "malformed") throw new AIProviderError("provider_malformed_response");
+      if (behavior === "claim_safe") {
+        return {
+          provider: "test",
+          model: "test-double",
+          result: {
+            summary: "Attempts to claim everything is routine.",
+            reportedSymptoms: ["back pain"],
+            possibleConsiderations: [],
+            supportingInformation: "n/a",
+            missingInformation: "n/a",
+            urgencyContext: "This is safe routine guidance, no urgent care is needed at all.",
+            limitations: "Educational only.",
+            followUpQuestions: ["Do you have fever?"],
+            disclaimer: "Educational information only, not a diagnosis.",
+          },
+        };
+      }
+      return {
+        provider: "test",
+        model: "test-double",
+        result: {
+          summary: "Reported mild sore throat with limited detail.",
+          reportedSymptoms: ["mild sore throat"],
+          possibleConsiderations: [{ name: "Viral throat irritation", whyDiscussed: "Sore throat without reported fever is commonly discussed as viral irritation." }],
+          supportingInformation: "Self-reported sore throat only.",
+          missingInformation: "Duration, temperature, and swallowing difficulty.",
+          urgencyContext: "Rule-based urgency routine.",
+          limitations: "Educational only.",
+          followUpQuestions: ["How long has the throat discomfort lasted?"],
+          disclaimer: "Educational information only, not a diagnosis.",
+        },
+      };
+    },
+  });
+  try {
+    const urgent = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "quite sharp back pain",
+      symptomCategory: "musculoskeletal",
+      severity: "severe",
+      consentToExternalProcessing: true,
+      questionnaireAnswers: [],
+    }, cookieOwner);
+    assert.equal(urgent.status, 201);
+    const urgentBody = await urgent.json() as { assessment: { id: number; urgencyLevel: string; classification: { aiAssessment: { status: string } | null } }; aiStatus: string; urgencyState: string };
+    assert.equal(urgentBody.assessment.urgencyLevel, "urgent");
+    assert.equal(urgentBody.aiStatus, "skipped_urgent");
+    assert.equal(urgentBody.urgencyState, "urgent_guidance");
+    assert.equal(urgentBody.assessment.classification?.aiAssessment?.status, "skipped_urgent");
+    assert.equal(evaluationCalls, 0);
+
+    behavior = "malformed";
+    const routineConsent = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "mild sore throat",
+      symptomCategory: "respiratory",
+      consentToExternalProcessing: true,
+    }, cookieOwner);
+    assert.equal(routineConsent.status, 201);
+    const routineBody = await routineConsent.json() as { assessment: { id: number; urgencyLevel: string }; aiStatus: string; evaluation: { status: string; errorCode: string | null; promptVersion: string } };
+    assert.equal(routineBody.aiStatus, "failed");
+    assert.equal(routineBody.evaluation.status, "failed");
+    assert.equal(routineBody.evaluation.errorCode, "provider_malformed_response");
+    const routinePersisted = await (await jsonRequest(`/symptom-assessments/${routineBody.assessment.id}`, "GET", undefined, cookieOwner)).json() as { assessment: { urgencyLevel: string; guidance: { recommendations: string[] } } };
+    assert.equal(routinePersisted.assessment.urgencyLevel, "routine");
+    assert.ok(routinePersisted.assessment.guidance.recommendations.length > 0);
+
+    behavior = "routine_ok";
+    const completed = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "mild sore throat",
+      symptomCategory: "respiratory",
+      consentToExternalProcessing: true,
+    }, cookieOwner);
+    assert.equal(completed.status, 201);
+    const completedBody = await completed.json() as { assessment: { id: number }; aiStatus: string; evaluation: { id: number; status: string; provider: string; model: string; result: { summary: string; urgencyLevel: string; redFlagsTriggered: string[] }; promptVersion: string }; urgencyState: string };
+    assert.equal(completedBody.aiStatus, "completed");
+    assert.equal(completedBody.evaluation.status, "completed");
+    assert.equal(completedBody.evaluation.provider, "test");
+    assert.equal(completedBody.evaluation.model, "test-double");
+    assert.match(completedBody.evaluation.promptVersion, /^symptom-eval-v\d+$/);
+    assert.ok(completedBody.evaluation.result.summary.length > 0);
+    assert.equal(completedBody.evaluation.result.urgencyLevel, "routine");
+    assert.equal(completedBody.urgencyState, "needs_more_information", "routine + classifier not completed = needs_more_information");
+    const callsAfterCompleted = evaluationCalls;
+
+    const reopened = await jsonRequest(`/symptom-assessments/${completedBody.assessment.id}`, "GET", undefined, cookieOwner);
+    assert.equal(reopened.status, 200);
+    const evaluationsReopen = await jsonRequest(`/symptom-assessments/${completedBody.assessment.id}/ai-evaluations`, "GET", undefined, cookieOwner);
+    assert.equal(evaluationsReopen.status, 200);
+    const evaluationsBody = await evaluationsReopen.json() as { evaluations: unknown[] };
+    assert.equal(Array.isArray(evaluationsBody.evaluations), true);
+    assert.equal((await jsonRequest(`/symptom-assessments/${completedBody.assessment.id}`, "GET", undefined, stranger.cookie)).status, 404);
+    assert.equal((await jsonRequest(`/symptom-assessments/${completedBody.assessment.id}/ai-evaluations`, "GET", undefined, stranger.cookie)).status, 404);
+    assert.equal(evaluationCalls, callsAfterCompleted, "reopening must not trigger any provider call");
+
+    behavior = "claim_safe";
+    const attemptingDowngrade = await jsonRequest(`/symptom-assessments/${completedBody.assessment.id}/ai-evaluations/${completedBody.evaluation.id}/re-evaluate`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(attemptingDowngrade.status, 201);
+    const downgradeBody = await attemptingDowngrade.json() as { evaluation: { result: { urgencyLevel: string; redFlagsTriggered: string[] } } };
+    assert.equal(downgradeBody.evaluation.result.urgencyLevel, "routine");
+
+    const urgentForDowngrade = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "ongoing stomach pain with vomiting",
+      symptomCategory: "gastrointestinal",
+      severity: "moderate",
+    }, cookieOwner);
+    assert.equal(urgentForDowngrade.status, 201);
+    const urgentForDowngradeBody = await urgentForDowngrade.json() as { assessment: { id: number; urgencyLevel: string; redFlagsTriggered: string[] } };
+    assert.equal(urgentForDowngradeBody.assessment.urgencyLevel, "urgent");
+    assert.ok(urgentForDowngradeBody.assessment.redFlagsTriggered.length > 0);
+    const noEvaluationYet = await jsonRequest(`/symptom-assessments/${urgentForDowngradeBody.assessment.id}/ai-evaluations`, "POST", { consentToExternalProcessing: true }, cookieOwner);
+    assert.equal(noEvaluationYet.status, 201);
+    const savedEvaluation = await noEvaluationYet.json() as { evaluation: { id: number; result: { urgencyLevel: string; redFlagsTriggered: string[] } } };
+    assert.equal(savedEvaluation.evaluation.result.urgencyLevel, "urgent", "backend owns the urgency label");
+    assert.deepEqual(savedEvaluation.evaluation.result.redFlagsTriggered, urgentForDowngradeBody.assessment.redFlagsTriggered, "deterministic red flags are preserved over model output");
+
+    const invalidQuestionnaire = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "headache",
+      symptomCategory: "neurological",
+      questionnaireAnswers: [{ questionId: "not_a_real_question", answer: "yes" }],
+    }, cookieOwner);
+    assert.equal(invalidQuestionnaire.status, 400);
+    const invalidAnswer = await jsonRequest("/symptom-assessments", "POST", {
+      primarySymptom: "headache",
+      symptomCategory: "neurological",
+      questionnaireAnswers: [{ questionId: "cough_blood", answer: "maybe" }],
+    }, cookieOwner);
+    assert.equal(invalidAnswer.status, 400);
+
+    const followUpUnauth = await app.request("/api/symptoms/follow-up-questions?category=neurological&primary=headache");
+    assert.equal(followUpUnauth.status, 401);
+    const followUp = await jsonRequest("/symptoms/follow-up-questions?category=neurological&primary=headache", "GET", undefined, cookieOwner);
+    assert.equal(followUp.status, 200);
+    const followUpBody = await followUp.json() as { questionSetVersion: string; questions: Array<{ id: string; type: string; allowUnknown: boolean }> };
+    assert.match(followUpBody.questionSetVersion, /^symptom-followups-v\d+$/);
+    assert.ok(followUpBody.questions.some((question) => question.id === "headache_worst_ever"));
+    for (const question of followUpBody.questions) assert.equal(question.allowUnknown, true);
+  } finally {
+    setTestClinicalAIProvider(undefined);
+    delete process.env.AI_DATA_SHARING_ENABLED;
+    delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  }
+});
+

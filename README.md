@@ -117,7 +117,9 @@ Implemented routes are versioned under /api:
 - GET /api/cases/{id}/workspace: consolidated, per-case uploads, model outputs, documents, symptom assessments, and reports, each kept separate with its own provenance.
 - GET/POST/PATCH/DELETE /api/patients: patient records; delete archives.
 - GET/POST/PATCH /api/cases: owner-scoped cases and status updates.
-- GET/POST /api/symptom-assessments, GET /api/symptom-assessments/{id}: persisted rule-based assessments; the list supports an owner-scoped caseId filter.
+- GET/POST /api/symptom-assessments, GET /api/symptom-assessments/{id}: persisted deterministic rule-based assessments; the list supports an owner-scoped caseId filter. The create route runs one AI pipeline: urgent/emergency inputs skip the provider entirely (deterministic urgency only), and with per-request consent plus server-side approvals a single structured evaluation is requested and persisted (completed or failed, always alongside the rule-based assessment; no route ever waits for a perfect AI answer to return safety guidance).
+- GET /api/symptoms/follow-up-questions: versioned adaptive follow-up questionnaire for a symptom/category; answers are validated server-side and only strengthen the deterministic guidance.
+- GET/POST /api/symptom-assessments/{id}/ai-evaluations, POST /api/symptom-assessments/{id}/ai-evaluations/{evaluationId}/re-evaluate: consent-gated structured AI evaluation history and re-run; reopening a case never triggers a provider call.
 - GET/POST/PATCH /api/reviews: role-gated review records. Registration cannot grant privileged roles, and the product does not include a clinician identity-verification or review-assignment workflow.
 - GET/POST/PATCH /api/reports, GET /api/reports/{id}/export: owner-scoped draft creation, archival, and plain-text export.
 

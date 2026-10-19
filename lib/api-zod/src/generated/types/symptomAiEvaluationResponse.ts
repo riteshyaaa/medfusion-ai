@@ -9,5 +9,4 @@ import type { SymptomAiEvaluation } from './symptomAiEvaluation.ts';
 
 export interface SymptomAiEvaluationResponse {
   evaluation: SymptomAiEvaluation;
-  previousEvaluationId?: number;
 }

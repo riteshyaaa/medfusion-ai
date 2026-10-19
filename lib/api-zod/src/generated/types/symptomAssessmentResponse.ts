@@ -5,8 +5,17 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { SymptomAiEvaluation } from './symptomAiEvaluation.ts';
 import type { SymptomAssessment } from './symptomAssessment.ts';
+import type { SymptomAssessmentResponseAiStatus } from './symptomAssessmentResponseAiStatus.ts';
+import type { SymptomAssessmentResponseUrgencyState } from './symptomAssessmentResponseUrgencyState.ts';
 
 export interface SymptomAssessmentResponse {
   assessment: SymptomAssessment;
+  /** Authoritative deterministic urgency state mapped from the rule engine. */
+  urgencyState?: SymptomAssessmentResponseUrgencyState;
+  aiStatus?: SymptomAssessmentResponseAiStatus;
+  aiErrorCode?: string;
+  aiMessage?: string;
+  evaluation?: SymptomAiEvaluation;
 }

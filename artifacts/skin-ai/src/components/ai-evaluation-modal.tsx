@@ -114,7 +114,7 @@ export function AIEvaluationModal({ assessment, onClose }: AIEvaluationModalProp
                 <ResultBlock title="Urgency context">{shownResult.result.urgencyContext}</ResultBlock>
                 <ResultBlock title="Limitations">{shownResult.result.limitations}</ResultBlock>
                 <ResultBlock title="Follow-up questions"><ul className="list-disc space-y-1 pl-4">{(shownResult.result.followUpQuestions ?? []).map((row, index) => <li key={index}>{row}</li>)}</ul></ResultBlock>
-                <p className="text-xs text-slate-500 italic">{shownResult.result.disclaimer}</p>
+                <p className="text-xs text-slate-500 italic">{shownResult.result.disclaimer ?? "Educational information only, not a diagnosis. This is not medical advice."}</p>
               </section>
             )}
 

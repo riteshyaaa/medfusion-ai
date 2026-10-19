@@ -1,4 +1,7 @@
 import { getSymptomAssociation, getSymptomCatalogueIds } from "./symptom-classifier";
+import type { FollowUpEscalation } from "./symptom-questions";
+
+export const SYMPTOM_RULE_SET_VERSION = "symptom-rules-v2";
 
 export type SymptomGuidanceInput = {
   primarySymptom: string;
@@ -11,6 +14,8 @@ export type SymptomGuidanceInput = {
   duration?: string;
   medicalHistory?: string[];
   medications?: string[];
+  followUpEvidence?: string[];
+  followUpEscalations?: FollowUpEscalation[];
 };
 
 export type PossibleCondition = { name: string; basis: string };
@@ -23,6 +28,29 @@ export type SymptomGuidance = {
   possibleConditions: PossibleCondition[];
   disclaimer: string;
 };
+
+export type UrgencyState =
+  | "routine_guidance"
+  | "needs_more_information"
+  | "urgent_guidance"
+  | "emergency_guidance";
+
+export const URGENCY_STATE_LABELS: Record<UrgencyState, string> = {
+  routine_guidance: "Routine guidance",
+  needs_more_information: "Needs more information",
+  urgent_guidance: "Urgent — seek care promptly",
+  emergency_guidance: "Emergency — seek care now",
+};
+
+export function urgencyStateFor(
+  urgencyLevel: string,
+  classificationStatus?: string | null,
+): UrgencyState {
+  if (urgencyLevel === "emergency") return "emergency_guidance";
+  if (urgencyLevel === "urgent") return "urgent_guidance";
+  if (classificationStatus && classificationStatus !== "completed") return "needs_more_information";
+  return "routine_guidance";
+}
 
 type CuratedSymptom = {
   label: string;
@@ -47,7 +75,7 @@ const DISCLAIMER = "This guidance is generated from the information you entered.
 const curated: CuratedSymptom[] = [
   {
     label: "chest pain",
-    aliases: ["chest_pain", "chest pain", "pressure in chest", "tight chest", "chest tightness", "pain in chest", "left arm pain", "left shoulder pain", "pain spreading to arm"],
+    aliases: ["chest_pain", "chest pain", "pressure in chest", "tight chest", "chest tightness", "pain in chest", "left arm pain", "left shoulder pain", "pain spreading to arm", "aching chest", "chest pressure feeling", "heaviness in chest", "chest discomfort", "arm pain", "pain in arm", "pain going towards arm", "jaw pain"],
     baseUrgency: "emergency",
     note: "Chest pain can come from the heart or lungs and must be assessed in person, quickly.",
     guidance: [
@@ -63,7 +91,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "breathlessness",
-    aliases: ["breathlessness", "shortness of breath", "difficulty breathing", "breathing difficulty", "hard to breathe", "can't catch breath", "wheezing", "gasping"],
+    aliases: ["breathlessness", "shortness of breath", "difficulty breathing", "breathing difficulty", "hard to breathe", "can't catch breath", "wheezing", "gasping", "short of breath", "trouble breathing", "breathless", "panting", "struggling to breathe", "cannot breathe", "hardly breathing"],
     baseUrgency: "emergency",
     note: "Breathing difficulty can deteriorate quickly regardless of the underlying cause.",
     guidance: [
@@ -79,7 +107,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "high fever",
-    aliases: ["high_fever", "high fever", "very high temperature", "temperature above 39", "temp above 39"],
+    aliases: ["high_fever", "high fever", "very high temperature", "temperature above 39", "temp above 39", "too much fever", "fever high", "burning fever", "high temperature", "fever of 102"],
     baseUrgency: "urgent",
     note: "Fevers this high need in-person assessment with a measured temperature.",
     guidance: [
@@ -91,7 +119,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "fever (unspecified)",
-    aliases: ["fever", "mild_fever", "temperature", "pyrexia", "hot body", "feeling feverish"],
+    aliases: ["fever", "mild_fever", "temperature", "pyrexia", "hot body", "feeling feverish", "mild fever", "slight fever", "raised temperature", "feeling hot", "running temperature"],
     baseUrgency: "routine",
     guidance: [
       "Rest and keep fluids up; measure temperature twice daily to trend the fever.",
@@ -102,7 +130,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "severe headache",
-    aliases: ["severe headache", "worst headache", "thunderclap headache", "unbearable headache", "worst ever headache"],
+    aliases: ["severe headache", "worst headache", "thunderclap headache", "unbearable headache", "worst ever headache", "splitting headache", "agonizing headache", "violent headache"],
     baseUrgency: "emergency",
     note: "A sudden, worst-ever headache is a warning pattern that must be assessed urgently.",
     guidance: ["Rest in a dark, quiet room; do not ignore it even if it eases a little.", "Avoid strenuous activity and driving until the cause has been assessed."],
@@ -111,7 +139,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "ordinary headache",
-    aliases: ["headache", "head pain", "migraine"],
+    aliases: ["headache", "head pain", "migraine", "aching head", "head paining", "throbbing head", "mild headache"],
     baseUrgency: "routine",
     guidance: [
       "Rest in a dim, quiet space, keep hydrated, and note what you ate, slept, and did before it started.",
@@ -122,7 +150,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "stiff neck",
-    aliases: ["stiff_neck", "stiff neck", "neck stiffness", "can't bend neck"],
+    aliases: ["stiff_neck", "stiff neck", "neck stiffness", "can't bend neck", "neck feels stiff", "cannot turn neck", "neck rigid"],
     baseUrgency: "emergency",
     note: "Combined with fever or headache this can signal a serious infection; with injury it still needs same-day assessment.",
     guidance: ["Do not force neck movement and avoid driving.", "Check whether moving the chin toward the chest is possible — difficulty doing this is important information to report."],
@@ -131,7 +159,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "fainting or loss of consciousness",
-    aliases: ["fainting", "fainted", "passed out", "blacked out", "unconscious", "loss of consciousness", "blackouts", "coma"],
+    aliases: ["fainting", "fainted", "passed out", "blacked out", "unconscious", "loss of consciousness", "blackouts", "coma", "syncope", "fainted away", "fell unconscious"],
     baseUrgency: "emergency",
     note: "Any witnessed or remembered loss of consciousness needs urgent evaluation of the cause in person.",
     guidance: ["Lie down and elevate the legs until fully stable; do not stand up quickly.", "Do not drive, climb, or operate machinery until a doctor has evaluated the cause."],
@@ -140,7 +168,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "stroke warning signs",
-    aliases: ["face drooping", "face droop", "arm weakness", "weakness of one body side", "weakness_of_one_body_side", "slurred speech", "speech difficulty", "one side weakness", "half body weakness", "drooping face"],
+    aliases: ["face drooping", "face droop", "arm weakness", "weakness of one body side", "weakness_of_one_body_side", "slurred speech", "speech difficulty", "one side weakness", "half body weakness", "drooping face", "difficulty speaking", "trouble speaking", "garbled speech", "cannot lift arm", "one sided numbness", "half body numbness", "face dropping", "leg weakness"],
     baseUrgency: "emergency",
     note: "These are classic stroke warning signs; emergency treatment windows are measured in minutes.",
     guidance: ["Note the exact time the symptoms started — this determines what treatment is possible.", "Call emergency services regardless of whether symptoms improve; do not wait for them to pass."],
@@ -149,7 +177,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "suicidal thoughts or self-harm",
-    aliases: ["suicidal", "suicide", "kill myself", "end my life", "self-harm", "self harm", "hurt myself", "no reason to live"],
+    aliases: ["suicidal", "suicide", "kill myself", "end my life", "self-harm", "self harm", "hurt myself", "no reason to live", "thoughts of suicide", "want to die", "end it all", "life is not worth living", "cutting myself", "harming myself"],
     baseUrgency: "emergency",
     note: "Emotional crises are medical emergencies and deserve an immediate human response.",
     guidance: [
@@ -161,7 +189,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "uncontrolled bleeding",
-    aliases: ["uncontrolled bleeding", "bleeding heavily", "won't stop bleeding", "severe bleeding", "coughing blood", "blood in sputum", "vomiting blood", "stomach_bleeding", "bloody stool", "blood in motion"],
+    aliases: ["uncontrolled bleeding", "bleeding heavily", "won't stop bleeding", "severe bleeding", "coughing blood", "blood in sputum", "vomiting blood", "stomach_bleeding", "bloody stool", "blood in motion", "coughing up blood", "coughing out blood", "blood in cough", "blood in phlegm", "bloody vomit", "vomiting out blood", "blood in stool", "bloody motions", "rectal bleeding", "haemorrhage", "hemorrhage"],
     baseUrgency: "emergency",
     note: "Active uncontrolled blood loss is a time-critical emergency.",
     guidance: ["Apply firm, continuous direct pressure with a clean cloth and do not lift it to look.", "Keep the injured part raised and still; avoid eating or drinking if surgery is possible."],
@@ -170,7 +198,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "severe allergic reaction",
-    aliases: ["anaphylaxis", "severe allergic reaction", "throat closing", "swollen throat", "whole body hives"],
+    aliases: ["anaphylaxis", "severe allergic reaction", "throat closing", "swollen throat", "whole body hives", "hives all over", "hives everywhere", "swelling of face", "face swelling", "tongue swelling", "throat swollen", "anaphylactic reaction"],
     baseUrgency: "emergency",
     note: "Anaphylaxis can close the airway within minutes; use adrenaline immediately if it has already been prescribed to you.",
     guidance: ["Use your prescribed adrenaline auto-injector immediately if available, then still seek emergency care.", "Lie down with legs raised if feeling faint; avoid food and drink until advised."],
@@ -179,7 +207,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "sudden vision loss",
-    aliases: ["sudden vision loss", "lost sight", "vision gone dark", "curtain over vision", "blurred_and_distorted_vision"],
+    aliases: ["sudden vision loss", "lost sight", "vision gone dark", "curtain over vision", "blurred_and_distorted_vision", "sudden blindness", "sight went dark", "vision blacked out", "cannot see suddenly"],
     baseUrgency: "emergency",
     note: "Sudden loss of sight is an emergency with a narrow treatment window.",
     guidance: ["Avoid rubbing or pressing the eyes.", "Arrange transport to an eye emergency department immediately."],
@@ -188,7 +216,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "vomiting",
-    aliases: ["vomiting", "vomit", "throwing up", "being sick", "nausea", "nauseous", "queasy"],
+    aliases: ["vomiting", "vomit", "throwing up", "being sick", "nausea", "nauseous", "queasy", "puking", "puke", "retching", "vomitted", "nauseous feeling", "sick feeling", "gagging feeling"],
     baseUrgency: "routine",
     guidance: [
       "Sip small amounts of oral rehydration solution or water steadily; large drinks will come straight back up.",
@@ -199,7 +227,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "diarrhoea",
-    aliases: ["diarrhoea", "diarrhea", "loose motions", "loose stools", "watery stools", "frequent stools"],
+    aliases: ["diarrhoea", "diarrhea", "loose motions", "loose stools", "watery stools", "frequent stools", "loose motion", "frequent loose motion", "watery motion", "loose motions with mucus"],
     baseUrgency: "routine",
     guidance: [
       "Prioritize oral rehydration solution after every loose stool; dehydration is the main risk, not the stool itself.",
@@ -210,7 +238,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "abdominal pain",
-    aliases: ["abdominal_pain", "abdominal pain", "belly_pain", "belly pain", "stomach_pain", "stomach pain", "tummy pain", "gut pain", "pain abdomen"],
+    aliases: ["abdominal_pain", "abdominal pain", "belly_pain", "belly pain", "stomach_pain", "stomach pain", "tummy pain", "gut pain", "pain abdomen", "abdominal discomfort", "stomach cramps", "belly discomfort", "epigastric pain", "pain near navel", "pain in abdomen", "lower abdomen pain", "upper abdomen pain", "stomach aching"],
     baseUrgency: "urgent",
     note: "Abdominal pain overlaps with several urgent surgical conditions and deserves structured assessment.",
     guidance: [
@@ -222,7 +250,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "cough",
-    aliases: ["cough", "coughing", "dry cough", "chesty cough", "phlegm", "mucoid_sputum", "throat_irritation", "throat irritation"],
+    aliases: ["cough", "coughing", "dry cough", "chesty cough", "phlegm", "mucoid_sputum", "throat_irritation", "throat irritation", "wet cough", "cough with phlegm", "persistent cough", "continuous cough", "cough continues", "coughing a lot"],
     baseUrgency: "routine",
     guidance: [
       "Warm fluids and a smoke-free room usually help a simple cough; honey soothes adults (never give honey to infants).",
@@ -233,7 +261,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "cold symptoms",
-    aliases: ["runny_nose", "runny nose", "sneezing", "continuous_sneezing", "congestion", "blocked nose", "sinus_pressure", "sore throat", "watering_from_eyes", "redness_of_eyes"],
+    aliases: ["runny_nose", "runny nose", "sneezing", "continuous_sneezing", "congestion", "blocked nose", "sinus_pressure", "sore throat", "watering_from_eyes", "redness_of_eyes", "nasal congestion", "nose running", "scratchy throat", "throat pain", "throat hurts", "common cold", "cold and cough"],
     baseUrgency: "routine",
     guidance: [
       "Rest, fluids, saline nasal rinse, and steam help symptom control; this usually settles on its own within about a week.",
@@ -244,7 +272,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "dehydration signs",
-    aliases: ["dehydration", "sunken_eyes", "can't keep water down", "no urine", "dry mouth", "dizzy standing"],
+    aliases: ["dehydration", "sunken_eyes", "can't keep water down", "no urine", "dry mouth", "dizzy standing", "very thirsty", "extreme thirst", "not urinated all day", "low urine output"],
     baseUrgency: "urgent",
     note: "This suggests more than routine fluid loss — a clinician may need to treat with IV fluids.",
     guidance: ["Take small sips of oral rehydration solution every few minutes while awaiting assessment.", "Stop caffeine; avoid plain water alone — electrolyte solutions are the priority."],
@@ -253,7 +281,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "palpitations",
-    aliases: ["fast_heart_rate", "heart racing", "palpitations", "heart pounding", "racing heart", "irregular heartbeat"],
+    aliases: ["fast_heart_rate", "heart racing", "palpitations", "heart pounding", "racing heart", "irregular heartbeat", "heart beating fast", "fluttering heart", "pulse racing", "skipped beats", "heartbeat irregular"],
     baseUrgency: "urgent",
     note: "A new sustained racing or irregular heartbeat deserves ECG-based assessment.",
     guidance: ["While resting comfortably, count heartbeats for exactly 60 seconds and record the number.", "Avoid caffeine, energy drinks, and stimulant decongestants until reviewed."],
@@ -262,7 +290,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "dizziness",
-    aliases: ["dizziness", "dizzy", "light headed", "spinning_movements", "spinning movements", "vertigo", "loss of balance", "unsteadiness", "loss_of_balance"],
+    aliases: ["dizziness", "dizzy", "light headed", "spinning_movements", "spinning movements", "vertigo", "loss of balance", "unsteadiness", "loss_of_balance", "feeling faint", "lightheadedness", "room spinning", "woozy", "balance is off"],
     baseUrgency: "urgent",
     guidance: [
       "Stand up slowly, sit before falling, and avoid ladders and driving until the cause is established.",
@@ -273,7 +301,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "joint pain",
-    aliases: ["joint_pain", "joint pain", "knee_pain", "knee pain", "swelling_joints", "swollen joints", "hip_joint_pain", "hip joint pain", "muscle_weakness"],
+    aliases: ["joint_pain", "joint pain", "knee_pain", "knee pain", "swelling_joints", "swollen joints", "hip_joint_pain", "hip joint pain", "muscle_weakness", "joint hurts", "knee hurts", "muscle aches", "muscular pain", "swelling in joints"],
     baseUrgency: "routine",
     guidance: [
       "Rest the joint for two to three days, apply ice up to 15 minutes at a time, and keep gentle movement going.",
@@ -284,7 +312,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "skin rash",
-    aliases: ["skin_rash", "skin rash", "rash", "red_spots_over_body", "red spots", "nodal_skin_eruptions", "itchy rash", "itching", "blisters"],
+    aliases: ["skin_rash", "skin rash", "rash", "red_spots_over_body", "red spots", "nodal_skin_eruptions", "itchy rash", "itching", "blisters", "hives", "urticaria", "spots on skin", "itchy skin", "skin eruption", "red patches", "raised spots", "rash spreading"],
     baseUrgency: "urgent",
     note: "A rash with fever should not be assessed from photographs alone — it needs in-person review.",
     guidance: [
@@ -296,7 +324,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "widespread tiredness",
-    aliases: ["fatigue", "malaise", "lethargy", "tiredness", "exhaustion", "weakness"],
+    aliases: ["fatigue", "malaise", "lethargy", "tiredness", "exhaustion", "weakness", "no energy", "low energy", "always tired", "feeling weak", "drowsy all day"],
     baseUrgency: "routine",
     guidance: [
       "Track sleep hours and quality, nutrition, hydration, and stress for a full week — patterns usually explain most episodes.",
@@ -307,7 +335,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "back or neck pain",
-    aliases: ["back_pain", "back pain", "lower back pain", "neck_pain", "neck pain"],
+    aliases: ["back_pain", "back pain", "lower back pain", "neck_pain", "neck pain", "backache", "pulled back", "stiff lower back", "lumbar pain", "pain in back"],
     baseUrgency: "routine",
     guidance: [
       "Stay gently active rather than on strict bed rest; heat packs and short walks usually speed recovery of mechanical pain.",
@@ -318,7 +346,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "mouth or throat sores",
-    aliases: ["ulcers_on_tongue", "patches_in_throat", "patches in throat", "mouth ulcer", "tongue ulcer", "pain swallowing"],
+    aliases: ["ulcers_on_tongue", "patches_in_throat", "patches in throat", "mouth ulcer", "tongue ulcer", "pain swallowing", "ulcer in mouth", "canker sore", "white patch in throat", "painful swallowing", "sore on tongue", "difficulty swallowing"],
     baseUrgency: "routine",
     guidance: [
       "Warm salt-water rinses, cool soft food, and steady fluids manage most mouth and throat soreness.",
@@ -329,7 +357,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "urinary symptoms",
-    aliases: ["burning_micturition", "burning urination", "painful urination", "polyuria", "frequent urination", "bladder_discomfort", "bloody urine", "dark_urine", "continuous_feel_of_urine"],
+    aliases: ["burning_micturition", "burning urination", "painful urination", "polyuria", "frequent urination", "bladder_discomfort", "bloody urine", "dark_urine", "continuous_feel_of_urine", "hurts to pee", "burning pee", "blood in urine", "peeing blood", "flank pain", "bladder pain", "urine looks cloudy"],
     baseUrgency: "urgent",
     note: "Urinary infections can extend upward toward the kidneys; hydration and early review matter.",
     guidance: [
@@ -341,7 +369,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "isolated itching",
-    aliases: ["internal_itching", "dry skin"],
+    aliases: ["internal_itching", "dry skin", "itchy all over", "scratching constantly", "skin itchy"],
     baseUrgency: "routine",
     guidance: [
       "Switch to fragrance-free mild soaps and moisturize after washing; pat rather than scratch.",
@@ -352,7 +380,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "sweating",
-    aliases: ["sweating", "sweat", "diaphoresis"],
+    aliases: ["sweating", "sweat", "diaphoresis", "night sweat", "cold sweat", "perspiration", "sweating more than usual"],
     baseUrgency: "routine",
     guidance: [
       "Note when the sweating happens — with fever, at night, with chest pain, or with exertion — since the pattern is what matters.",
@@ -363,7 +391,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "leg swelling",
-    aliases: ["swollen_legs", "swollen_legs feet", "leg swelling", "swollen feet", "swollen_extremeties", "swollen extremities", "swelling of stomach"],
+    aliases: ["swollen_legs", "swollen_legs feet", "leg swelling", "swollen feet", "swollen_extremeties", "swollen extremities", "swelling of stomach", "swollen ankles", "ankle swelling", "feet swelling", "one swollen leg", "swelling in legs"],
     baseUrgency: "urgent",
     note: "New swelling of legs or abdomen can reflect heart, kidney, or liver causes that need evidence from an examination.",
     guidance: [
@@ -375,7 +403,7 @@ const curated: CuratedSymptom[] = [
   },
   {
     label: "unexplained weight loss",
-    aliases: ["weight_loss", "weight loss", "losing weight without trying", "clothes loose"],
+    aliases: ["weight_loss", "weight loss", "losing weight without trying", "clothes loose", "losing weight lately", "lost weight without diet", "sudden weight drop"],
     baseUrgency: "routine",
     note: "Unintended weight loss is a symptom doctors take seriously and should always be explained.",
     guidance: [
@@ -481,6 +509,23 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/_/g, " ").replace(/\s+/g, " ").trim();
 }
 
+const negationCueTokens = new Set([
+  "no", "not", "none", "nope", "nor", "never", "without", "denies", "denied", "deny",
+  "negative", "absent", "cannot", "cant", "can't", "hasn't", "hasnt", "haven't", "havnt",
+  "didn't", "didnt", "don't", "dont", "doesn't", "doesnt", "isn't", "isnt", "wasn't", "wasnt",
+]);
+
+function negationSuppressesMatch(text: string, phraseFirstToken: string, phrasePrefix: string): boolean {
+  if (phraseFirstToken === "no" || phraseFirstToken === "not" || phraseFirstToken === "none") {
+    return false;
+  }
+  const matchStart = text.includes(phrasePrefix) ? text.indexOf(phrasePrefix) : -1;
+  if (matchStart <= 0) return false;
+  const clauseBefore = text.slice(0, matchStart).replace(/\b(but|however|although|while|whereas)\b/g, ",").replace(/[^a-z0-9 ]+/g, " ");
+  const precedingTokens = clauseBefore.split(/\s+/).filter(Boolean).slice(-2);
+  return precedingTokens.some((token) => negationCueTokens.has(token));
+}
+
 const curatedAliasIndex: Array<{ phrase: string; entry: CuratedSymptom }> = [];
 for (const entry of curated) {
   for (const alias of entry.aliases) {
@@ -515,12 +560,17 @@ function collectMatches(input: SymptomGuidanceInput): MatchState {
     ...(input.associatedSymptoms ?? []),
     ...(input.medicalHistory ?? []),
     ...(input.selectedSymptoms ?? []),
+    ...(input.followUpEvidence ?? []),
   ].map(normalizeText).filter(Boolean);
 
   const entries: CuratedSymptom[] = [];
   for (const { phrase, entry } of curatedAliasIndex) {
     if (entries.includes(entry)) continue;
-    const matched = normalizedTexts.some((text) => text === phrase || text.includes(phrase));
+    const matched = normalizedTexts.some((text) => {
+      const hit = text.indexOf(phrase);
+      if (hit < 0) return false;
+      return !negationSuppressesMatch(text, phrase.split(" ")[0], phrase);
+    });
     if (matched) entries.push(entry);
   }
 
@@ -530,7 +580,11 @@ function collectMatches(input: SymptomGuidanceInput): MatchState {
     const tokens = normalizeText(id).split(" ").filter((token) => token.length > 2);
     if (tokens.length === 0) continue;
     const found = normalizedTexts.some((text) => {
-      if (text.includes(tokens.join(" "))) return true;
+      const phrasePrefix = tokens.join(" ");
+      const hit = text.indexOf(tokens[0]);
+      if (hit < 0) return false;
+      if (negationSuppressesMatch(text, tokens[0], phrasePrefix)) return false;
+      if (text.includes(phrasePrefix)) return true;
       return tokens.every((token) => text.includes(token));
     });
     if (found) matchedCatalogueIds.push(id);
@@ -569,7 +623,12 @@ function assessUrgency(input: SymptomGuidanceInput, matched: MatchState, fired: 
     return entry?.baseUrgency === "urgent";
   });
   const categoryRisk = ["cardiovascular", "respiratory", "neurological"].includes(input.symptomCategory);
-  if (firedUrgent || hasUrgentEntry || hasUrgentViaCatalogue || input.severity === "severe" || input.progression === "worsening" || (categoryRisk && input.severity === "moderate")) return "urgent";
+  const escalationFloor = (input.followUpEscalations ?? []).reduce<"emergency" | "urgent" | null>((floor, escalation) => {
+    if (escalation.urgency === "emergency") return "emergency";
+    return floor ?? "urgent";
+  }, null);
+  if (escalationFloor === "emergency") return "emergency";
+  if (firedUrgent || hasUrgentEntry || hasUrgentViaCatalogue || input.severity === "severe" || input.progression === "worsening" || (categoryRisk && input.severity === "moderate") || escalationFloor === "urgent") return "urgent";
   return "routine";
 }
 
@@ -602,6 +661,11 @@ export function assessSymptomGuidance(input: SymptomGuidanceInput): SymptomGuida
   }
 
   const recommendations: string[] = [];
+  for (const escalation of [...(input.followUpEscalations ?? [])].reverse()) {
+    for (const tip of escalation.guidance) {
+      if (!recommendations.includes(tip)) recommendations.unshift(tip);
+    }
+  }
   if (urgency === "emergency") {
     recommendations.push("These inputs matched an emergency warning pattern. Contact local emergency services now or go to the nearest emergency department — do not wait for an appointment.");
   } else if (urgency === "urgent") {
@@ -633,6 +697,9 @@ export function assessSymptomGuidance(input: SymptomGuidanceInput): SymptomGuida
     if (entry && entry.baseUrgency === "emergency" && !redFlags.includes(entry.label)) redFlags.push(entry.label);
   }
   for (const row of fired) redFlags.push(row.rule.label);
+  for (const escalation of input.followUpEscalations ?? []) {
+    if (!redFlags.includes(escalation.flagLabel)) redFlags.push(escalation.flagLabel);
+  }
 
   const watchFor = primaryEntries.reduce<Array<string>>((list, entry) => {
     for (const item of entry.watchFor) {

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface SymptomAiConditionsRequest {
-  consentToExternalProcessing: true;
+export interface SymptomFollowUpAnswer {
+  questionId: string;
+  answer: string;
 }

@@ -17,14 +17,23 @@ import sharp from "sharp";
 import { LocalPrivateStorage } from "./storage";
 import { getTestInferenceProvider, hasApprovedSkinModel } from "./inference";
 import { getResearchSkinInferenceProvider, getSkinInferenceStatus, SkinInferenceError } from "./skin-inference";
-import { AIProviderError, configuredExplanationProvider, configuredSymptomConditionProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
+import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
 import { getOcrStatus } from "./document-extraction";
 import { scheduleDocumentProcessing } from "./document-service";
 import { InterpretationValidationError, getDocumentInterpreter } from "./document-interpreter";
 import { cardiacModelStatus, hasApprovedCardiacModel, assessCardiacRisk, CardiacFeatureError } from "./cardiac";
-import { classifySymptoms as classifySymptomsSymptomAssessment, getSymptomClassifierStatus } from "./symptom-classifier";
-import { assessSymptomGuidance } from "./symptom-guidance";
-import { getClinicalAIProvider, validateCardiacUrgencySymptoms } from "./clinical-ai";
+import { getSymptomClassifierStatus } from "./symptom-classifier";
+import {
+  buildSymptomEvaluationInput,
+  orchestrateSymptomAssessment,
+  persistSymptomEvaluation,
+  symptomEvaluationView,
+} from "./symptom-assessment-service";
+import {
+  FOLLOW_UP_QUESTION_SET_VERSION,
+  selectFollowUpQuestions,
+} from "./symptom-questions";
+import { getClinicalAIProvider, SYMPTOM_EVALUATION_PROMPT_VERSION, validateCardiacUrgencySymptoms } from "./clinical-ai";
 
 type Variables = {
   user: typeof users.$inferSelect;
@@ -135,6 +144,7 @@ app.use("/uploads", rateLimit(envLimit("RATE_LIMIT_UPLOAD", 20), envLimit("RATE_
 app.use("/documents", rateLimit(envLimit("RATE_LIMIT_DOCUMENT", 30), envLimit("RATE_LIMIT_DOCUMENT_WINDOW_MS", 60_000)));
 app.use("/predict", rateLimit(envLimit("RATE_LIMIT_PREDICT", 30), envLimit("RATE_LIMIT_PREDICT_WINDOW_MS", 60_000)));
 app.use("/ai/explanations", rateLimit(envLimit("AI_RATE_LIMIT", 10), envLimit("AI_RATE_LIMIT_WINDOW_MS", 60_000)));
+app.use("/symptom-assessments", rateLimit(envLimit("RATE_LIMIT_SYMPTOM", 20), envLimit("RATE_LIMIT_SYMPTOM_WINDOW_MS", 60_000)));
 
 const userView = (user: typeof users.$inferSelect) => ({
   id: user.id,
@@ -1388,9 +1398,37 @@ const createSymptomAssessmentSchema = z.object({
   medications: z.array(z.string().max(300)).max(100).default([]),
   allergies: z.array(z.string().max(300)).max(50).default([]),
   selectedSymptoms: z.array(z.string().trim().min(1).max(300)).max(60).default([]),
+  ageGroup: z.enum(["child", "adolescent", "adult", "older_adult", "unknown", "prefer_not_to_say"]).optional(),
+  factorsThatHelp: z.array(z.string().max(300)).max(10).default([]),
+  factorsThatWorsen: z.array(z.string().max(300)).max(10).default([]),
+  previousEpisodes: z.enum(["first_episode", "recurrent", "unknown"]).optional(),
+  additionalNotes: z.string().max(2_000).optional(),
+  questionnaireAnswers: z.array(z.object({
+    questionId: z.string().trim().min(1).max(100),
+    answer: z.string().trim().min(1).max(120),
+  }).strict()).max(12).default([]),
 });
 
+app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSchema), async (c) => {
+  const user = c.get("user");
+  const data = c.req.valid("json");
 
+  const outcome = await orchestrateSymptomAssessment({
+    userId: user.id,
+    input: data,
+    audit: (eventType, action, result, resourceType, resourceId, metadata) =>
+      logAudit(c, eventType, action, result, resourceType, resourceId, metadata),
+  });
+
+  return c.json({
+    assessment: outcome.assessment,
+    urgencyState: outcome.urgencyState,
+    aiStatus: outcome.aiStatus,
+    ...(outcome.aiErrorCode ? { aiErrorCode: outcome.aiErrorCode } : {}),
+    ...(outcome.aiMessage ? { aiMessage: outcome.aiMessage } : {}),
+    ...(outcome.evaluation ? { evaluation: outcome.evaluation } : {}),
+  }, 201);
+});
 
 app.get("/symptom-assessments", requireAuth, async (c) => {
   const user = c.get("user");
@@ -1407,85 +1445,26 @@ app.get("/symptom-assessments", requireAuth, async (c) => {
   return c.json({ assessments: items, total: totalResult[0]?.count || 0, page, limit });
 });
 
-app.post("/symptom-assessments", requireAuth, jsonBody(createSymptomAssessmentSchema), async (c) => {
-  const user = c.get("user");
-  const data = c.req.valid("json");
-  
-  if (data.caseId) {
-    const caseData = await db.query.cases.findFirst({ where: and(eq(cases.id, data.caseId), eq(cases.createdById, user.id)) });
-    if (!caseData) throw new HTTPException(404, { message: "Case not found" });
-  }
-  
-  await getSymptomClassifierStatus();
-  const ruleGuidance = assessSymptomGuidance(data);
-  const emergencyPattern = ruleGuidance.urgencyLevel === "emergency";
-  let classification = classifySymptomsSymptomAssessment({ selectedSymptoms: data.selectedSymptoms ?? [] });
-  let aiAssessment: NonNullable<typeof symptomAssessments.$inferSelect.classification>["aiAssessment"] = null;
-  if (emergencyPattern) {
-    aiAssessment = {
-      status: "skipped_urgent",
-      warningSigns: ruleGuidance.redFlagsTriggered,
-      notice: "Urgent warning symptoms matched. No AI model was called. Contact local emergency services or seek immediate care now; do not wait for this application.",
-    };
-  } else if (data.consentToExternalProcessing) {
-    if (!externalHealthDataTransferEnabled()) {
-      throw codedError(503, "external_processing_disabled", "External health-data processing is disabled by server configuration.");
-    }
-    const ai = getClinicalAIProvider();
-    if (!ai.provider) throw codedError(503, "provider_unavailable", "The Replit AI provider is not configured for symptom analysis.");
-    try {
-      const analyzed = await ai.provider.analyzeSymptoms({
-        primarySymptom: data.primarySymptom,
-        symptomCategory: data.symptomCategory,
-        ...(data.onset ? { onset: data.onset } : {}),
-        ...(data.duration ? { duration: data.duration } : {}),
-        ...(data.severity ? { severity: data.severity } : {}),
-        ...(data.progression ? { progression: data.progression } : {}),
-        associatedSymptoms: data.associatedSymptoms,
-        selectedSymptoms: data.selectedSymptoms,
-        medicalHistory: data.medicalHistory,
-        medications: data.medications,
-        allergies: data.allergies,
-      });
-      aiAssessment = {
-        status: "completed",
-        provider: analyzed.provider,
-        model: analyzed.model,
-        summary: analyzed.result.summary,
-        possibleExplanations: analyzed.result.possibleExplanations,
-        uncertainty: analyzed.result.uncertainty,
-        suggestedNextSteps: analyzed.result.suggestedNextSteps,
-        warningSigns: analyzed.result.warningSigns,
-        notice: "AI-generated educational context only. It is not a diagnosis or medical advice, and it cannot rule out a serious condition.",
-      };
-    } catch (error) {
-      await logAudit(c, "symptom_assessment", "analyze", "error", undefined, undefined, { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
-      throw aiProviderFailure(error, "Symptom assessment");
-    }
-  }
-  classification = { ...classification, aiAssessment };
-  
-  const { consentToExternalProcessing: _ignoredConsent, ...assessmentRecord } = data;
-  void _ignoredConsent;
-  const [assessment] = await db.insert(symptomAssessments).values({
-    ...assessmentRecord,
-    userId: user.id,
-    redFlagsTriggered: ruleGuidance.redFlagsTriggered,
-    urgencyLevel: ruleGuidance.urgencyLevel,
-    guidance: {
-      recommendations: ruleGuidance.recommendations,
-      watchFor: ruleGuidance.watchFor,
-      seekCareIf: ruleGuidance.seekCareIf,
-      possibleConditions: ruleGuidance.possibleConditions,
-      disclaimer: ruleGuidance.disclaimer,
-    },
-    selectedSymptoms: data.selectedSymptoms ?? [],
-    classification,
-  }).returning();
-  
-  await logAudit(c, "symptom_assessment", "create", "success", "symptom_assessment", assessment.id.toString(), { urgency: ruleGuidance.urgencyLevel, aiAnalysis: aiAssessment?.status ?? "not_requested", redFlagCount: ruleGuidance.redFlagsTriggered.length });
-  
-  return c.json({ assessment }, 201);
+app.get("/symptoms/follow-up-questions", requireAuth, async (c) => {
+  const query = z.object({
+    category: z.enum(["skin", "general", "neurological", "cardiovascular", "respiratory", "gastrointestinal", "musculoskeletal", "psychiatric", "other"]).default("general"),
+    primary: z.string().max(1_000).optional(),
+    symptoms: z.string().max(4_000).optional(),
+  }).safeParse(c.req.query());
+  if (!query.success) throw new HTTPException(400, { message: "Invalid follow-up question parameters" });
+  const selectedSymptoms = (query.data.symptoms ?? "").split(",").map((value) => value.trim()).filter(Boolean).slice(0, 60);
+  const questions = selectFollowUpQuestions({
+    symptomCategory: query.data.category,
+    ...(query.data.primary ? { primarySymptom: query.data.primary } : {}),
+    selectedSymptoms,
+  }).map((question) => ({
+    id: question.id,
+    prompt: question.prompt,
+    type: question.type,
+    ...(question.options ? { options: question.options } : {}),
+    allowUnknown: question.allowUnknown,
+  }));
+  return c.json({ questionSetVersion: FOLLOW_UP_QUESTION_SET_VERSION, questions });
 });
 
 app.get("/symptom-assessments/:id", requireAuth, async (c) => {
@@ -1497,80 +1476,7 @@ app.get("/symptom-assessments/:id", requireAuth, async (c) => {
   
   return c.json({ assessment });
 });
-
-const symptomAIConditionsSchema = z.object({ consentToExternalProcessing: z.literal(true) });
-
-app.post("/symptom-assessments/:id/ai-conditions", requireAuth, jsonBody(symptomAIConditionsSchema), async (c) => {
-  const user = c.get("user");
-  const id = parseId(c.req.param("id"));
-  if (!externalHealthDataTransferEnabled()) {
-    throw new HTTPException(403, { message: "External analysis is disabled by server configuration. Try again later or contact the administrator." });
-  }
-  const configured = configuredSymptomConditionProvider();
-  if (configured.status === "disabled") throw new HTTPException(503, { message: "No AI provider is configured on the server." });
-  if (configured.status === "unconfigured") throw new HTTPException(503, { message: "The AI provider is selected but its API key is missing." });
-  if (configured.status === "misconfigured" || !configured.provider) throw new HTTPException(503, { message: "The AI provider is misconfigured or does not permit this feature." });
-
-  const assessment = await db.query.symptomAssessments.findFirst({ where: and(eq(symptomAssessments.id, id), eq(symptomAssessments.userId, user.id)) });
-  if (!assessment) throw new HTTPException(404, { message: "Symptom assessment not found" });
-
-  const guidance = (assessment.guidance ?? {}) as { recommendations?: unknown; seekCareIf?: unknown; possibleConditions?: unknown; watchFor?: unknown };
-  const matchedCatalogueCounts = Array.isArray(guidance.possibleConditions) ? guidance.possibleConditions.length : 0;
-  const selectedDisplay = (assessment.selectedSymptoms ?? []).map((item) => String(item).replace(/_/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12);
-
-  try {
-    const analysis = await configured.provider.analyze({
-      primarySymptom: assessment.primarySymptom,
-      symptomCategory: assessment.symptomCategory,
-      ...(assessment.severity ? { severity: assessment.severity } : {}),
-      ...(assessment.progression ? { progression: assessment.progression } : {}),
-      selectedSymptoms: selectedDisplay,
-      redFlags: (assessment.redFlagsTriggered ?? []).slice(0, 6),
-      urgencyLevel: assessment.urgencyLevel,
-    });
-    await logAudit(c, "symptom_ai_conditions", "create", "success", "symptom_assessment", assessment.id.toString(), { provider: analysis.provider, model: analysis.model, symptomCount: selectedDisplay.length, datasetAssociatedCount: matchedCatalogueCounts });
-    return c.json({
-      analysis: {
-        provider: analysis.provider,
-        model: analysis.model,
-        topConditions: analysis.topConditions,
-        note: analysis.note,
-        instructionNotice: "AI research exploration only: educational suggestion of commonly associated conditions from the text you consented to send. It is not a diagnosis, not a probability, and it never replaces the rule-based urgency assessment already shown, which continues to apply.",
-      },
-    });
-  } catch (error) {
-    if (error instanceof AIProviderError) {
-      await logAudit(c, "symptom_ai_conditions", "create", "failure", "symptom_assessment", assessment.id.toString(), { errorCode: error.code });
-      const message: Record<string, string> = {
-        provider_timeout: "The AI provider timed out. Nothing was stored.",
-        provider_rate_limited: "The AI provider rate-limited this request. Try again shortly.",
-        provider_invalid_credentials: "The AI provider rejected the server credential.",
-        provider_unavailable: "The AI provider is currently unavailable. Nothing was stored.",
-        provider_malformed_response: "The AI provider returned unusable or non-conforming text, so no conditions are shown.",
-        provider_request_rejected: "The AI provider rejected this request.",
-      };
-      throw new HTTPException(502, { message: message[error.code] ?? "AI provider request failed." });
-    }
-    throw error;
-  }
-});
-
 const symptomEvaluationConsentSchema = z.object({ consentToExternalProcessing: z.literal(true) });
-
-function symptomEvaluationView(row: typeof symptomAiEvaluations.$inferSelect) {
-  return {
-    id: row.id,
-    assessmentId: row.assessmentId,
-    provider: row.provider,
-    model: row.model,
-    promptVersion: row.promptVersion,
-    status: row.status,
-    errorCode: row.errorCode,
-    consentAt: row.consentAt,
-    result: row.result,
-    createdAt: row.createdAt,
-  };
-}
 
 async function loadOwnedAssessment(id: number, userId: number) {
   const assessment = await db.query.symptomAssessments.findFirst({ where: and(eq(symptomAssessments.id, id), eq(symptomAssessments.userId, userId)) });
@@ -1579,35 +1485,7 @@ async function loadOwnedAssessment(id: number, userId: number) {
 }
 
 function symptomEvaluationInput(assessment: NonNullable<Awaited<ReturnType<typeof loadOwnedAssessment>>>) {
-  const guidance = (assessment.guidance ?? {}) as {
-    recommendations?: string[];
-    watchFor?: string[];
-    seekCareIf?: string[];
-    possibleConditions?: Array<{ name: string; basis: string }>;
-    disclaimer?: string;
-  };
-  return {
-    primarySymptom: assessment.primarySymptom,
-    symptomCategory: assessment.symptomCategory,
-    ...(assessment.onset ? { onset: assessment.onset } : {}),
-    ...(assessment.duration ? { duration: assessment.duration } : {}),
-    ...(assessment.severity ? { severity: assessment.severity } : {}),
-    ...(assessment.progression ? { progression: assessment.progression } : {}),
-    associatedSymptoms: assessment.associatedSymptoms ?? [],
-    selectedSymptoms: assessment.selectedSymptoms ?? [],
-    medicalHistory: assessment.medicalHistory ?? [],
-    medications: assessment.medications ?? [],
-    allergies: assessment.allergies ?? [],
-    urgencyLevel: assessment.urgencyLevel,
-    redFlags: assessment.redFlagsTriggered ?? [],
-    guidance: {
-      recommendations: guidance.recommendations ?? [],
-      watchFor: guidance.watchFor ?? [],
-      seekCareIf: guidance.seekCareIf ?? [],
-      possibleConditions: guidance.possibleConditions ?? [],
-      disclaimer: guidance.disclaimer ?? "",
-    },
-  };
+  return buildSymptomEvaluationInput(assessment);
 }
 
 const providerErrorMessage: Record<string, string> = {
@@ -1635,27 +1513,27 @@ app.post("/symptom-assessments/:id/ai-evaluations", requireAuth, jsonBody(sympto
   await logAudit(c, "symptom_ai_evaluation", "consent", "success", "symptom_assessment", assessment.id.toString(), { consentEventId });
   try {
     const analyzed = await ai.provider.evaluateSymptoms(symptomEvaluationInput(assessment));
-    const [evaluation] = await db.insert(symptomAiEvaluations).values({
+    const evaluation = await persistSymptomEvaluation({
       assessmentId: assessment.id,
       userId: user.id,
       provider: analyzed.provider,
       model: analyzed.model,
-      promptVersion: "symptom-eval-v1",
+      promptVersion: SYMPTOM_EVALUATION_PROMPT_VERSION,
       status: "completed",
       result: { ...analyzed.result, urgencyLevel: assessment.urgencyLevel, redFlagsTriggered: assessment.redFlagsTriggered ?? [] },
       consentAt,
       consentEventId,
-    }).returning();
+    });
     await logAudit(c, "symptom_ai_evaluation", "create", "success", "symptom_ai_evaluation", evaluation.id.toString(), { provider: analyzed.provider, model: analyzed.model, consentEventId });
     return c.json({ evaluation: symptomEvaluationView(evaluation) }, 201);
   } catch (error) {
     const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
-    await db.insert(symptomAiEvaluations).values({
+    await persistSymptomEvaluation({
       assessmentId: assessment.id,
       userId: user.id,
       provider: "unknown",
       model: "unknown",
-      promptVersion: "symptom-eval-v1",
+      promptVersion: SYMPTOM_EVALUATION_PROMPT_VERSION,
       status: "failed",
       errorCode: code,
       consentAt,
@@ -1698,27 +1576,27 @@ app.post("/symptom-assessments/:id/ai-evaluations/:evaluationId/re-evaluate", re
   await logAudit(c, "symptom_ai_evaluation", "consent", "success", "symptom_assessment", assessment.id.toString(), { consentEventId, reEvaluate: true });
   try {
     const analyzed = await ai.provider.evaluateSymptoms(symptomEvaluationInput(assessment));
-    const [evaluation] = await db.insert(symptomAiEvaluations).values({
+    const evaluation = await persistSymptomEvaluation({
       assessmentId: assessment.id,
       userId: user.id,
       provider: analyzed.provider,
       model: analyzed.model,
-      promptVersion: "symptom-eval-v1",
+      promptVersion: SYMPTOM_EVALUATION_PROMPT_VERSION,
       status: "completed",
       result: { ...analyzed.result, urgencyLevel: assessment.urgencyLevel, redFlagsTriggered: assessment.redFlagsTriggered ?? [] },
       consentAt,
       consentEventId,
-    }).returning();
+    });
     await logAudit(c, "symptom_ai_evaluation", "create", "success", "symptom_ai_evaluation", evaluation.id.toString(), { provider: analyzed.provider, model: analyzed.model, consentEventId, previousEvaluationId: previous.id });
     return c.json({ evaluation: symptomEvaluationView(evaluation), previousEvaluationId: previous.id }, 201);
   } catch (error) {
     const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
-    await db.insert(symptomAiEvaluations).values({
+    await persistSymptomEvaluation({
       assessmentId: assessment.id,
       userId: user.id,
       provider: "unknown",
       model: "unknown",
-      promptVersion: "symptom-eval-v1",
+      promptVersion: SYMPTOM_EVALUATION_PROMPT_VERSION,
       status: "failed",
       errorCode: code,
       consentAt,

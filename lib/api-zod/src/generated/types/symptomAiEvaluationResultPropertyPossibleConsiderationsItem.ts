@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface AIConditionSuggestion {
-  condition: string;
-  rationale: string;
-}
+export type SymptomAiEvaluationResultPropertyPossibleConsiderationsItem = {
+  name: string;
+  whyDiscussed: string;
+};

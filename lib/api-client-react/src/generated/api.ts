@@ -55,6 +55,7 @@ import type {
   ListPatientsParams,
   ListReportsParams,
   ListSymptomAssessmentsParams,
+  ListSymptomFollowUpQuestionsParams,
   LoginRequest,
   LogoutResult,
   PatientListResponse,
@@ -69,14 +70,13 @@ import type {
   ReportResponse,
   ReviewResponse,
   SkinInferenceStatus,
-  SymptomAIConditionsResponse,
-  SymptomAiConditionsRequest,
   SymptomAiEvaluationListResponse,
   SymptomAiEvaluationResponse,
   SymptomAssessmentListResponse,
   SymptomAssessmentResponse,
   SymptomClassifierStatus,
   SymptomEvaluationConsent,
+  SymptomFollowUpQuestionsResponse,
   UpdateCaseRequest,
   UpdateDocumentFindingRequest,
   UpdatePatientRequest,
@@ -2536,96 +2536,6 @@ export const useReevaluateSymptomAiEvaluation = <TError = ErrorType<ErrorRespons
       return useMutation(getReevaluateSymptomAiEvaluationMutationOptions(options), queryClient);
     }
 
-export const getCreateSymptomAiConditionsUrl = (id: number,) => {
-
-
-
-
-  return `/api/symptom-assessments/${id}/ai-conditions`
-}
-
-/**
- * Ephemeral, education-only analysis. Requires operator AI-health-data flags and explicit consent; sends only the recorded, structured symptom fields. Never mutates the assessment.
- * @summary Consent-gated AI exploration of commonly associated conditions
- */
-export const createSymptomAiConditions = async (id: number,
-    symptomAiConditionsRequest: SymptomAiConditionsRequest, options?: Parameters<typeof customFetch>[1]): Promise<SymptomAIConditionsResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Symbol.iterator in h) {
-      return Object.fromEntries(
-        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
-      );
-    }
-    const headers: Record<string, string | readonly string[]> = {};
-    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
-      if (value !== undefined) headers[name] = value;
-    }
-    return headers;
-  };
-return customFetch<SymptomAIConditionsResponse>(getCreateSymptomAiConditionsUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(symptomAiConditionsRequest)
-  }
-);}
-
-
-
-
-
-export const getCreateSymptomAiConditionsMutationKey = () => ['createSymptomAiConditions'] as const;
-
-export const getCreateSymptomAiConditionsMutationOptions = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext> => {
-
-const mutationKey = getCreateSymptomAiConditionsMutationKey();
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSymptomAiConditions>>, CreateSymptomAiConditionsMutationVariables> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  createSymptomAiConditions(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CreateSymptomAiConditionsMutationResult = NonNullable<Awaited<ReturnType<typeof createSymptomAiConditions>>>
-    export type CreateSymptomAiConditionsMutationBody = BodyType<SymptomAiConditionsRequest>
-    export type CreateSymptomAiConditionsMutationError = ErrorType<ErrorResponse>
-    export type CreateSymptomAiConditionsMutationVariables = {id: number;data: BodyType<SymptomAiConditionsRequest>}
-
-    /**
- * @summary Consent-gated AI exploration of commonly associated conditions
- */
-export const useCreateSymptomAiConditions = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSymptomAiConditions>>, TError,CreateSymptomAiConditionsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof createSymptomAiConditions>>,
-        TError,
-        CreateSymptomAiConditionsMutationVariables,
-        TContext
-      > => {
-      return useMutation(getCreateSymptomAiConditionsMutationOptions(options), queryClient);
-    }
-
 export const getGetSymptomAssessmentUrl = (id: number,) => {
 
 
@@ -4499,6 +4409,115 @@ export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCar
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetCardiacAssessmentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListSymptomFollowUpQuestionsUrl = (params?: ListSymptomFollowUpQuestionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/symptoms/follow-up-questions?${stringifiedParams}` : `/api/symptoms/follow-up-questions`
+}
+
+/**
+ * Deterministically selects questions from the versioned curated catalogue based on the chosen category, primary symptom text, and catalogue symptom ids. Questions are educational intake aids; answers feed the deterministic safety rules, which always outrank the AI.
+ * @summary Curated follow-up questions applicable to the reported pattern
+ */
+export const listSymptomFollowUpQuestions = async (params?: ListSymptomFollowUpQuestionsParams, options?: Parameters<typeof customFetch>[1]): Promise<SymptomFollowUpQuestionsResponse> => {
+
+  return customFetch<SymptomFollowUpQuestionsResponse>(getListSymptomFollowUpQuestionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSymptomFollowUpQuestionsQueryKey = (params?: ListSymptomFollowUpQuestionsParams,) => {
+    return [
+    `/api/symptoms/follow-up-questions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListSymptomFollowUpQuestionsQueryOptions = <TData = Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError = ErrorType<ErrorResponse>>(params?: ListSymptomFollowUpQuestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSymptomFollowUpQuestionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>> = ({ signal }) => listSymptomFollowUpQuestions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListSymptomFollowUpQuestionsQueryResult = NonNullable<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>>
+export type ListSymptomFollowUpQuestionsQueryError = ErrorType<ErrorResponse>
+
+
+export function useListSymptomFollowUpQuestions<TData = Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError = ErrorType<ErrorResponse>>(
+ params: undefined |  ListSymptomFollowUpQuestionsParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>,
+          TError,
+          Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSymptomFollowUpQuestions<TData = Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListSymptomFollowUpQuestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>,
+          TError,
+          Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSymptomFollowUpQuestions<TData = Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListSymptomFollowUpQuestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Curated follow-up questions applicable to the reported pattern
+ */
+
+export function useListSymptomFollowUpQuestions<TData = Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError = ErrorType<ErrorResponse>>(
+ params?: ListSymptomFollowUpQuestionsParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSymptomFollowUpQuestions>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListSymptomFollowUpQuestionsQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

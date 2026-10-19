@@ -5,9 +5,14 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateSymptomAssessmentRequestAgeGroup } from './createSymptomAssessmentRequestAgeGroup.ts';
+import type { CreateSymptomAssessmentRequestPreviousEpisodes } from './createSymptomAssessmentRequestPreviousEpisodes.ts';
+import type { CreateSymptomAssessmentRequestQuestionnaireAnswersItem } from './createSymptomAssessmentRequestQuestionnaireAnswersItem.ts';
 
 export interface CreateSymptomAssessmentRequest {
   caseId?: number;
+  /** Consent to send the normalized assessment fields to the external AI provider for an educational evaluation. The server independently enforces its own data-transfer gates. */
+  consentToExternalProcessing?: boolean;
   primarySymptom: string;
   symptomCategory: string;
   onset?: string;
@@ -23,4 +28,20 @@ export interface CreateSymptomAssessmentRequest {
      * @items.maxLength 300
      */
   selectedSymptoms?: string[];
+  ageGroup?: CreateSymptomAssessmentRequestAgeGroup;
+  /**
+     * @maxItems 10
+     * @items.maxLength 300
+     */
+  factorsThatHelp?: string[];
+  /**
+     * @maxItems 10
+     * @items.maxLength 300
+     */
+  factorsThatWorsen?: string[];
+  previousEpisodes?: CreateSymptomAssessmentRequestPreviousEpisodes;
+  /** @maxLength 2000 */
+  additionalNotes?: string;
+  /** @maxItems 12 */
+  questionnaireAnswers?: CreateSymptomAssessmentRequestQuestionnaireAnswersItem[];
 }

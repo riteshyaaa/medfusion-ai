@@ -18,6 +18,16 @@ export const symptomAssessments = pgTable("symptom_assessments", {
   medicalHistory: jsonb("medical_history").$type<string[]>().default([]),
   medications: jsonb("medications").$type<string[]>().default([]),
   allergies: jsonb("allergies").$type<string[]>().default([]),
+  ageGroup: text("age_group", { enum: ["child", "adolescent", "adult", "older_adult", "unknown", "prefer_not_to_say"] }),
+  factorsThatHelp: jsonb("factors_that_help").$type<string[]>().default([]),
+  factorsThatWorsen: jsonb("factors_that_worsen").$type<string[]>().default([]),
+  previousEpisodes: text("previous_episodes", { enum: ["first_episode", "recurrent", "unknown"] }),
+  additionalNotes: text("additional_notes"),
+  questionnaireAnswers: jsonb("questionnaire_answers").$type<Array<{ questionId: string; answer: string }>>().default([]),
+  questionnaireVersion: text("questionnaire_version"),
+  inputSchemaVersion: text("input_schema_version"),
+  normalizedInput: jsonb("normalized_input").$type<Record<string, unknown>>(),
+  ruleSetVersion: text("rule_set_version"),
   redFlagsTriggered: jsonb("red_flags_triggered").$type<string[]>().default([]),
   urgencyLevel: text("urgency_level", { enum: ["emergency", "urgent", "routine", "self_care"] }).notNull(),
   guidance: jsonb("guidance").$type<{ recommendations: string[]; disclaimer: string; watchFor?: string[]; seekCareIf?: string[]; possibleConditions?: Array<{ name: string; basis: string }> }>(),
@@ -31,9 +41,11 @@ export const symptomAssessments = pgTable("symptom_assessments", {
     unmatchedSymptoms?: string[];
     diagnosticLimitations?: string[];
     aiAssessment?: {
-      status: "completed" | "skipped_urgent";
+      status: "completed" | "skipped_urgent" | "failed" | "unavailable" | "not_requested";
       provider?: string;
       model?: string;
+      promptVersion?: string;
+      errorCode?: string;
       summary?: string;
       possibleExplanations?: Array<{ explanation: string; whyItMayFit: string }>;
       uncertainty?: string;
