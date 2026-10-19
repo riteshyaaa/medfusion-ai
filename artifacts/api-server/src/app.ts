@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { db } from "@workspace/db";
-import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, symptomAiEvaluations, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments } from "@workspace/db/schema";
+import { users, sessions, patients, cases, uploads, predictions, symptomAssessments, symptomAiEvaluations, reviews, reports, auditEvents, documents, documentFindings, documentInterpretations, cardiacAssessments, cardiacAiExplanations } from "@workspace/db/schema";
 import { eq, desc, and, or, ilike, count, sql, inArray, isNull, ne } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getCookie, setCookie } from "hono/cookie";
@@ -24,6 +24,7 @@ import { DOCUMENT_INTERPRETATION_PROMPT_VERSION, InterpretationValidationError, 
 import { findingMatchKey } from "./document-extraction";
 import { buildReportPdf } from "./report-export";
 import { cardiacModelStatus, hasApprovedCardiacModel, assessCardiacRisk, CardiacFeatureError } from "./cardiac";
+import { renderCardiacSummaryText, buildCardiacSummaryPdf } from "./cardiac-export";
 import { getSymptomClassifierStatus } from "./symptom-classifier";
 import {
   buildSymptomEvaluationInput,
@@ -35,7 +36,7 @@ import {
   FOLLOW_UP_QUESTION_SET_VERSION,
   selectFollowUpQuestions,
 } from "./symptom-questions";
-import { getClinicalAIProvider, SYMPTOM_EVALUATION_PROMPT_VERSION, validateCardiacUrgencySymptoms } from "./clinical-ai";
+import { getClinicalAIProvider, SYMPTOM_EVALUATION_PROMPT_VERSION, CARDIAC_EXPLANATION_PROMPT_VERSION, validateCardiacUrgencySymptoms, type CardiacExplanationAIInput } from "./clinical-ai";
 
 type Variables = {
   user: typeof users.$inferSelect;
@@ -331,6 +332,11 @@ const createCardiacAssessmentSchema = z.object({
   caseId: z.number().int().positive().optional(),
   consentToExternalProcessing: z.boolean().optional().default(false),
   currentSymptoms: z.array(z.enum(["current_chest_pain", "severe_shortness_of_breath", "fainting", "stroke_signs", "uncontrolled_bleeding", "severe_allergic_reaction"])).max(6).default([]),
+  measurementSource: z.enum(["self_measured", "patient_reported", "imported_history", "unspecified"]).default("unspecified"),
+  contextualFactors: z.array(z.object({
+    factor: z.enum(["family_history_early_heart_disease", "smoking_status", "diabetes_diagnosis", "blood_pressure_treatment", "cholesterol_medication", "physical_activity"]),
+    value: z.string().trim().min(1).max(160),
+  }).strict()).max(12).default([]),
   age: z.number().min(18).max(120),
   sex: z.enum(["male", "female"]),
   chestPainType: z.enum(["typical_angina", "atypical_angina", "non_anginal", "asymptomatic"]),
@@ -351,6 +357,8 @@ function cardiacAssessmentView(assessment: typeof cardiacAssessments.$inferSelec
     id: assessment.id,
     caseId: assessment.caseId,
     inputs: assessment.inputs,
+    measurementSource: assessment.measurementSource,
+    contextualFactors: assessment.contextualFactors,
     riskScore: assessment.riskScore,
     aboveThreshold: assessment.aboveThreshold,
     label: assessment.label,
@@ -365,6 +373,165 @@ function cardiacAssessmentView(assessment: typeof cardiacAssessments.$inferSelec
     createdAt: assessment.createdAt,
   };
 }
+
+function cardiacExplanationView(row: typeof cardiacAiExplanations.$inferSelect) {
+  return {
+    id: row.id,
+    assessmentId: row.assessmentId,
+    comparedAssessmentId: row.comparedAssessmentId,
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.promptVersion,
+    sections: row.sections as Record<string, unknown> | null,
+    status: row.status,
+    errorCode: row.errorCode,
+    createdAt: row.createdAt,
+  };
+}
+
+type OwnedCardiacAssessment = NonNullable<Awaited<ReturnType<typeof loadOwnedCardiacAssessment>>>;
+
+async function loadOwnedCardiacAssessment(id: number, userId: number) {
+  const assessment = await db.query.cardiacAssessments.findFirst({ where: and(eq(cardiacAssessments.id, id), eq(cardiacAssessments.userId, userId)) });
+  if (!assessment) throw new HTTPException(404, { message: "Cardiac assessment not found" });
+  return assessment;
+}
+
+function cardiacExplanationInput(
+  assessment: OwnedCardiacAssessment,
+  comparison: OwnedCardiacAssessment | null,
+): CardiacExplanationAIInput {
+  return {
+    assessment: {
+      createdAt: assessment.createdAt.toISOString(),
+      modelIdentity: {
+        modelId: assessment.modelId,
+        modelVersion: assessment.modelVersion,
+        status: assessment.status,
+        calibrationStatus: "uncalibrated",
+      },
+      inputs: assessment.inputs,
+      measurementSource: assessment.measurementSource,
+      contextualFactors: assessment.contextualFactors ?? [],
+      modelOutput: {
+        riskScore: assessment.riskScore,
+        aboveThreshold: assessment.aboveThreshold,
+        label: assessment.label,
+        threshold: assessment.threshold,
+        topFactors: assessment.topFactors ?? [],
+      },
+      urgentSymptomsFlagged: assessment.aiAssessment?.warningSigns ?? [],
+      documentedLimitations: assessment.diagnosticLimitations ?? [],
+    },
+    comparison: comparison
+      ? {
+          createdAt: comparison.createdAt.toISOString(),
+          inputs: comparison.inputs,
+          modelVersion: comparison.modelVersion,
+          riskScore: comparison.riskScore,
+        }
+      : null,
+  };
+}
+
+const cardiacExplanationRequestSchema = z.object({
+  consentToExternalProcessing: z.literal(true),
+  compareAssessmentId: z.number().int().positive().optional(),
+});
+
+async function persistCardiacExplanation(params: {
+  assessmentId: number;
+  userId: number;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  status: "completed" | "failed";
+  errorCode?: string;
+  sections?: Record<string, unknown> | null;
+  comparedAssessmentId?: number | null;
+  consentAt: Date;
+  }) {
+  const [row] = await db.insert(cardiacAiExplanations).values({
+    assessmentId: params.assessmentId,
+    userId: params.userId,
+    ...(params.comparedAssessmentId ? { comparedAssessmentId: params.comparedAssessmentId } : {}),
+    provider: params.provider,
+    model: params.model,
+    promptVersion: params.promptVersion,
+    status: params.status,
+    ...(params.errorCode ? { errorCode: params.errorCode } : {}),
+    sections: params.sections ?? null,
+    consentAt: params.consentAt,
+  }).returning();
+  return row;
+}
+
+app.get("/cardiac/assessments/:id/ai-explanations", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  await loadOwnedCardiacAssessment(id, user.id);
+  const rows = await db.query.cardiacAiExplanations.findMany({
+    where: and(eq(cardiacAiExplanations.assessmentId, id), eq(cardiacAiExplanations.userId, user.id)),
+    orderBy: [desc(cardiacAiExplanations.createdAt), desc(cardiacAiExplanations.id)],
+  });
+  return c.json({ explanations: rows.map(cardiacExplanationView) });
+});
+
+app.post("/cardiac/assessments/:id/ai-explanations", requireAuth, jsonBody(cardiacExplanationRequestSchema), async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const data = c.req.valid("json");
+  if (!externalHealthDataTransferEnabled()) {
+    throw new HTTPException(403, { message: "External analysis is disabled by server configuration. Try again later or contact the administrator." });
+  }
+  const consentAt = new Date();
+  const consentEventId = randomUUID();
+  const assessment = await loadOwnedCardiacAssessment(id, user.id);
+  let comparison: OwnedCardiacAssessment | null = null;
+  if (data.compareAssessmentId) {
+    if (data.compareAssessmentId === id) throw new HTTPException(400, { message: "An assessment cannot be compared with itself" });
+    comparison = await loadOwnedCardiacAssessment(data.compareAssessmentId, user.id);
+    if (comparison.modelVersion !== assessment.modelVersion || assessment.status !== "research_only" || comparison.status !== "research_only") {
+      throw new HTTPException(400, { message: "Scores from different model versions or statuses are not comparable; comparison was refused." });
+    }
+  }
+  const ai = getClinicalAIProvider();
+  if (ai.status === "disabled") throw new HTTPException(503, { message: "No AI provider is configured on the server." });
+  if (ai.status === "unconfigured") throw new HTTPException(503, { message: "The AI provider is selected on the server but its credentials are missing." });
+  if (ai.status === "misconfigured" || !ai.provider) throw new HTTPException(503, { message: "The AI provider is misconfigured or does not permit this feature." });
+  await logAudit(c, "cardiac_ai_explanation", "consent", "success", "cardiac_assessment", assessment.id.toString(), { consentEventId, ...(comparison ? { compareAssessmentId: comparison.id } : {}) });
+  try {
+    const analyzed = await ai.provider.explainCardiacAssessment(cardiacExplanationInput(assessment, comparison));
+    const explanation = await persistCardiacExplanation({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: analyzed.provider,
+      model: analyzed.model,
+      promptVersion: CARDIAC_EXPLANATION_PROMPT_VERSION,
+      status: "completed",
+      sections: analyzed.result as unknown as Record<string, unknown>,
+      comparedAssessmentId: comparison?.id ?? null,
+      consentAt,
+    });
+    await logAudit(c, "cardiac_ai_explanation", "create", "success", "cardiac_ai_explanation", explanation.id.toString(), { provider: analyzed.provider, model: analyzed.model, consentEventId, ...(comparison ? { compareAssessmentId: comparison.id } : {}) });
+    return c.json({ explanation: cardiacExplanationView(explanation) }, 201);
+  } catch (error) {
+    const code = error instanceof AIProviderError ? error.code : "provider_unavailable";
+    await persistCardiacExplanation({
+      assessmentId: assessment.id,
+      userId: user.id,
+      provider: "unknown",
+      model: "unknown",
+      promptVersion: CARDIAC_EXPLANATION_PROMPT_VERSION,
+      status: "failed",
+      errorCode: code,
+      comparedAssessmentId: comparison?.id ?? null,
+      consentAt,
+    });
+    await logAudit(c, "cardiac_ai_explanation", "create", "failure", "cardiac_assessment", assessment.id.toString(), { reason: code, consentEventId, ...(comparison ? { compareAssessmentId: comparison.id } : {}) });
+    throw new HTTPException(502, { message: providerErrorMessage[code] ?? "AI explanation failed. Nothing about the assessment changed." });
+  }
+});
 
 app.get("/cardiac/assessments", requireAuth, async (c) => {
   const user = c.get("user");
@@ -454,6 +621,8 @@ app.post("/cardiac/assessments", requireAuth, jsonBody(createCardiacAssessmentSc
     userId: user.id,
     ...(data.caseId ? { caseId: data.caseId } : {}),
     inputs,
+    measurementSource: data.measurementSource,
+    contextualFactors: data.contextualFactors,
     riskScore: result.riskScore,
     aboveThreshold: result.aboveThreshold,
     label: result.label as "disease" | "no_disease" | null,
@@ -476,6 +645,51 @@ app.get("/cardiac/assessments/:id", requireAuth, async (c) => {
   const assessment = await db.query.cardiacAssessments.findFirst({ where: and(eq(cardiacAssessments.id, id), eq(cardiacAssessments.userId, user.id)) });
   if (!assessment) throw new HTTPException(404, { message: "Cardiac assessment not found" });
   return c.json({ assessment: cardiacAssessmentView(assessment) });
+});
+
+function cardiacSummaryExplanations(assessmentId: number, userId: number) {
+  return db.query.cardiacAiExplanations.findMany({
+    where: and(eq(cardiacAiExplanations.assessmentId, assessmentId), eq(cardiacAiExplanations.userId, userId)),
+    orderBy: [desc(cardiacAiExplanations.createdAt), desc(cardiacAiExplanations.id)],
+  }).then((rows) => rows.map((row) => ({
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.promptVersion,
+    status: row.status,
+    sections: row.sections as Record<string, unknown> | null,
+    comparison: row.comparedAssessmentId
+      ? { id: row.comparedAssessmentId, createdAt: row.createdAt, riskScore: null, modelVersion: null }
+      : null,
+  })));
+}
+
+app.get("/cardiac/assessments/:id/export.txt", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const assessment = await loadOwnedCardiacAssessment(id, user.id);
+  const caseNumber = assessment.caseId
+    ? (await db.query.cases.findFirst({ where: and(eq(cases.id, assessment.caseId), eq(cases.createdById, user.id)) }))?.caseNumber ?? null
+    : null;
+  await logAudit(c, "cardiac_assessment", "export", "success", "cardiac_assessment", assessment.id.toString());
+  c.header("Content-Type", "text/plain; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="cardiac-assessment-${assessment.id}.txt"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(renderCardiacSummaryText(assessment, await cardiacSummaryExplanations(assessment.id, user.id), caseNumber));
+});
+
+app.get("/cardiac/assessments/:id/export.pdf", requireAuth, async (c) => {
+  const user = c.get("user");
+  const id = parseId(c.req.param("id"));
+  const assessment = await loadOwnedCardiacAssessment(id, user.id);
+  const caseNumber = assessment.caseId
+    ? (await db.query.cases.findFirst({ where: and(eq(cases.id, assessment.caseId), eq(cases.createdById, user.id)) }))?.caseNumber ?? null
+    : null;
+  await logAudit(c, "cardiac_assessment", "export", "success", "cardiac_assessment", assessment.id.toString(), { format: "pdf" });
+  const pdf = buildCardiacSummaryPdf(assessment, await cardiacSummaryExplanations(assessment.id, user.id), caseNumber);
+  c.header("Content-Type", "application/pdf");
+  c.header("Content-Disposition", `attachment; filename="cardiac-assessment-${assessment.id}.pdf"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(new Uint8Array(pdf));
 });
 
 const ALLOWED_MIME_FORMATS: Record<string, string> = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" };

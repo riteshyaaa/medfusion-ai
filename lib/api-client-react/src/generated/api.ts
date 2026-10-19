@@ -30,11 +30,14 @@ import type {
   AuthResponse,
   CardiacAssessmentListResponse,
   CardiacAssessmentResponse,
+  CardiacExplanationListResponse,
+  CardiacExplanationResponse,
   CardiacModelStatus,
   CaseListResponse,
   CaseResponse,
   CaseWorkspaceResponse,
   CreateCardiacAssessmentRequest,
+  CreateCardiacExplanationRequest,
   CreateCaseRequest,
   CreatePatientRequest,
   CreateReportRequest,
@@ -4520,6 +4523,399 @@ export function useGetCardiacAssessment<TData = Awaited<ReturnType<typeof getCar
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetCardiacAssessmentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListCardiacAiExplanationsUrl = (id: number,) => {
+
+
+
+
+  return `/api/cardiac/assessments/${id}/ai-explanations`
+}
+
+/**
+ * @summary List consent-gated AI explanations for one saved cardiac assessment (owner-scoped)
+ */
+export const listCardiacAiExplanations = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<CardiacExplanationListResponse> => {
+
+  return customFetch<CardiacExplanationListResponse>(getListCardiacAiExplanationsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCardiacAiExplanationsQueryKey = (id: number,) => {
+    return [
+    `/api/cardiac/assessments/${id}/ai-explanations`
+    ] as const;
+    }
+
+
+export const getListCardiacAiExplanationsQueryOptions = <TData = Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCardiacAiExplanationsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCardiacAiExplanations>>> = ({ signal }) => listCardiacAiExplanations(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListCardiacAiExplanationsQueryResult = NonNullable<Awaited<ReturnType<typeof listCardiacAiExplanations>>>
+export type ListCardiacAiExplanationsQueryError = ErrorType<ErrorResponse>
+
+
+export function useListCardiacAiExplanations<TData = Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCardiacAiExplanations>>,
+          TError,
+          Awaited<ReturnType<typeof listCardiacAiExplanations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCardiacAiExplanations<TData = Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listCardiacAiExplanations>>,
+          TError,
+          Awaited<ReturnType<typeof listCardiacAiExplanations>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListCardiacAiExplanations<TData = Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List consent-gated AI explanations for one saved cardiac assessment (owner-scoped)
+ */
+
+export function useListCardiacAiExplanations<TData = Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listCardiacAiExplanations>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListCardiacAiExplanationsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateCardiacAiExplanationUrl = (id: number,) => {
+
+
+
+
+  return `/api/cardiac/assessments/${id}/ai-explanations`
+}
+
+/**
+ * Requires explicit per-request consent and the server-side external health-data transfer gate. Sends only the saved assessment's model inputs, model output, and documented limitations to the configured provider. The explanation never alters the score, threshold, label, or saved inputs; provider failures are explanation failures, not assessment failures. Comparison requests are refused across incompatible model versions or non-research statuses.
+ * @summary Generate an AI explanation of a saved cardiac research assessment (consent-gated)
+ */
+export const createCardiacAiExplanation = async (id: number,
+    createCardiacExplanationRequest: CreateCardiacExplanationRequest, options?: Parameters<typeof customFetch>[1]): Promise<CardiacExplanationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<CardiacExplanationResponse>(getCreateCardiacAiExplanationUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createCardiacExplanationRequest)
+  }
+);}
+
+
+
+
+
+export const getCreateCardiacAiExplanationMutationKey = () => ['createCardiacAiExplanation'] as const;
+
+export const getCreateCardiacAiExplanationMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCardiacAiExplanation>>, TError,CreateCardiacAiExplanationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCardiacAiExplanation>>, TError,CreateCardiacAiExplanationMutationVariables, TContext> => {
+
+const mutationKey = getCreateCardiacAiExplanationMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCardiacAiExplanation>>, CreateCardiacAiExplanationMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createCardiacAiExplanation(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCardiacAiExplanationMutationResult = NonNullable<Awaited<ReturnType<typeof createCardiacAiExplanation>>>
+    export type CreateCardiacAiExplanationMutationBody = BodyType<CreateCardiacExplanationRequest>
+    export type CreateCardiacAiExplanationMutationError = ErrorType<ErrorResponse>
+    export type CreateCardiacAiExplanationMutationVariables = {id: number;data: BodyType<CreateCardiacExplanationRequest>}
+
+    /**
+ * @summary Generate an AI explanation of a saved cardiac research assessment (consent-gated)
+ */
+export const useCreateCardiacAiExplanation = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCardiacAiExplanation>>, TError,CreateCardiacAiExplanationMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createCardiacAiExplanation>>,
+        TError,
+        CreateCardiacAiExplanationMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateCardiacAiExplanationMutationOptions(options), queryClient);
+    }
+
+export const getExportCardiacAssessmentTextUrl = (id: number,) => {
+
+
+
+
+  return `/api/cardiac/assessments/${id}/export.txt`
+}
+
+/**
+ * @summary Download a research-assessment summary as plain text (owner-scoped)
+ */
+export const exportCardiacAssessmentText = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getExportCardiacAssessmentTextUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportCardiacAssessmentTextQueryKey = (id: number,) => {
+    return [
+    `/api/cardiac/assessments/${id}/export.txt`
+    ] as const;
+    }
+
+
+export const getExportCardiacAssessmentTextQueryOptions = <TData = Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportCardiacAssessmentTextQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportCardiacAssessmentText>>> = ({ signal }) => exportCardiacAssessmentText(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportCardiacAssessmentTextQueryResult = NonNullable<Awaited<ReturnType<typeof exportCardiacAssessmentText>>>
+export type ExportCardiacAssessmentTextQueryError = ErrorType<ErrorResponse>
+
+
+export function useExportCardiacAssessmentText<TData = Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportCardiacAssessmentText>>,
+          TError,
+          Awaited<ReturnType<typeof exportCardiacAssessmentText>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportCardiacAssessmentText<TData = Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportCardiacAssessmentText>>,
+          TError,
+          Awaited<ReturnType<typeof exportCardiacAssessmentText>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportCardiacAssessmentText<TData = Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Download a research-assessment summary as plain text (owner-scoped)
+ */
+
+export function useExportCardiacAssessmentText<TData = Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentText>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportCardiacAssessmentTextQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportCardiacAssessmentPdfUrl = (id: number,) => {
+
+
+
+
+  return `/api/cardiac/assessments/${id}/export.pdf`
+}
+
+/**
+ * @summary Download a research-assessment summary as PDF (owner-scoped)
+ */
+export const exportCardiacAssessmentPdf = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportCardiacAssessmentPdfUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportCardiacAssessmentPdfQueryKey = (id: number,) => {
+    return [
+    `/api/cardiac/assessments/${id}/export.pdf`
+    ] as const;
+    }
+
+
+export const getExportCardiacAssessmentPdfQueryOptions = <TData = Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError = ErrorType<ErrorResponse>>(id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportCardiacAssessmentPdfQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>> = ({ signal }) => exportCardiacAssessmentPdf(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportCardiacAssessmentPdfQueryResult = NonNullable<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>>
+export type ExportCardiacAssessmentPdfQueryError = ErrorType<ErrorResponse>
+
+
+export function useExportCardiacAssessmentPdf<TData = Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportCardiacAssessmentPdf<TData = Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>,
+          TError,
+          Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportCardiacAssessmentPdf<TData = Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Download a research-assessment summary as PDF (owner-scoped)
+ */
+
+export function useExportCardiacAssessmentPdf<TData = Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError = ErrorType<ErrorResponse>>(
+ id: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportCardiacAssessmentPdf>>, TError, TData>>, request?: SecondParameter<typeof customFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportCardiacAssessmentPdfQueryOptions(id,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

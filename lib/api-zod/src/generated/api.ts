@@ -1646,6 +1646,10 @@ export const GetCardiacModelStatusResponse = zod.object({
 
 }).passthrough().nullish(),
   "readinessNote": zod.string().nullish(),
+  "researchServing": zod.object({
+  "enabled": zod.boolean(),
+  "reason": zod.string()
+}).nullish(),
   "contract": zod.object({
 
 }).passthrough()
@@ -1667,6 +1671,10 @@ export const ListCardiacAssessmentsQueryParams = zod.object({
   "caseId": zod.coerce.number().int().optional()
 })
 
+export const listCardiacAssessmentsResponseAssessmentsItemContextualFactorsItemValueMax = 160;
+
+
+
 export const ListCardiacAssessmentsResponse = zod.object({
   "assessments": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1674,6 +1682,12 @@ export const ListCardiacAssessmentsResponse = zod.object({
   "inputs": zod.object({
 
 }).passthrough(),
+  "measurementSource": zod.enum(['self_measured', 'patient_reported', 'imported_history', 'unspecified']).optional(),
+  "contextualFactors": zod.array(zod.object({
+  "factor": zod.enum(['family_history_early_heart_disease', 'smoking_status', 'diabetes_diagnosis', 'blood_pressure_treatment', 'cholesterol_medication', 'physical_activity']),
+  "value": zod.string().max(listCardiacAssessmentsResponseAssessmentsItemContextualFactorsItemValueMax),
+  "missing": zod.boolean().optional().describe('Marks a contextual question the person left unanswered.')
+}).describe('Contextual cardiovascular information that is not consumed by the research model.')).optional(),
   "riskScore": zod.number().nullish(),
   "aboveThreshold": zod.boolean().nullish(),
   "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
@@ -1689,6 +1703,13 @@ export const ListCardiacAssessmentsResponse = zod.object({
 })).optional(),
   "notice": zod.string(),
   "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "aiAssessment": zod.object({
+  "status": zod.enum(['completed', 'skipped_urgent']).optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().optional(),
+  "warningSigns": zod.array(zod.string()).optional(),
+  "notice": zod.string().optional()
+}).nullish().describe('AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.'),
   "createdAt": zod.string()
 })),
   "total": zod.number().int(),
@@ -1719,6 +1740,15 @@ export const createCardiacAssessmentBodyStDepressionMax = 10;
 export const createCardiacAssessmentBodyMajorVesselsMin = 0;
 export const createCardiacAssessmentBodyMajorVesselsMax = 3;
 
+export const createCardiacAssessmentBodyCurrentSymptomsDefault = [];
+export const createCardiacAssessmentBodyCurrentSymptomsMax = 6;
+
+export const createCardiacAssessmentBodyMeasurementSourceDefault = `unspecified`;
+export const createCardiacAssessmentBodyContextualFactorsItemValueMax = 160;
+
+export const createCardiacAssessmentBodyContextualFactorsDefault = [];
+export const createCardiacAssessmentBodyContextualFactorsMax = 12;
+
 
 
 export const CreateCardiacAssessmentBody = zod.object({
@@ -1735,8 +1765,19 @@ export const CreateCardiacAssessmentBody = zod.object({
   "stDepression": zod.number().min(createCardiacAssessmentBodyStDepressionMin).max(createCardiacAssessmentBodyStDepressionMax),
   "stSlope": zod.enum(['upsloping', 'flat', 'downsloping']),
   "majorVessels": zod.number().min(createCardiacAssessmentBodyMajorVesselsMin).max(createCardiacAssessmentBodyMajorVesselsMax),
-  "thalassemia": zod.enum(['normal', 'fixed_defect', 'reversible_defect'])
+  "thalassemia": zod.enum(['normal', 'fixed_defect', 'reversible_defect']),
+  "currentSymptoms": zod.array(zod.enum(['current_chest_pain', 'severe_shortness_of_breath', 'fainting', 'stroke_signs', 'uncontrolled_bleeding', 'severe_allergic_reaction'])).max(createCardiacAssessmentBodyCurrentSymptomsMax).default(createCardiacAssessmentBodyCurrentSymptomsDefault).describe('Urgent-symptom screening selections; positive urgent selections bypass the model entirely.'),
+  "measurementSource": zod.enum(['self_measured', 'patient_reported', 'imported_history', 'unspecified']).default(createCardiacAssessmentBodyMeasurementSourceDefault).describe('Provenance of the entered values as recorded by the user.'),
+  "contextualFactors": zod.array(zod.object({
+  "factor": zod.enum(['family_history_early_heart_disease', 'smoking_status', 'diabetes_diagnosis', 'blood_pressure_treatment', 'cholesterol_medication', 'physical_activity']),
+  "value": zod.string().max(createCardiacAssessmentBodyContextualFactorsItemValueMax),
+  "missing": zod.boolean().optional().describe('Marks a contextual question the person left unanswered.')
+}).describe('Contextual cardiovascular information that is not consumed by the research model.')).max(createCardiacAssessmentBodyContextualFactorsMax).default(createCardiacAssessmentBodyContextualFactorsDefault).describe('Contextual cardiovascular history that is stored for the record but is NOT consumed by the current research model.')
 })
+
+export const createCardiacAssessmentResponseAssessmentContextualFactorsItemValueMax = 160;
+
+
 
 export const CreateCardiacAssessmentResponse = zod.object({
   "assessment": zod.object({
@@ -1745,6 +1786,12 @@ export const CreateCardiacAssessmentResponse = zod.object({
   "inputs": zod.object({
 
 }).passthrough(),
+  "measurementSource": zod.enum(['self_measured', 'patient_reported', 'imported_history', 'unspecified']).optional(),
+  "contextualFactors": zod.array(zod.object({
+  "factor": zod.enum(['family_history_early_heart_disease', 'smoking_status', 'diabetes_diagnosis', 'blood_pressure_treatment', 'cholesterol_medication', 'physical_activity']),
+  "value": zod.string().max(createCardiacAssessmentResponseAssessmentContextualFactorsItemValueMax),
+  "missing": zod.boolean().optional().describe('Marks a contextual question the person left unanswered.')
+}).describe('Contextual cardiovascular information that is not consumed by the research model.')).optional(),
   "riskScore": zod.number().nullish(),
   "aboveThreshold": zod.boolean().nullish(),
   "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
@@ -1760,6 +1807,13 @@ export const CreateCardiacAssessmentResponse = zod.object({
 })).optional(),
   "notice": zod.string(),
   "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "aiAssessment": zod.object({
+  "status": zod.enum(['completed', 'skipped_urgent']).optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().optional(),
+  "warningSigns": zod.array(zod.string()).optional(),
+  "notice": zod.string().optional()
+}).nullish().describe('AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.'),
   "createdAt": zod.string()
 })
 })
@@ -1772,6 +1826,10 @@ export const GetCardiacAssessmentParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const getCardiacAssessmentResponseAssessmentContextualFactorsItemValueMax = 160;
+
+
+
 export const GetCardiacAssessmentResponse = zod.object({
   "assessment": zod.object({
   "id": zod.number().int(),
@@ -1779,6 +1837,12 @@ export const GetCardiacAssessmentResponse = zod.object({
   "inputs": zod.object({
 
 }).passthrough(),
+  "measurementSource": zod.enum(['self_measured', 'patient_reported', 'imported_history', 'unspecified']).optional(),
+  "contextualFactors": zod.array(zod.object({
+  "factor": zod.enum(['family_history_early_heart_disease', 'smoking_status', 'diabetes_diagnosis', 'blood_pressure_treatment', 'cholesterol_medication', 'physical_activity']),
+  "value": zod.string().max(getCardiacAssessmentResponseAssessmentContextualFactorsItemValueMax),
+  "missing": zod.boolean().optional().describe('Marks a contextual question the person left unanswered.')
+}).describe('Contextual cardiovascular information that is not consumed by the research model.')).optional(),
   "riskScore": zod.number().nullish(),
   "aboveThreshold": zod.boolean().nullish(),
   "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
@@ -1794,9 +1858,108 @@ export const GetCardiacAssessmentResponse = zod.object({
 })).optional(),
   "notice": zod.string(),
   "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "aiAssessment": zod.object({
+  "status": zod.enum(['completed', 'skipped_urgent']).optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().optional(),
+  "warningSigns": zod.array(zod.string()).optional(),
+  "notice": zod.string().optional()
+}).nullish().describe('AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.'),
   "createdAt": zod.string()
 })
 })
+
+
+/**
+ * @summary List consent-gated AI explanations for one saved cardiac assessment (owner-scoped)
+ */
+export const ListCardiacAiExplanationsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListCardiacAiExplanationsResponse = zod.object({
+  "explanations": zod.array(zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "comparedAssessmentId": zod.number().int().nullish(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "sections": zod.object({
+  "scoreMeaning": zod.string().optional(),
+  "contributionInsights": zod.array(zod.object({
+  "topic": zod.string().optional(),
+  "explanation": zod.string().optional()
+})).optional(),
+  "modelBoundaries": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "comparisonContext": zod.string().optional(),
+  "questionsForProvider": zod.array(zod.string()).optional()
+}).nullish(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "createdAt": zod.string()
+}).describe('AI-generated explanatory text for a saved cardiac assessment. It is kept strictly separate from the model output and never alters the score, threshold, label, or saved inputs.\n'))
+})
+
+
+/**
+ * Requires explicit per-request consent and the server-side external health-data transfer gate. Sends only the saved assessment's model inputs, model output, and documented limitations to the configured provider. The explanation never alters the score, threshold, label, or saved inputs; provider failures are explanation failures, not assessment failures. Comparison requests are refused across incompatible model versions or non-research statuses.
+ * @summary Generate an AI explanation of a saved cardiac research assessment (consent-gated)
+ */
+export const CreateCardiacAiExplanationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const CreateCardiacAiExplanationBody = zod.object({
+  "consentToExternalProcessing": zod.boolean().describe('Must be literal true; the request is refused otherwise.'),
+  "compareAssessmentId": zod.number().int().optional().describe('Optional saved assessment to provide comparison context. The two records must share the same model version and both be research scores; otherwise the request is refused.\n')
+})
+
+export const CreateCardiacAiExplanationResponse = zod.object({
+  "explanation": zod.object({
+  "id": zod.number().int(),
+  "assessmentId": zod.number().int(),
+  "comparedAssessmentId": zod.number().int().nullish(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "promptVersion": zod.string(),
+  "sections": zod.object({
+  "scoreMeaning": zod.string().optional(),
+  "contributionInsights": zod.array(zod.object({
+  "topic": zod.string().optional(),
+  "explanation": zod.string().optional()
+})).optional(),
+  "modelBoundaries": zod.string().optional(),
+  "missingInformation": zod.string().optional(),
+  "comparisonContext": zod.string().optional(),
+  "questionsForProvider": zod.array(zod.string()).optional()
+}).nullish(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullish(),
+  "createdAt": zod.string()
+}).describe('AI-generated explanatory text for a saved cardiac assessment. It is kept strictly separate from the model output and never alters the score, threshold, label, or saved inputs.\n')
+})
+
+
+/**
+ * @summary Download a research-assessment summary as plain text (owner-scoped)
+ */
+export const ExportCardiacAssessmentTextParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ExportCardiacAssessmentTextResponse = zod.string()
+
+
+/**
+ * @summary Download a research-assessment summary as PDF (owner-scoped)
+ */
+export const ExportCardiacAssessmentPdfParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ExportCardiacAssessmentPdfResponse = zod.unknown()
 
 
 /**
@@ -1878,6 +2041,10 @@ export const GetSkinModelStatusResponse = zod.object({
 export const GetCaseWorkspaceParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+export const getCaseWorkspaceResponseCardiacAssessmentsItemContextualFactorsItemValueMax = 160;
+
+
 
 export const GetCaseWorkspaceResponse = zod.object({
   "case": zod.object({
@@ -2011,6 +2178,12 @@ export const GetCaseWorkspaceResponse = zod.object({
   "inputs": zod.object({
 
 }).passthrough(),
+  "measurementSource": zod.enum(['self_measured', 'patient_reported', 'imported_history', 'unspecified']).optional(),
+  "contextualFactors": zod.array(zod.object({
+  "factor": zod.enum(['family_history_early_heart_disease', 'smoking_status', 'diabetes_diagnosis', 'blood_pressure_treatment', 'cholesterol_medication', 'physical_activity']),
+  "value": zod.string().max(getCaseWorkspaceResponseCardiacAssessmentsItemContextualFactorsItemValueMax),
+  "missing": zod.boolean().optional().describe('Marks a contextual question the person left unanswered.')
+}).describe('Contextual cardiovascular information that is not consumed by the research model.')).optional(),
   "riskScore": zod.number().nullish(),
   "aboveThreshold": zod.boolean().nullish(),
   "label": zod.union([zod.literal('disease'),zod.literal('no_disease'),zod.literal(null)]).nullish(),
@@ -2026,6 +2199,13 @@ export const GetCaseWorkspaceResponse = zod.object({
 })).optional(),
   "notice": zod.string(),
   "diagnosticLimitations": zod.array(zod.string()).optional(),
+  "aiAssessment": zod.object({
+  "status": zod.enum(['completed', 'skipped_urgent']).optional(),
+  "provider": zod.string().optional(),
+  "model": zod.string().optional(),
+  "warningSigns": zod.array(zod.string()).optional(),
+  "notice": zod.string().optional()
+}).nullish().describe('AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.'),
   "createdAt": zod.string()
 })).optional(),
   "reports": zod.array(zod.object({

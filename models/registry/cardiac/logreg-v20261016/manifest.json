@@ -89,6 +89,77 @@
         "fn": 9
       }
     },
+    "crossValidation": {
+      "foldCount": 5,
+      "protocol": "stratified 5-fold cross-validation inside the train+validation partition; the LogisticRegression refit and z-score standardization happen inside each fold",
+      "foldSensitivityRecall": [
+        0.7916666666666666,
+        0.7391304347826086,
+        0.9130434782608695,
+        0.782608695652174,
+        0.8260869565217391
+      ],
+      "foldSpecificity": [
+        0.8928571428571429,
+        0.9629629629629629,
+        0.8888888888888888,
+        0.9629629629629629,
+        0.8518518518518519
+      ],
+      "foldRocAuc": [
+        0.9047619047619048,
+        0.9210950080515298,
+        0.964573268921095,
+        0.9307568438003221,
+        0.8792270531400966
+      ],
+      "foldFalseNegatives": [
+        5,
+        6,
+        2,
+        5,
+        4
+      ],
+      "meanRocAuc": 0.9200828157349896,
+      "rocAucStdDev": 0.028278201793556987,
+      "meanSensitivityRecall": 0.8105072463768115,
+      "sensitivityStdDev": 0.05828267671767504,
+      "meanSpecificity": 0.9119047619047619,
+      "specificityStdDev": 0.04407442341877718,
+      "foldConfusions": [
+        {
+          "tp": 19,
+          "tn": 25,
+          "fp": 3,
+          "fn": 5
+        },
+        {
+          "tp": 17,
+          "tn": 26,
+          "fp": 1,
+          "fn": 6
+        },
+        {
+          "tp": 21,
+          "tn": 24,
+          "fp": 3,
+          "fn": 2
+        },
+        {
+          "tp": 18,
+          "tn": 26,
+          "fp": 1,
+          "fn": 5
+        },
+        {
+          "tp": 19,
+          "tn": 23,
+          "fp": 4,
+          "fn": 4
+        }
+      ],
+      "note": "Fold variation documents uncertainty of a small cohort (about 40 held-out rows per fold). The isolated test partition stays untouched by this procedure."
+    },
     "calibrationStatus": "uncalibrated",
     "scoreSemantics": "uncalibrated_risk_score",
     "knownLimitations": [
@@ -99,6 +170,12 @@
     ]
   },
   "readinessState": "research_only_not_approved",
+  "selfCheck": {
+    "description": "Serving refuses to enable unless the pinned fixtures reproduce through the live inference path.",
+    "fixturesFile": "test-fixtures.json",
+    "sha256": "e59053af65cf8a37b7abe7fbaa6f5ed0eb667e357b50ed199a13b9a9e6f98439",
+    "tolerance": 1e-06
+  },
   "inferenceNote": "Serve only as clearly-labelled research output; never as clinical risk.",
   "packageVersion": "0.1.0"
 }

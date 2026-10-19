@@ -64,6 +64,13 @@
       "when": 1792394073516,
       "tag": "0008_secret_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792414859847,
+      "tag": "0009_moaning_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

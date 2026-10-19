@@ -19,6 +19,11 @@ process.env.RATE_LIMIT_DOCUMENT = "100";
 process.env.RATE_LIMIT_PREDICT = "100";
 process.env.AI_RATE_LIMIT = "100";
 process.env.SKIN_RESEARCH_INFERENCE_ENABLED = "false";
+// The cardiac tests below exercise genuine research scores from the committed,
+// checksum-verified UCI Cleveland baseline; research serving is explicitly
+// enabled for this isolated test run and the disabled-gate behavior is asserted
+// separately by toggling this variable.
+process.env.CARDIAC_RESEARCH_INFERENCE_ENABLED = "true";
 const uploadDirectory = await mkdtemp(path.join(tmpdir(), "medscope-api-test-"));
 process.env.UPLOAD_DIR = uploadDirectory;
 
@@ -262,20 +267,42 @@ test("API foundation persists data, enforces owner access, and fails closed with
 
   const cardiacStatus = await app.request("/api/cardiac/model-status");
   assert.equal(cardiacStatus.status, 200);
-  const cardiacStatusBody = await cardiacStatus.json() as { available: boolean; mode?: string; modelId?: string; metrics?: { test?: { rocAuc?: number } } };
+  const cardiacStatusBody = await cardiacStatus.json() as { available: boolean; mode?: string; modelId?: string; metrics?: { test?: { rocAuc?: number } }; researchServing?: { enabled: boolean; reason: string } };
   assert.equal(cardiacStatusBody.available, true);
   assert.equal(cardiacStatusBody.mode, "research_only");
   assert.equal(cardiacStatusBody.modelId, "medscope-cardiac-logreg-v1");
   assert.ok(cardiacStatusBody.metrics && typeof cardiacStatusBody.metrics.test?.rocAuc === "number");
+  assert.equal(cardiacStatusBody.researchServing && cardiacStatusBody.researchServing.enabled, true);
+
+  // Research-serving permission is fail-closed: without the explicit opt-in the
+  // endpoint persists an honest unavailable record instead of a score.
+  const { resetCardiacCache } = await import("../src/cardiac");
+  const previousServingFlag = process.env.CARDIAC_RESEARCH_INFERENCE_ENABLED;
+  process.env.CARDIAC_RESEARCH_INFERENCE_ENABLED = "false";
+  resetCardiacCache();
+  const cardiacDisabled = await jsonRequest("/cardiac/assessments", "POST", {
+    age: 58, sex: "male", chestPainType: "asymptomatic", restingBloodPressure: 140, serumCholesterol: 260,
+    fastingBloodSugarOver120: "no", restingEcg: "st_t_abnormality", maxHeartRate: 130, exerciseAngina: "yes",
+    stDepression: 3.2, stSlope: "flat", majorVessels: 2, thalassemia: "reversible_defect",
+  }, cookieA);
+  assert.equal(cardiacDisabled.status, 201);
+  const cardiacDisabledBody = await cardiacDisabled.json() as { assessment: { id: number; status: string; riskScore: number | null; notice: string } };
+  assert.equal(cardiacDisabledBody.assessment.status, "model_unavailable");
+  assert.equal(cardiacDisabledBody.assessment.riskScore, null);
+  assert.match(cardiacDisabledBody.assessment.notice, /CARDIAC_RESEARCH_INFERENCE_ENABLED/i);
+  process.env.CARDIAC_RESEARCH_INFERENCE_ENABLED = previousServingFlag;
+  resetCardiacCache();
 
   const cardiac = await jsonRequest("/cardiac/assessments", "POST", {
     caseId,
     age: 58, sex: "male", chestPainType: "asymptomatic", restingBloodPressure: 140, serumCholesterol: 260,
     fastingBloodSugarOver120: "no", restingEcg: "st_t_abnormality", maxHeartRate: 130, exerciseAngina: "yes",
     stDepression: 3.2, stSlope: "flat", majorVessels: 2, thalassemia: "reversible_defect",
+    measurementSource: "self_measured",
+    contextualFactors: [{ factor: "smoking_status", value: "former smoker" }],
   }, cookieA);
   assert.equal(cardiac.status, 201);
-  const cardiacBody = await cardiac.json() as { assessment: { id: number; status: string; riskScore: number; label: string; aboveThreshold: boolean; threshold: number; modelId: string; modelVersion: string; topFactors: unknown[]; notice: string; diagnosticLimitations: string[] } };
+  const cardiacBody = await cardiac.json() as { assessment: { id: number; status: string; riskScore: number; label: string; aboveThreshold: boolean; threshold: number; modelId: string; modelVersion: string; topFactors: unknown[]; notice: string; diagnosticLimitations: string[]; measurementSource: string; contextualFactors: unknown[] } };
   assert.equal(cardiacBody.assessment.status, "research_only");
   assert.ok(Math.abs(cardiacBody.assessment.riskScore - 0.99709692) < 0.00005, `expected pinned high-risk ~0.99709692, got ${cardiacBody.assessment.riskScore}`);
   assert.equal(cardiacBody.assessment.label, "disease");
@@ -286,10 +313,13 @@ test("API foundation persists data, enforces owner access, and fails closed with
   assert.equal(cardiacBody.assessment.topFactors.length, 3);
   assert.match(cardiacBody.assessment.notice, /not a probability of heart disease/i);
   assert.ok(cardiacBody.assessment.diagnosticLimitations.length > 0);
+  assert.equal(cardiacBody.assessment.measurementSource, "self_measured");
+  assert.equal(cardiacBody.assessment.contextualFactors.length, 1);
   const cardiacId = cardiacBody.assessment.id;
   assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}`, "GET", undefined, cookieB)).status, 404);
   const cardiacList = await jsonRequest("/cardiac/assessments", "GET", undefined, cookieA);
-  assert.equal((await cardiacList.json() as { assessments: unknown[] }).assessments.length, 1);
+  // Two records: the refused (disabled-gate) assessment and the scored research assessment.
+  assert.equal((await cardiacList.json() as { assessments: unknown[] }).assessments.length, 2);
   const cardiacInvalid = await jsonRequest("/cardiac/assessments", "POST", {
     caseId, age: 58, sex: "male", chestPainType: "asymptomatic", restingBloodPressure: 140, serumCholesterol: 260,
     fastingBloodSugarOver120: "no", restingEcg: "st_t_abnormality", maxHeartRate: 130, exerciseAngina: "yes",
@@ -300,6 +330,108 @@ test("API foundation persists data, enforces owner access, and fails closed with
   assert.equal(cardiacInvalidBody.error, "invalid_feature_value");
   assert.equal(cardiacInvalidBody.field, "majorVessels");
   assert.equal((await (await jsonRequest("/cardiac/assessments", "GET", undefined, cookieB)).json() as { total: number }).total, 0);
+
+  // Urgent-symptom screening is deterministic and always outranks the model.
+  const cardiacUrgent = await jsonRequest("/cardiac/assessments", "POST", {
+    age: 45, sex: "female", chestPainType: "typical_angina", restingBloodPressure: 120, serumCholesterol: 200,
+    fastingBloodSugarOver120: "no", restingEcg: "normal", maxHeartRate: 150, exerciseAngina: "no",
+    stDepression: 0, stSlope: "upsloping", majorVessels: 0, thalassemia: "normal",
+    currentSymptoms: ["current_chest_pain", "fainting"],
+  }, cookieA);
+  assert.equal(cardiacUrgent.status, 201);
+  const cardiacUrgentBody = await cardiacUrgent.json() as { assessment: { id: number; status: string; riskScore: number | null; notice: string; aiAssessment: { status: string; warningSigns: string[] } | null } };
+  assert.equal(cardiacUrgentBody.assessment.status, "model_unavailable");
+  assert.equal(cardiacUrgentBody.assessment.riskScore, null);
+  assert.match(cardiacUrgentBody.assessment.notice, /urgent warning symptoms were selected|emergency/i);
+  assert.equal(cardiacUrgentBody.assessment.aiAssessment?.status, "skipped_urgent");
+  assert.deepEqual(cardiacUrgentBody.assessment.aiAssessment?.warningSigns, ["current_chest_pain", "fainting"]);
+
+  // Consent-gated AI explanations over the genuine saved research score.
+  const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
+  const { AIProviderError } = await import("../src/ai-providers");
+  const previousDataSharing = process.env.AI_DATA_SHARING_ENABLED;
+  const previousTransferApproval = process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", {}, cookieA)).status, 400);
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true }, cookieA)).status, 403);
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  try {
+    setTestClinicalAIProvider({
+      async analyzeSkin() { throw new Error("not used"); },
+      async analyzeSymptoms() { throw new Error("not used"); },
+      async analyzeCardiac() { throw new Error("not used"); },
+      async explainCardiacAssessment(input) {
+        assert.equal(input.assessment.modelOutput.riskScore !== null, true, "explanations must run on a genuine saved score");
+        assert.equal(input.assessment.urgentSymptomsFlagged.length, 0);
+        return {
+          provider: "test",
+          model: "test-double",
+          result: {
+            scoreMeaning: "The recorded figure is an uncalibrated logistic output from a small historical research dataset, not a probability of disease for any individual.",
+            contributionInsights: [{ topic: "Record inputs", explanation: "Asymptomatic chest pain type and exercise-induced angina carried the largest positive weights among this record's thirteen inputs." }],
+            modelBoundaries: "The research model saw only the thirteen recorded inputs; nothing else about health was available to it.",
+            missingInformation: "Family history, medication use, and measured follow-up values were not part of the model inputs.",
+            questionsForProvider: ["How should these recorded inputs be interpreted together with a current clinical examination?"],
+          },
+        };
+      },
+      async evaluateSymptoms() { throw new Error("not used"); },
+    });
+
+    // Self-comparison and incompatible-model-version comparison are refused.
+    assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true, compareAssessmentId: cardiacId }, cookieA)).status, 400);
+    assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true, compareAssessmentId: cardiacDisabledBody.assessment.id }, cookieA)).status, 400);
+    const strangerExplanation = await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true }, cookieB);
+    assert.equal(strangerExplanation.status, 404);
+
+    const explanation = await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true }, cookieA);
+    assert.equal(explanation.status, 201);
+    const explanationBody = await explanation.json() as { explanation: { id: number; provider: string; model: string; promptVersion: string; status: string; sections: Record<string, unknown> | null } };
+    assert.equal(explanationBody.explanation.provider, "test");
+    assert.equal(explanationBody.explanation.promptVersion, "cardiac-explanation-v1");
+    assert.equal(explanationBody.explanation.status, "completed");
+    assert.ok(explanationBody.explanation.sections && typeof explanationBody.explanation.sections.scoreMeaning === "string");
+    // The explanation never changes the saved numerical result.
+    const assessmentAfterExplanation = await jsonRequest(`/cardiac/assessments/${cardiacId}`, "GET", undefined, cookieA);
+    assert.ok(Math.abs((await assessmentAfterExplanation.json() as { assessment: { riskScore: number } }).assessment.riskScore - 0.99709692) < 0.00005);
+
+    setTestClinicalAIProvider({
+      async analyzeSkin() { throw new Error("not used"); },
+      async analyzeSymptoms() { throw new Error("not used"); },
+      async analyzeCardiac() { throw new Error("not used"); },
+      async explainCardiacAssessment() { throw new AIProviderError("provider_timeout"); },
+      async evaluateSymptoms() { throw new Error("not used"); },
+    });
+    const failedExplanation = await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "POST", { consentToExternalProcessing: true }, cookieA);
+    assert.equal(failedExplanation.status, 502);
+    const explanationList = await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "GET", undefined, cookieA);
+    assert.equal(explanationList.status, 200);
+    const explanationRows = (await explanationList.json() as { explanations: Array<{ id: number; status: string; errorCode: string | null }> }).explanations;
+    assert.deepEqual(explanationRows.map((row) => row.status), ["failed", "completed"]);
+    assert.equal(explanationRows.find((row) => row.status === "failed")?.errorCode, "provider_timeout");
+    assert.equal((await jsonRequest(`/cardiac/assessments/${cardiacId}/ai-explanations`, "GET", undefined, cookieB)).status, 404);
+  } finally {
+    setTestClinicalAIProvider(undefined);
+    process.env.AI_DATA_SHARING_ENABLED = previousDataSharing;
+    process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = previousTransferApproval;
+  }
+
+  // Research summary exports (plain text and PDF), owner-scoped and audited.
+  const cardiacExportTxt = await app.request(`/api/cardiac/assessments/${cardiacId}/export.txt`, { method: "GET", headers: { Cookie: cookieA } });
+  assert.equal(cardiacExportTxt.status, 200);
+  const cardiacExportText = await cardiacExportTxt.text();
+  assert.match(cardiacExportText, /RESEARCH CARDIAC ASSESSMENT SUMMARY/i);
+  assert.match(cardiacExportText, /not a probability of disease|uncalibrated/i);
+  assert.match(cardiacExportText, /CONTEXTUAL INFORMATION/);
+  assert.match(cardiacExportText, /RESEARCH MODEL OUTPUT/);
+  assert.match(cardiacExportText, /AI-GENERATED EXPLANATORY TEXT/);
+  assert.equal((await app.request(`/api/cardiac/assessments/${cardiacId}/export.txt`, { method: "GET", headers: { Cookie: cookieB } })).status, 404);
+
+  const cardiacExportPdf = await app.request(`/api/cardiac/assessments/${cardiacId}/export.pdf`, { method: "GET", headers: { Cookie: cookieA } });
+  assert.equal(cardiacExportPdf.status, 200);
+  const cardiacPdfBytes = Buffer.from(await cardiacExportPdf.arrayBuffer());
+  assert.ok(cardiacPdfBytes.subarray(0, 5).toString("latin1").startsWith("%PDF-"));
+  assert.ok(cardiacPdfBytes.length > 1000, "expected a multi-page-capable PDF body");
 
   const png = await sharp({ create: { width: 3, height: 2, channels: 3, background: "#d9a78b" } }).png().toBuffer();
   const uploadResponse = await upload(cookieA, png, "image/png", "synthetic-fixture.png", caseId);
@@ -799,6 +931,7 @@ test("saved symptom AI evaluations are consent-gated, owner-scoped, keep failed 
       async analyzeSkin() { throw new Error("not used"); },
       async analyzeSymptoms() { throw new Error("not used"); },
       async analyzeCardiac() { throw new Error("not used"); },
+      async explainCardiacAssessment() { throw new Error("not used"); },
       async evaluateSymptoms(input) {
         assert.equal(input.primarySymptom, "mild sore throat");
         assert.equal(input.urgencyLevel, "routine");
@@ -867,6 +1000,7 @@ test("symptom submission runs one AI pipeline with urgent skip, honest failure p
     async analyzeSkin() { throw new Error("not used"); },
     async analyzeSymptoms() { throw new Error("not used"); },
     async analyzeCardiac() { throw new Error("not used"); },
+    async explainCardiacAssessment() { throw new Error("not used"); },
     async evaluateSymptoms() {
       evaluationCalls += 1;
       if (behavior === "reject_call") throw new Error("provider must not be called for urgent inputs");

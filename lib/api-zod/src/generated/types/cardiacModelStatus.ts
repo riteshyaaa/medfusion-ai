@@ -8,6 +8,7 @@
 import type { CardiacModelStatusContract } from './cardiacModelStatusContract.ts';
 import type { CardiacModelStatusMetrics } from './cardiacModelStatusMetrics.ts';
 import type { CardiacModelStatusMode } from './cardiacModelStatusMode.ts';
+import type { CardiacModelStatusResearchServing } from './cardiacModelStatusResearchServing.ts';
 import type { CardiacModelStatusStatus } from './cardiacModelStatusStatus.ts';
 
 export interface CardiacModelStatus {
@@ -30,5 +31,7 @@ export interface CardiacModelStatus {
   metrics?: CardiacModelStatusMetrics;
   /** @nullable */
   readinessNote?: string | null;
+  /** @nullable */
+  researchServing?: CardiacModelStatusResearchServing;
   contract: CardiacModelStatusContract;
 }

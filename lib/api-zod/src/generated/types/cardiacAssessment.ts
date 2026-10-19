@@ -5,16 +5,21 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CardiacAssessmentAiAssessment } from './cardiacAssessmentAiAssessment.ts';
 import type { CardiacAssessmentInputs } from './cardiacAssessmentInputs.ts';
 import type { CardiacAssessmentLabel } from './cardiacAssessmentLabel.ts';
+import type { CardiacAssessmentMeasurementSource } from './cardiacAssessmentMeasurementSource.ts';
 import type { CardiacAssessmentStatus } from './cardiacAssessmentStatus.ts';
 import type { CardiacAssessmentTopFactorsItem } from './cardiacAssessmentTopFactorsItem.ts';
+import type { CardiacContextualFactor } from './cardiacContextualFactor.ts';
 
 export interface CardiacAssessment {
   id: number;
   /** @nullable */
   caseId?: number | null;
   inputs: CardiacAssessmentInputs;
+  measurementSource?: CardiacAssessmentMeasurementSource;
+  contextualFactors?: CardiacContextualFactor[];
   /** @nullable */
   riskScore?: number | null;
   /** @nullable */
@@ -31,5 +36,10 @@ export interface CardiacAssessment {
   topFactors?: CardiacAssessmentTopFactorsItem[];
   notice: string;
   diagnosticLimitations?: string[];
+  /**
+     * AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.
+     * @nullable
+     */
+  aiAssessment?: CardiacAssessmentAiAssessment;
   createdAt: string;
 }

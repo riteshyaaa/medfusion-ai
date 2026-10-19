@@ -1465,6 +1465,14 @@ export const CardiacModelStatusMode = {
  */
 export type CardiacModelStatusMetrics = { [key: string]: unknown } | null;
 
+/**
+ * @nullable
+ */
+export type CardiacModelStatusResearchServing = {
+  enabled: boolean;
+  reason: string;
+} | null;
+
 export type CardiacModelStatusContract = { [key: string]: unknown };
 
 export interface CardiacModelStatus {
@@ -1487,6 +1495,8 @@ export interface CardiacModelStatus {
   metrics?: CardiacModelStatusMetrics;
   /** @nullable */
   readinessNote?: string | null;
+  /** @nullable */
+  researchServing?: CardiacModelStatusResearchServing;
   contract: CardiacModelStatusContract;
 }
 
@@ -1551,6 +1561,54 @@ export const CreateCardiacAssessmentRequestThalassemia = {
   reversible_defect: 'reversible_defect',
 } as const;
 
+export type CreateCardiacAssessmentRequestCurrentSymptomsItem = typeof CreateCardiacAssessmentRequestCurrentSymptomsItem[keyof typeof CreateCardiacAssessmentRequestCurrentSymptomsItem];
+
+
+export const CreateCardiacAssessmentRequestCurrentSymptomsItem = {
+  current_chest_pain: 'current_chest_pain',
+  severe_shortness_of_breath: 'severe_shortness_of_breath',
+  fainting: 'fainting',
+  stroke_signs: 'stroke_signs',
+  uncontrolled_bleeding: 'uncontrolled_bleeding',
+  severe_allergic_reaction: 'severe_allergic_reaction',
+} as const;
+
+/**
+ * Provenance of the entered values as recorded by the user.
+ */
+export type CreateCardiacAssessmentRequestMeasurementSource = typeof CreateCardiacAssessmentRequestMeasurementSource[keyof typeof CreateCardiacAssessmentRequestMeasurementSource];
+
+
+export const CreateCardiacAssessmentRequestMeasurementSource = {
+  self_measured: 'self_measured',
+  patient_reported: 'patient_reported',
+  imported_history: 'imported_history',
+  unspecified: 'unspecified',
+} as const;
+
+export type CardiacContextualFactorFactor = typeof CardiacContextualFactorFactor[keyof typeof CardiacContextualFactorFactor];
+
+
+export const CardiacContextualFactorFactor = {
+  family_history_early_heart_disease: 'family_history_early_heart_disease',
+  smoking_status: 'smoking_status',
+  diabetes_diagnosis: 'diabetes_diagnosis',
+  blood_pressure_treatment: 'blood_pressure_treatment',
+  cholesterol_medication: 'cholesterol_medication',
+  physical_activity: 'physical_activity',
+} as const;
+
+/**
+ * Contextual cardiovascular information that is not consumed by the research model.
+ */
+export interface CardiacContextualFactor {
+  factor: CardiacContextualFactorFactor;
+  /** @maxLength 160 */
+  value: string;
+  /** Marks a contextual question the person left unanswered. */
+  missing?: boolean;
+}
+
 export interface CreateCardiacAssessmentRequest {
   caseId?: number;
   /**
@@ -1590,9 +1648,31 @@ export interface CreateCardiacAssessmentRequest {
      */
   majorVessels: number;
   thalassemia: CreateCardiacAssessmentRequestThalassemia;
+  /**
+     * Urgent-symptom screening selections; positive urgent selections bypass the model entirely.
+     * @maxItems 6
+     */
+  currentSymptoms?: CreateCardiacAssessmentRequestCurrentSymptomsItem[];
+  /** Provenance of the entered values as recorded by the user. */
+  measurementSource?: CreateCardiacAssessmentRequestMeasurementSource;
+  /**
+     * Contextual cardiovascular history that is stored for the record but is NOT consumed by the current research model.
+     * @maxItems 12
+     */
+  contextualFactors?: CardiacContextualFactor[];
 }
 
 export type CardiacAssessmentInputs = { [key: string]: unknown };
+
+export type CardiacAssessmentMeasurementSource = typeof CardiacAssessmentMeasurementSource[keyof typeof CardiacAssessmentMeasurementSource];
+
+
+export const CardiacAssessmentMeasurementSource = {
+  self_measured: 'self_measured',
+  patient_reported: 'patient_reported',
+  imported_history: 'imported_history',
+  unspecified: 'unspecified',
+} as const;
 
 /**
  * @nullable
@@ -1621,11 +1701,33 @@ export type CardiacAssessmentTopFactorsItem = {
   unit?: string | null;
 };
 
+export type CardiacAssessmentAiAssessmentStatus = typeof CardiacAssessmentAiAssessmentStatus[keyof typeof CardiacAssessmentAiAssessmentStatus];
+
+
+export const CardiacAssessmentAiAssessmentStatus = {
+  completed: 'completed',
+  skipped_urgent: 'skipped_urgent',
+} as const;
+
+/**
+ * AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.
+ * @nullable
+ */
+export type CardiacAssessmentAiAssessment = {
+  status?: CardiacAssessmentAiAssessmentStatus;
+  provider?: string;
+  model?: string;
+  warningSigns?: string[];
+  notice?: string;
+} | null;
+
 export interface CardiacAssessment {
   id: number;
   /** @nullable */
   caseId?: number | null;
   inputs: CardiacAssessmentInputs;
+  measurementSource?: CardiacAssessmentMeasurementSource;
+  contextualFactors?: CardiacContextualFactor[];
   /** @nullable */
   riskScore?: number | null;
   /** @nullable */
@@ -1642,6 +1744,11 @@ export interface CardiacAssessment {
   topFactors?: CardiacAssessmentTopFactorsItem[];
   notice: string;
   diagnosticLimitations?: string[];
+  /**
+     * AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.
+     * @nullable
+     */
+  aiAssessment?: CardiacAssessmentAiAssessment;
   createdAt: string;
 }
 
@@ -1654,6 +1761,65 @@ export interface CardiacAssessmentListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export type CardiacExplanationSectionsContributionInsightsItem = {
+  topic?: string;
+  explanation?: string;
+};
+
+/**
+ * @nullable
+ */
+export type CardiacExplanationSections = {
+  scoreMeaning?: string;
+  contributionInsights?: CardiacExplanationSectionsContributionInsightsItem[];
+  modelBoundaries?: string;
+  missingInformation?: string;
+  comparisonContext?: string;
+  questionsForProvider?: string[];
+} | null;
+
+export type CardiacExplanationStatus = typeof CardiacExplanationStatus[keyof typeof CardiacExplanationStatus];
+
+
+export const CardiacExplanationStatus = {
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+/**
+ * AI-generated explanatory text for a saved cardiac assessment. It is kept strictly separate from the model output and never alters the score, threshold, label, or saved inputs.
+ */
+export interface CardiacExplanation {
+  id: number;
+  assessmentId: number;
+  /** @nullable */
+  comparedAssessmentId?: number | null;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  /** @nullable */
+  sections?: CardiacExplanationSections;
+  status: CardiacExplanationStatus;
+  /** @nullable */
+  errorCode?: string | null;
+  createdAt: string;
+}
+
+export interface CardiacExplanationResponse {
+  explanation: CardiacExplanation;
+}
+
+export interface CardiacExplanationListResponse {
+  explanations: CardiacExplanation[];
+}
+
+export interface CreateCardiacExplanationRequest {
+  /** Must be literal true; the request is refused otherwise. */
+  consentToExternalProcessing: boolean;
+  /** Optional saved assessment to provide comparison context. The two records must share the same model version and both be research scores; otherwise the request is refused. */
+  compareAssessmentId?: number;
 }
 
 /**

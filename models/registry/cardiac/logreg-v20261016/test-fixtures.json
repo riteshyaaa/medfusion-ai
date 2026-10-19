@@ -1,4 +1,5 @@
 {
+  "note": "Fixture rows are synthetic demonstration inputs; their scores are computed from this exact trained bundle and re-verified by the API on every load.",
   "highRiskSample": {
     "row": {
       "age": 58,
@@ -12,7 +13,7 @@
       "exerciseAngina": "yes",
       "stDepression": 3.2,
       "stSlope": "flat",
-      "majorVessels": 2,
+      "majorVessels": "2",
       "thalassemia": "reversible_defect"
     },
     "riskScore": 0.9970969242581661
@@ -28,9 +29,9 @@
       "restingEcg": "normal",
       "maxHeartRate": 175,
       "exerciseAngina": "no",
-      "stDepression": 0,
+      "stDepression": 0.0,
       "stSlope": "upsloping",
-      "majorVessels": 0,
+      "majorVessels": "0",
       "thalassemia": "normal"
     },
     "riskScore": 0.0028402028341846966

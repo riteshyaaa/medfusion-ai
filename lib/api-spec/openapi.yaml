@@ -1736,6 +1736,172 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /cardiac/assessments/{id}/ai-explanations:
+    get:
+      operationId: listCardiacAiExplanations
+      tags: [cardiac-assessments]
+      summary: List consent-gated AI explanations for one saved cardiac assessment (owner-scoped)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Explanations for the assessment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacExplanationListResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createCardiacAiExplanation
+      tags: [cardiac-assessments]
+      summary: Generate an AI explanation of a saved cardiac research assessment (consent-gated)
+      description: >
+        Requires explicit per-request consent and the server-side external
+        health-data transfer gate. Sends only the saved assessment's model
+        inputs, model output, and documented limitations to the configured
+        provider. The explanation never alters the score, threshold, label,
+        or saved inputs; provider failures are explanation failures, not
+        assessment failures. Comparison requests are refused across
+        incompatible model versions or non-research statuses.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCardiacExplanationRequest"
+      responses:
+        "201":
+          description: Explanation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardiacExplanationResponse"
+        "400":
+          description: Missing consent, invalid comparison, or self-comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: External health-data processing disabled by server configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Provider failure (recorded as a failed explanation; the assessment is unchanged)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Provider not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cardiac/assessments/{id}/export.txt:
+    get:
+      operationId: exportCardiacAssessmentText
+      tags: [cardiac-assessments]
+      summary: Download a research-assessment summary as plain text (owner-scoped)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Plain-text research summary
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /cardiac/assessments/{id}/export.pdf:
+    get:
+      operationId: exportCardiacAssessmentPdf
+      tags: [cardiac-assessments]
+      summary: Download a research-assessment summary as PDF (owner-scoped)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF research summary
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Assessment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /symptoms/follow-up-questions:
     get:
       operationId: listSymptomFollowUpQuestions
@@ -3687,6 +3853,15 @@ components:
         readinessNote:
           type: string
           nullable: true
+        researchServing:
+          type: object
+          nullable: true
+          properties:
+            enabled:
+              type: boolean
+            reason:
+              type: string
+          required: [enabled, reason]
         contract:
           type: object
       required:
@@ -3742,6 +3917,26 @@ components:
         thalassemia:
           type: string
           enum: [normal, fixed_defect, reversible_defect]
+        currentSymptoms:
+          type: array
+          items:
+            type: string
+            enum: [current_chest_pain, severe_shortness_of_breath, fainting, stroke_signs, uncontrolled_bleeding, severe_allergic_reaction]
+          maxItems: 6
+          default: []
+          description: Urgent-symptom screening selections; positive urgent selections bypass the model entirely.
+        measurementSource:
+          type: string
+          enum: [self_measured, patient_reported, imported_history, unspecified]
+          default: unspecified
+          description: Provenance of the entered values as recorded by the user.
+        contextualFactors:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/CardiacContextualFactor"
+          default: []
+          description: Contextual cardiovascular history that is stored for the record but is NOT consumed by the current research model.
       required: [age, sex, chestPainType, restingBloodPressure, serumCholesterol, fastingBloodSugarOver120, restingEcg, maxHeartRate, exerciseAngina, stDepression, stSlope, majorVessels, thalassemia]
     CardiacAssessment:
       type: object
@@ -3753,6 +3948,13 @@ components:
           nullable: true
         inputs:
           type: object
+        measurementSource:
+          type: string
+          enum: [self_measured, patient_reported, imported_history, unspecified]
+        contextualFactors:
+          type: array
+          items:
+            $ref: "#/components/schemas/CardiacContextualFactor"
         riskScore:
           type: number
           nullable: true
@@ -3796,6 +3998,24 @@ components:
           type: array
           items:
             type: string
+        aiAssessment:
+          type: object
+          nullable: true
+          description: AI-generated educational context or the deterministic urgent-symptom skip record. Kept separate from the model output.
+          properties:
+            status:
+              type: string
+              enum: [completed, skipped_urgent]
+            provider:
+              type: string
+            model:
+              type: string
+            warningSigns:
+              type: array
+              items:
+                type: string
+            notice:
+              type: string
         createdAt:
           type: string
       required:
@@ -3824,6 +4044,101 @@ components:
         limit:
           type: integer
       required: [assessments, total, page, limit]
+    CardiacContextualFactor:
+      type: object
+      description: Contextual cardiovascular information that is not consumed by the research model.
+      properties:
+        factor:
+          type: string
+          enum: [family_history_early_heart_disease, smoking_status, diabetes_diagnosis, blood_pressure_treatment, cholesterol_medication, physical_activity]
+        value:
+          type: string
+          maxLength: 160
+        missing:
+          type: boolean
+          description: Marks a contextual question the person left unanswered.
+      required: [factor, value]
+    CardiacExplanation:
+      type: object
+      description: >
+        AI-generated explanatory text for a saved cardiac assessment. It is
+        kept strictly separate from the model output and never alters the
+        score, threshold, label, or saved inputs.
+      properties:
+        id:
+          type: integer
+        assessmentId:
+          type: integer
+        comparedAssessmentId:
+          type: integer
+          nullable: true
+        provider:
+          type: string
+        model:
+          type: string
+        promptVersion:
+          type: string
+        sections:
+          type: object
+          nullable: true
+          properties:
+            scoreMeaning:
+              type: string
+            contributionInsights:
+              type: array
+              items:
+                type: object
+                properties:
+                  topic:
+                    type: string
+                  explanation:
+                    type: string
+            modelBoundaries:
+              type: string
+            missingInformation:
+              type: string
+            comparisonContext:
+              type: string
+            questionsForProvider:
+              type: array
+              items:
+                type: string
+        status:
+          type: string
+          enum: [completed, failed]
+        errorCode:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required: [id, assessmentId, provider, model, promptVersion, status, createdAt]
+    CardiacExplanationResponse:
+      type: object
+      properties:
+        explanation:
+          $ref: "#/components/schemas/CardiacExplanation"
+      required: [explanation]
+    CardiacExplanationListResponse:
+      type: object
+      properties:
+        explanations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CardiacExplanation"
+      required: [explanations]
+    CreateCardiacExplanationRequest:
+      type: object
+      properties:
+        consentToExternalProcessing:
+          type: boolean
+          description: Must be literal true; the request is refused otherwise.
+        compareAssessmentId:
+          type: integer
+          description: >
+            Optional saved assessment to provide comparison context. The two
+            records must share the same model version and both be research
+            scores; otherwise the request is refused.
+      required: [consentToExternalProcessing]
     CaseWorkspaceResponse:
       type: object
       properties:

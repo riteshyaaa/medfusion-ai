@@ -62,8 +62,16 @@ def verify_source() -> None:
     if download_manifest.is_file():
         recorded = json.loads(download_manifest.read_text(encoding="utf-8"))
         for key in ("zip", "processed"):
-            if key in recorded and recorded[key].get("sha256") != sha256_file(RAW_DIR.parent / recorded[key]["file"]):
-                sys.exit(f"Checksum mismatch for {key}")
+            if f"{key}Sha256" in recorded:
+                file_name = recorded.get(key)
+                if not file_name:
+                    sys.exit(f"Download manifest is missing the file name for {key}")
+                candidates = [RAW_DIR.parent / file_name, RAW_DIR / file_name]
+                path = next((candidate for candidate in candidates if candidate.is_file()), None)
+                if path is None:
+                    sys.exit(f"Missing recorded download file for {key}")
+                if sha256_file(path) != recorded[f"{key}Sha256"]:
+                    sys.exit(f"Checksum mismatch for {key}")
 
 
 def load_rows() -> tuple[list[dict], list[int]]:
@@ -233,6 +241,103 @@ def evaluate_bundle(bundle: dict, rows: list[dict], indices: list[int], tag: str
     }
 
 
+def cross_validate_baseline(rows: list[dict], pool_indices: list[int], folds: int = 5) -> dict:
+    """Leakage-safe stratified cross-validation inside a partition.
+
+    Every fold refits the logistic regression with standardization computed
+    only from that fold's training slice (same procedure as the final fit), so
+    no preprocessing statistic crosses the fold boundary. The held-out test
+    partition is never part of `pool_indices`.
+    """
+    import random
+
+    positives = [index for index in pool_indices if rows[index]["target"] > 0]
+    negatives = [index for index in pool_indices if rows[index]["target"] == 0]
+    assignments: dict[int, int] = {}
+    for class_offset, pool in enumerate((positives, negatives)):
+        shuffled = pool[:]
+        random.Random(SEED * 7 + class_offset).shuffle(shuffled)
+        for position, index in enumerate(shuffled):
+            assignments[index] = position % folds
+    fold_metrics = []
+    for fold in range(folds):
+        holdout = [index for index in pool_indices if assignments[index] == fold]
+        inner_train = [index for index in pool_indices if assignments[index] != fold]
+        fold_bundle = fit_logistic_bundle(rows, inner_train)
+        fold_metrics.append(evaluate_bundle(fold_bundle, rows, holdout, f"cross-validation fold {fold + 1} of {folds}"))
+    def spread(key: str) -> float:
+        values = [entry[key] for entry in fold_metrics]
+        mean = sum(values) / len(values)
+        return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
+    return {
+        "foldCount": folds,
+        "protocol": f"stratified {folds}-fold cross-validation inside the train+validation partition; the LogisticRegression refit and z-score standardization happen inside each fold",
+        "foldSensitivityRecall": [entry["sensitivity_recall"] for entry in fold_metrics],
+        "foldSpecificity": [entry["specificity"] for entry in fold_metrics],
+        "foldRocAuc": [entry["rocAuc"] for entry in fold_metrics],
+        "foldFalseNegatives": [entry["confusion"]["fn"] for entry in fold_metrics],
+        "meanRocAuc": sum(entry["rocAuc"] for entry in fold_metrics) / folds,
+        "rocAucStdDev": spread("rocAuc"),
+        "meanSensitivityRecall": sum(entry["sensitivity_recall"] for entry in fold_metrics) / folds,
+        "sensitivityStdDev": spread("sensitivity_recall"),
+        "meanSpecificity": sum(entry["specificity"] for entry in fold_metrics) / folds,
+        "specificityStdDev": spread("specificity"),
+        "foldConfusions": [entry["confusion"] for entry in fold_metrics],
+        "note": "Fold variation documents uncertainty of a small cohort (about 40 held-out rows per fold). The isolated test partition stays untouched by this procedure.",
+    }
+
+
+def inference_score(bundle: dict, row: dict) -> float:
+    encode = bundle["encode"]
+    standardize = bundle["standardize"]
+    vector = standardize(encode(row))
+    score = sum(coefficient * value for coefficient, value in zip(bundle["coefficients"], vector)) + bundle["intercept"]
+    return 1.0 / (1.0 + math.exp(-score))
+
+
+def self_check_fixtures(bundle: dict) -> dict:
+    """Synthetic-but-model-true fixture rows, pinned for the API self-check.
+
+    These two rows are handcrafted demonstration inputs distributed across the
+    feature space; both scores are computed from the freshly trained bundle so
+    the serving self-check verifies the exact exported model.
+    """
+    high = {
+        "age": 58, "sex": 1.0, "cp": 4.0, "trestbps": 140, "chol": 260, "fbs": 0.0,
+        "restecg": 1.0, "thalach": 130, "exang": 1.0, "oldpeak": 3.2, "slope": 2.0, "ca": 2.0, "thal": 7.0,
+    }
+    low = {
+        "age": 40, "sex": 0.0, "cp": 1.0, "trestbps": 110, "chol": 180, "fbs": 0.0,
+        "restecg": 0.0, "thalach": 175, "exang": 0.0, "oldpeak": 0.0, "slope": 1.0, "ca": 0.0, "thal": 3.0,
+    }
+    API_FIELD_MAP = {
+        "sex": "sex", "cp": "chestPainType", "trestbps": "restingBloodPressure", "chol": "serumCholesterol",
+        "fbs": "fastingBloodSugarOver120", "restecg": "restingEcg", "thalach": "maxHeartRate",
+        "exang": "exerciseAngina", "oldpeak": "stDepression", "slope": "stSlope", "ca": "majorVessels", "thal": "thalassemia",
+    }
+    VALUE_MAP = {
+        "sex": {0.0: "female", 1.0: "male"},
+        "cp": {1.0: "typical_angina", 2.0: "atypical_angina", 3.0: "non_anginal", 4.0: "asymptomatic"},
+        "fbs": {0.0: "no", 1.0: "yes"},
+        "restecg": {0.0: "normal", 1.0: "st_t_abnormality", 2.0: "left_ventricular_hypertrophy"},
+        "exang": {0.0: "no", 1.0: "yes"},
+        "slope": {1.0: "upsloping", 2.0: "flat", 3.0: "downsloping"},
+        "ca": {0.0: "0", 1.0: "1", 2.0: "2", 3.0: "3"},
+        "thal": {3.0: "normal", 6.0: "fixed_defect", 7.0: "reversible_defect"},
+    }
+    def to_api(row: dict) -> dict:
+        output = {"age": int(row["age"])}
+        for dataset_name, api_name in API_FIELD_MAP.items():
+            raw = row[dataset_name]
+            output[api_name] = VALUE_MAP[dataset_name][raw] if dataset_name in VALUE_MAP else raw
+        return output
+    return {
+        "note": "Fixture rows are synthetic demonstration inputs; their scores are computed from this exact trained bundle and re-verified by the API on every load.",
+        "highRiskSample": {"row": to_api(high), "riskScore": inference_score(bundle, high)},
+        "lowRiskSample": {"row": to_api(low), "riskScore": inference_score(bundle, low)},
+    }
+
+
 def main() -> None:
     verify_source()
     rows, dropped = load_rows()
@@ -241,6 +346,8 @@ def main() -> None:
 
     validation_metrics = evaluate_bundle(bundle, rows, val_idx, "held-out stratified validation partition")
     test_metrics = evaluate_bundle(bundle, rows, test_idx, "held-out test partition (untouched during training)")
+    cv_metrics = cross_validate_baseline(rows, train_idx + val_idx, folds=5)
+    fixtures = self_check_fixtures(bundle)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     inference_bundle = {
@@ -257,6 +364,9 @@ def main() -> None:
     bundle_path = OUT_DIR / "bundle.json"
     bundle_path.write_text(json.dumps(inference_bundle, indent=1), encoding="utf-8")
     bundle_sha = sha256_file(bundle_path)
+
+    fixtures_path = OUT_DIR / "test-fixtures.json"
+    fixtures_path.write_text(json.dumps(fixtures, indent=2), encoding="utf-8")
 
     manifest = {
         "modelId": "medscope-cardiac-logreg-v1",
@@ -302,6 +412,7 @@ def main() -> None:
         "evaluation": {
             "validation": validation_metrics,
             "test": test_metrics,
+            "crossValidation": cv_metrics,
             "calibrationStatus": "uncalibrated",
             "scoreSemantics": "uncalibrated_risk_score",
             "knownLimitations": [
@@ -312,6 +423,12 @@ def main() -> None:
             ],
         },
         "readinessState": "research_only_not_approved",
+        "selfCheck": {
+            "description": "Serving refuses to enable unless the pinned fixtures reproduce through the live inference path.",
+            "fixturesFile": "test-fixtures.json",
+            "sha256": sha256_file(fixtures_path),
+            "tolerance": 0.000001,
+        },
         "inferenceNote": "Serve only as clearly-labelled research output; never as clinical risk.",
         "packageVersion": "0.1.0",
     }

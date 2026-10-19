@@ -5,9 +5,12 @@
  * Intelligent Health Assessment Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CardiacContextualFactor } from './cardiacContextualFactor.ts';
 import type { CreateCardiacAssessmentRequestChestPainType } from './createCardiacAssessmentRequestChestPainType.ts';
+import type { CreateCardiacAssessmentRequestCurrentSymptomsItem } from './createCardiacAssessmentRequestCurrentSymptomsItem.ts';
 import type { CreateCardiacAssessmentRequestExerciseAngina } from './createCardiacAssessmentRequestExerciseAngina.ts';
 import type { CreateCardiacAssessmentRequestFastingBloodSugarOver120 } from './createCardiacAssessmentRequestFastingBloodSugarOver120.ts';
+import type { CreateCardiacAssessmentRequestMeasurementSource } from './createCardiacAssessmentRequestMeasurementSource.ts';
 import type { CreateCardiacAssessmentRequestRestingEcg } from './createCardiacAssessmentRequestRestingEcg.ts';
 import type { CreateCardiacAssessmentRequestSex } from './createCardiacAssessmentRequestSex.ts';
 import type { CreateCardiacAssessmentRequestStSlope } from './createCardiacAssessmentRequestStSlope.ts';
@@ -52,4 +55,16 @@ export interface CreateCardiacAssessmentRequest {
      */
   majorVessels: number;
   thalassemia: CreateCardiacAssessmentRequestThalassemia;
+  /**
+     * Urgent-symptom screening selections; positive urgent selections bypass the model entirely.
+     * @maxItems 6
+     */
+  currentSymptoms?: CreateCardiacAssessmentRequestCurrentSymptomsItem[];
+  /** Provenance of the entered values as recorded by the user. */
+  measurementSource?: CreateCardiacAssessmentRequestMeasurementSource;
+  /**
+     * Contextual cardiovascular history that is stored for the record but is NOT consumed by the current research model.
+     * @maxItems 12
+     */
+  contextualFactors?: CardiacContextualFactor[];
 }

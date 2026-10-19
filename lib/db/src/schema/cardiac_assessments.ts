@@ -9,6 +9,8 @@ export const cardiacAssessments = pgTable("cardiac_assessments", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   caseId: integer("case_id").references(() => cases.id, { onDelete: "set null" }),
   inputs: jsonb("inputs").$type<Record<string, string | number | string[]>>().notNull(),
+  measurementSource: text("measurement_source", { enum: ["self_measured", "patient_reported", "imported_history", "unspecified"] }).notNull().default("unspecified"),
+  contextualFactors: jsonb("contextual_factors").$type<Array<{ factor: string; value: string; missing?: boolean }>>().default([]),
   riskScore: real("risk_score"),
   aboveThreshold: boolean("above_threshold"),
   label: text("label", { enum: ["disease", "no_disease"] }),
