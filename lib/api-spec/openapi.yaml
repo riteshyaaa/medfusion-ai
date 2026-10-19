@@ -2485,6 +2485,9 @@ components:
           type: integer
           nullable: true
           description: ID of the analyzed image; fetch it via GET /uploads/{id}/file while signed in.
+        imageVisible:
+          type: boolean
+          description: Whether the analyzed image may be displayed in the history/detail UI. Records created before the image-visibility cutoff stay hidden even when an upload exists; the server decides, not the client.
         modelId:
           type: string
           nullable: true

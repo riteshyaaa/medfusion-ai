@@ -480,12 +480,13 @@ test("API foundation persists data, enforces owner access, and fails closed with
   });
   const simulatedPrediction = await jsonRequest("/predict", "POST", { uploadId }, cookieA);
   assert.equal(simulatedPrediction.status, 201);
-  const prediction = await simulatedPrediction.json() as { id: number; status: string; scoreSemantics: string; userId?: number; imageBase64?: string; uploadId?: number | null };
+  const prediction = await simulatedPrediction.json() as { id: number; status: string; scoreSemantics: string; userId?: number; imageBase64?: string; uploadId?: number | null; imageVisible?: boolean };
   assert.equal(prediction.status, "simulated");
   assert.equal(prediction.scoreSemantics, "simulated");
   assert.equal("userId" in prediction, false);
   assert.equal("imageBase64" in prediction, false);
   assert.equal(prediction.uploadId, uploadId, "the prediction exposes its analyzed upload id for owner-scoped image retrieval");
+  assert.equal(prediction.imageVisible, true, "predictions created after the visibility cutoff display their image");
   const ownedImage = await app.request(`/api/uploads/${uploadId}/file`, { headers: { Cookie: cookieA } });
   assert.equal(ownedImage.status, 200);
   assert.match(ownedImage.headers.get("Content-Type") ?? "", /image\/(jpeg|png)/);
@@ -498,6 +499,11 @@ test("API foundation persists data, enforces owner access, and fails closed with
   const missingImage = await app.request(`/api/uploads/999999/file`, { headers: { Cookie: cookieA } });
   assert.equal(missingImage.status, 404);
   const predictionId = prediction.id;
+  await db.update(predictions).set({ createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where((await import("drizzle-orm")).eq(predictions.id, predictionId));
+  const preCutoff = await jsonRequest(`/predictions/${predictionId}`, "GET", undefined, cookieA);
+  assert.equal(preCutoff.status, 200);
+  assert.equal((await preCutoff.json() as { imageVisible: boolean }).imageVisible, false, "records that existed before the visibility cutoff keep their image hidden");
+  await db.update(predictions).set({ createdAt: new Date() }).where((await import("drizzle-orm")).eq(predictions.id, predictionId));
   const explanationUnauthenticated = await jsonRequest("/ai/explanations", "POST", {
     predictionId,
     consentToExternalProcessing: true,

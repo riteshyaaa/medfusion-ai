@@ -767,6 +767,16 @@ const predictSchema = z.object({
   consentToExternalProcessing: z.boolean().optional().default(false),
 });
 
+// Images created before this cutoff are not displayed in the history/detail
+// UI: records that already existed when the owner-visible image feature
+// shipped keep their photo fully private. The cutoff is a server decision,
+// not a client guess, and operators can move it with an env override.
+const imageVisibleFrom = (() => {
+  const raw = (process.env.PREDICTION_IMAGE_VISIBLE_FROM ?? "").trim();
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(parsed) ? parsed : Date.parse("2026-10-19T18:30:00Z");
+})();
+
 function predictionView(prediction: typeof predictions.$inferSelect) {
   const provenanceVerified = prediction.status !== "legacy_unverified" && prediction.scoreSemantics !== "unverified";
   const aiInformational = prediction.status === "ai_informational" && Boolean(prediction.aiAssessment);
@@ -785,6 +795,7 @@ function predictionView(prediction: typeof predictions.$inferSelect) {
     scoreSemantics: prediction.scoreSemantics,
     preprocessingVersion: prediction.preprocessingVersion,
     uploadId: prediction.uploadId,
+    imageVisible: Boolean(prediction.uploadId) && prediction.createdAt.getTime() >= imageVisibleFrom,
     status: prediction.status,
     fileName: prediction.fileName,
     createdAt: prediction.createdAt,

@@ -378,6 +378,8 @@ export interface PredictionRecord {
      * @nullable
      */
   uploadId?: number | null;
+  /** Whether the analyzed image may be displayed in the history/detail UI. Records created before the image-visibility cutoff stay hidden even when an upload exists; the server decides, not the client. */
+  imageVisible?: boolean;
   /** @nullable */
   modelId?: string | null;
   /** @nullable */
