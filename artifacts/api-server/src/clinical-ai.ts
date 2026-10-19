@@ -14,17 +14,17 @@ const severitySchema = z.enum(["mild", "moderate", "severe", "uncertain"]);
 export const skinAIResultSchema = z.object({
   imageType: z.enum(["real_skin", "not_skin", "unclear"]).default("unclear"),
   visibleAbnormality: z.boolean().default(true),
-  description: z.string().trim().min(1).max(350),
-  observations: z.array(z.string().trim().min(1).max(200)).min(1).max(5),
+  description: z.string().trim().min(1).max(280),
+  observations: z.array(z.string().trim().min(1).max(160)).min(1).max(3),
   possibleConditions: z.array(z.object({
     name: z.string().trim().min(1).max(120),
-    reason: z.string().trim().min(1).max(200),
-  }).strict()).max(4),
-  uncertainty: z.string().trim().min(1).max(300),
+    reason: z.string().trim().min(1).max(160),
+  }).strict()).max(3),
+  uncertainty: z.string().trim().min(1).max(160),
   severity: severitySchema,
   urgency: urgencySchema,
-  nextSteps: z.array(z.string().trim().min(1).max(200)).max(5),
-  consultClinicianWhen: z.array(z.string().trim().min(1).max(200)).max(4),
+  nextSteps: z.array(z.string().trim().min(1).max(160)).max(3),
+  consultClinicianWhen: z.array(z.string().trim().min(1).max(160)).max(3),
 }).strict();
 
 export const symptomAIResultSchema = z.object({
@@ -177,15 +177,10 @@ export const symptomEvaluationJsonSchema = {
 };
 
 const skinSystem = [
-  "You are an experienced dermatology AI assistant analyzing a submitted skin image with the depth of a trained diagnostic model.",
-  "First check the image itself: if it is a drawing, illustration, 3D render, object, screenshot, or anything that is not a genuine photograph of human skin, set imageType to not_skin.",
-  "For a genuine skin photograph, assess like a clinician: skin tone and phototype, lesion color distribution, border regularity, symmetry, diameter, texture, surface changes, and surrounding skin.",
-  "Provide a description field: a two-to-four sentence plain-language clinical description of the most likely condition's typical appearance and course (as a condition, not a claim about the patient).",
-  "If no lesion, rash, irritation, or pigment change is visible, set visibleAbnormality to false and say the skin appears within normal limits.",
-  "PossibleConditions are exactly four named conditions whose visible features best fit what you observe, ordered from the closest match first to progressively weaker matches, each with the visible feature overlap that supports it. Keep names precise (for example: Atopic dermatitis, Melanocytic nevus, Tinea corporis).",
-  "Describe visible features using plain clinical wording; note where image quality limits the assessment. Do not infer identity, age, or ethnicity from the image.",
-  "Do not provide confidence scores, probabilities, percentages, citations, or invented image-preprocessing claims.",
-  "Use the phrase 'may fit' or 'commonly presents as' rather than asserting 'you have'. End the disclaimer field with one short line advising a doctor visit if symptoms persist.",
+  "You are a dermatology assessment tool. If the image is a drawing, render, object, screenshot, or not a photo of human skin, set imageType to not_skin.",
+  "For genuine skin photos assess tone, colour distribution, border, symmetry, texture, and surrounding skin; say the skin appears within normal limits if nothing abnormal is visible.",
+  "PossibleConditions are up to 3 named conditions that best fit what is visible, closest match first, each justified by visible-feature overlap. Use plain clinical wording and note image-quality limits. Do not infer identity or ethnicity.",
+  "No percentages, confidence scores, or citations in any field. Use wording like may fit or commonly presents as.",
   "Return only the requested JSON object.",
 ].join(" ");
 
@@ -339,7 +334,7 @@ export function createClinicalAIProvider(
       if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 5_000_000) {
         return Promise.reject(new AIProviderError("provider_request_rejected"));
       }
-      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Be concise: short description, at most 5 brief observations, 3 conditions, 4 brief next steps. Output the JSON directly.", imageDataUrl, 1_100) as Promise<AIAnalysisOutput<SkinAIResult>>;
+      return call(skinAIResultSchema,"medscope_skin_assessment", skinJsonSchema, skinSystem, "Analyze the attached skin image and return the structured JSON assessment. Be very concise: one-sentence description, at most 3 short observations, 3 conditions with one-clause reasons, 3 brief next steps, one-sentence uncertainty. Output the JSON directly.", imageDataUrl, 600) as Promise<AIAnalysisOutput<SkinAIResult>>;
     },
     analyzeSymptoms(input) {
       return call(

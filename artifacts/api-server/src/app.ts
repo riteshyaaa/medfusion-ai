@@ -832,7 +832,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       if (screenedOutLocally?.verdict !== "not_skin") {
         const image = await sharp(storedImage, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" })
           .rotate()
-          .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+          .resize(640, 640, { fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 85 })
           .toBuffer();
         imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
@@ -879,7 +879,7 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
       }
       console.log(`skin-ai analyze ${analyzed.model} completed in ${Date.now() - skinAiStartedAt} ms`);
     }
-    const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
+    const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 640×640 without enlargement", "Re-encoded as JPEG at quality 85"];
     if (screenedOutLocally?.verdict === "not_skin") {
       preprocessingSteps.unshift("Local skin-pixel screening (YCbCr chroma rule) rejected the image before the AI vision call");
     }
