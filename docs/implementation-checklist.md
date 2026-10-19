@@ -188,3 +188,23 @@ Upgrade of the existing Report Analysis module only — no new pipeline: all add
 
 **Gate 7 decision:** Pass. Research serving remains distinct from clinical approval by construction (artifact integrity ≠ operator permission ≠ approval), all serving paths fail closed, comparisons across model versions are refused rather than normalised, AI explanations ride the existing provider allowlist/timeout/validation/redaction stack behind consent + transfer gates, and the training pipeline is now reproducible with documented uncertainty. Remaining known limitations: the model itself is unchanged and remains a 1988-cohort research baseline; no calibration was performed; cross-validated evidence is not clinical validation.
 
+
+## Phase 7.5: owner-visible images in prediction history
+
+**Gate 7.5 status:** Pass. Images stay private; nothing is publicly served.
+
+### What was implemented
+
+- [x] `GET /api/uploads/{id}/file`: owner-scoped image route. It streams the stored, normalized image with its recorded content type, `Content-Disposition: inline`, and `Cache-Control: private, no-store`. Every request verifies `uploads.userId === session user`; cross-user requests return 404, unauthenticated requests 401. Cookies are sent automatically by same-origin `<img>` requests through the Vite `/api` proxy, so no public URL, signed token, or static file serving exists.
+- [x] `Prediction.uploadId` added to the OpenAPI `PredictionResult` schema (nullable; legacy records without an analyzed image return null). React Query and Zod clients regenerated through orval.
+- [x] History page (Skin records tab): prediction cards now show the analyzed photo in place of the previous "Image remains private" placeholder; records without an upload keep the placeholder.
+- [x] Record detail page (`/prediction/{id}`): the analyzed image displays above the results card when the record has an upload.
+- [x] Integration test coverage: owner receives the stored bytes (status 200, image content type, >100 bytes), cross-user 404, unauthenticated 401, nonexistent-id 404, and the prediction response asserts the exposed `uploadId` matches the analyzed upload.
+
+### Phase 7.5 commands and results
+
+- `pnpm --filter @workspace/api-spec codegen && pnpm --filter @workspace/api-zod build` — clients regenerated cleanly.
+- `pnpm --filter @workspace/api-server test` — passed: 99 tests, 0 failures (image route ownership tests included).
+- `pnpm --filter @workspace/skin-ai typecheck && pnpm --filter @workspace/skin-ai build` — passed.
+
+**Gate 7.5 decision:** Pass. The feature is owner-visible only, deliberately not public: the route checks ownership per request and no static or unsigned access path was added, keeping the documented "no public media URL" security boundary intact.
