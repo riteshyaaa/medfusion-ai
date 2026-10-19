@@ -392,7 +392,10 @@ export default function SymptomAssessment() {
           <section className="mt-6 rounded-2xl border border-slate-300 bg-slate-50 p-6" aria-live="polite">
             <h2 className="text-lg font-bold text-slate-900">AI evaluation skipped for urgency</h2>
             <p className="mt-2 text-sm text-slate-700">{createAssessment.data?.aiMessage ?? "Urgent guidance was returned immediately without waiting for the AI engine."}</p>
-            <p className="mt-1 text-sm text-slate-600">If you still want the saved educational view later, reopen this record with “Detailed Evaluation” and run it explicitly with consent.</p>
+            <p className="mt-1 text-sm text-slate-600">The choice is still yours: you can run the optional AI evaluation on this saved record whenever you want.</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>
+              Run AI evaluation (optional)
+            </Button>
           </section>
         )}
 
@@ -400,6 +403,20 @@ export default function SymptomAssessment() {
           <section className="mt-6 rounded-2xl border border-slate-300 bg-slate-50 p-6" aria-live="polite">
             <h2 className="text-lg font-bold text-slate-900">AI evaluation unavailable</h2>
             <p role="status" className="mt-2 text-sm text-slate-700">{createAssessment.data?.aiMessage ?? "The AI engine did not run for this record."}</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>
+              Run AI evaluation (optional)
+            </Button>
+          </section>
+        )}
+
+        {latest && !shownEvaluation && createAssessment.data?.aiStatus === "not_requested" && (
+          <section className="mt-6 rounded-2xl border border-slate-300 bg-slate-50 p-6" aria-live="polite">
+            <h2 className="text-lg font-bold text-slate-900">Optional AI evaluation — your choice</h2>
+            <p className="mt-2 text-sm text-slate-700">No AI evaluation was run for assessment #{latest.id}. The rule-based assessment above is complete and saved; nothing external was contacted.</p>
+            <p className="mt-1 text-sm text-slate-600">You can still request a consented, educational AI interpretation of this assessment at any time — or leave it as rules-only.</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setEvaluationFor({ id: latest.id, primarySymptom: latest.primarySymptom, selectedSymptoms: latest.selectedSymptoms ?? [], urgencyLevel: latest.urgencyLevel, redFlagsTriggered: latest.redFlagsTriggered ?? [] })}>
+              Run AI evaluation (optional)
+            </Button>
           </section>
         )}
 

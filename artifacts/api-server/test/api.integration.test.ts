@@ -252,7 +252,7 @@ test("API foundation persists data, enforces owner access, and fails closed with
   assert.match(classificationBody.assessment.classification.notice, /statistical classifier/i);
   const classificationPersisted = await (await jsonRequest(`/symptom-assessments/${classificationBody.assessment.id}`, "GET", undefined, cookieA)).json() as { assessment: { classification: { status: string; rankedConditions: { length: number } } } };
   assert.equal(classificationPersisted.assessment.classification.status, "completed");
-  assert.equal(classificationPersisted.assessment.classification.rankedConditions.length, 8);
+  assert.equal(classificationPersisted.assessment.classification.rankedConditions.length, 4);
   const catalogueStatus = await app.request("/api/symptoms/classifier-status");
   const catalogueBody = await catalogueStatus.json() as { available: boolean; catalogue?: string[]; mode?: string };
   assert.equal(catalogueBody.available, true);

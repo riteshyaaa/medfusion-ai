@@ -66,7 +66,7 @@ test("mixed free text is kept, not fabricated into a match", () => {
   const mixed = classifySymptoms({ selectedSymptoms: ["itching", "custom patient phrase"] });
   assert.equal(mixed.status, "completed");
   assert.deepEqual(mixed.unmatchedSymptoms, ["custom patient phrase"]);
-  assert.equal(mixed.rankedConditions?.length, 8);
+  assert.equal(mixed.rankedConditions?.length, 4);
   assert.ok(mixed.rankedConditions?.every((row) => row.score > 0 && row.score <= 1));
 });
 

@@ -71,7 +71,7 @@ export type SymptomClassification = {
   } | null;
 };
 
-const MAX_RANK_DISPLAY = 8;
+const MAX_RANK_DISPLAY = 4;
 const STATUS_CACHE_TTL_MS = 30_000;
 
 let cache: { at: number; status: SymptomClassifierStatus } | null = null;
