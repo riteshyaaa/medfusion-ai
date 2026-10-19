@@ -208,3 +208,18 @@ Upgrade of the existing Report Analysis module only — no new pipeline: all add
 - `pnpm --filter @workspace/skin-ai typecheck && pnpm --filter @workspace/skin-ai build` — passed.
 
 **Gate 7.5 decision:** Pass. The feature is owner-visible only, deliberately not public: the route checks ownership per request and no static or unsigned access path was added, keeping the documented "no public media URL" security boundary intact.
+
+### Phase 7.5.1: images of previous uploads stay private
+
+After Phase 7.5 shipped, the operator asked that records which already existed before the feature keep their image fully private, while new analyses may display it. Implemented as a server-side decision, not a frontend guess:
+
+- [x] `predictionView` now returns `imageVisible` (boolean): true only when an upload exists **and** `prediction.createdAt >= imageVisibleFrom`. The cutoff defaults to 2026-10-20 00:00 IST (`2026-10-19T18:30:00Z` UTC, the moment the image feature shipped); operators can override it with the `PREDICTION_IMAGE_VISIBLE_FROM` env var (ISO timestamp).
+- [x] History cards and the record detail page render the photo only when `uploadId` is set **and** `imageVisible` is true; otherwise the "Image kept private" placeholder shows. The UI never decides visibility locally.
+- [x] OpenAPI `PredictionResult` gained `imageVisible`; React Query and Zod clients regenerated through orval.
+- [x] Integration tests assert both sides: a prediction created after the cutoff is `imageVisible: true`, and the same record back-dated 48 hours flips to `imageVisible: false`.
+- [x] Deliberate boundary unchanged: the cutoff gates *display in the UI*; the `GET /uploads/{id}/file` route remains owner-scoped for the owner's own data (same authorization as documents), and no public or unsigned access path exists.
+
+### Phase 7.5.1 commands and results
+
+- `pnpm --filter @workspace/api-server test` — passed: 99 tests, 0 failures (cutoff behavior covered).
+- `pnpm --filter @workspace/skin-ai typecheck && pnpm --filter @workspace/skin-ai build` — passed.
