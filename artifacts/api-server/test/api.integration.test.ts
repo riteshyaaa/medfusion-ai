@@ -985,6 +985,45 @@ test("saved symptom AI evaluations are consent-gated, owner-scoped, keep failed 
   }
 });
 
+test("non-skin uploads are screened out locally and never reach the AI vision model", async () => {
+  const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
+  const { default: sharp } = await import("sharp");
+  const owner = await register(`screen-owner-${randomUUID()}@example.test`);
+
+  process.env.AI_DATA_SHARING_ENABLED = "true";
+  process.env.AI_HEALTH_DATA_TRANSFER_APPROVED = "true";
+  try {
+    const blue = await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 20, g: 60, b: 220 } } }).png().toBuffer();
+    const uploadResponse = await upload(owner.cookie, blue);
+    assert.equal(uploadResponse.status, 201);
+    const uploadId = (await uploadResponse.json() as { upload: { id: number } }).upload.id;
+
+    let providerCalled = false;
+    setTestClinicalAIProvider({
+      async analyzeSkin() {
+        providerCalled = true;
+        throw new Error("the vision model must not be contacted for locally screened non-skin images");
+      },
+      async analyzeSymptoms() { throw new Error("not used"); },
+      async analyzeCardiac() { throw new Error("not used"); },
+      async explainCardiacAssessment() { throw new Error("not used"); },
+      async evaluateSymptoms() { throw new Error("not used"); },
+    });
+
+    const prediction = await jsonRequest("/predict", "POST", { uploadId, consentToExternalProcessing: true }, owner.cookie);
+    assert.equal(prediction.status, 201);
+    const body = await prediction.json() as { disease: string; aiAssessment: { provider: string; model: string; description: string } | null; status: string };
+    assert.equal(body.disease, "Not a valid skin image");
+    assert.equal(body.aiAssessment?.provider, "local_skin_pixel_screen");
+    assert.match(body.aiAssessment?.description ?? "", /no AI vision call was made/i);
+    assert.equal(providerCalled, false, "provider must not be contacted for screened non-skin images");
+  } finally {
+    setTestClinicalAIProvider(undefined);
+    delete process.env.AI_DATA_SHARING_ENABLED;
+    delete process.env.AI_HEALTH_DATA_TRANSFER_APPROVED;
+  }
+});
+
 test("symptom submission runs one AI pipeline with urgent skip, honest failure preservation, reopen without provider calls, and warning preservation", async () => {
   const { setTestClinicalAIProvider } = await import("../src/clinical-ai");
   const { AIProviderError } = await import("../src/ai-providers");

@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { LocalPrivateStorage } from "./storage";
+import { screenSkinImage } from "./skin-screening.js";
 import { getTestInferenceProvider, hasApprovedSkinModel } from "./inference";
 import { getResearchSkinInferenceProvider, getSkinInferenceStatus, SkinInferenceError } from "./skin-inference";
 import { AIProviderError, configuredExplanationProvider, externalHealthDataTransferEnabled, getAIProviderStatus } from "./ai-providers";
@@ -817,28 +818,71 @@ app.post("/predict", requireAuth, jsonBody(predictSchema), async (c) => {
     if (!externalHealthDataTransferEnabled()) {
       throw codedError(503, "external_processing_disabled", "External AI health-data processing is disabled by server configuration.");
     }
-    let imageDataUrl: string;
+    let imageDataUrl: string | null = null;
+    let screenedOutLocally: Awaited<ReturnType<typeof screenSkinImage>> | null = null;
     try {
-      const image = await sharp(await storage.read(upload.storageKey), { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" })
-        .rotate()
-        .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
-      imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
+      const storedImage = await storage.read(upload.storageKey);
+      try {
+        // Cheap deterministic screening first: non-skin images are rejected
+        // locally so the external vision model is never contacted for them.
+        screenedOutLocally = await screenSkinImage(storedImage);
+      } catch {
+        screenedOutLocally = null;
+      }
+      if (screenedOutLocally?.verdict !== "not_skin") {
+        const image = await sharp(storedImage, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "error" })
+          .rotate()
+          .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 85 })
+          .toBuffer();
+        imageDataUrl = `data:image/jpeg;base64,${image.toString("base64")}`;
+      }
     } catch {
       throw new HTTPException(422, { message: "The stored image could not be prepared for analysis." });
     }
-    let analyzed;
+    let analyzed: { provider: string; model: string; result: { imageType: "not_skin" | "real_skin" | "unclear"; visibleAbnormality: boolean; description: string; observations: string[]; possibleConditions: Array<{ name: string; reason: string }>; uncertainty: string; severity: "mild" | "moderate" | "severe" | "uncertain"; urgency: "routine" | "prompt" | "urgent" | "emergency" | "uncertain"; nextSteps: string[]; consultClinicianWhen: string[] } };
     const skinAiStartedAt = Date.now();
-    try {
-      analyzed = await ai.provider.analyzeSkin(imageDataUrl);
-    } catch (error) {
-      console.log(`skin-ai analyze FAILED in ${Date.now() - skinAiStartedAt} ms (model=${(ai as { config?: { visionModel?: string; model?: string } }).config?.visionModel ?? (ai as { config?: { visionModel?: string; model?: string } }).config?.model ?? "unknown"} reason=${error instanceof AIProviderError ? error.code : "unknown"})`);
-      await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
-      throw aiProviderFailure(error, "Skin analysis");
+    if (screenedOutLocally?.verdict === "not_skin" || !imageDataUrl) {
+      const rejected: { skinRatio: number | null } = { skinRatio: screenedOutLocally?.skinRatio ?? null };
+      analyzed = {
+        provider: "local_skin_pixel_screen",
+        model: "ycbcr-chroma-rule-v1",
+        result: {
+          imageType: "not_skin",
+          visibleAbnormality: false,
+          description: `Local skin-pixel screening (YCbCr chroma rule) found ${Math.round((rejected.skinRatio ?? 0) * 100)}% skin-coloured pixels, below what a skin photograph contains, so no AI vision call was made. The image does not appear to be a usable skin photograph.`,
+          observations: [
+            `Only ${Math.round((rejected.skinRatio ?? 0) * 100)}% of pixels fall in the skin chroma range.`,
+            "Deterministic screening rejected the image before the external vision model was contacted.",
+          ],
+          possibleConditions: [],
+          uncertainty: "This verdict comes from deterministic colour screening, not from any disease model or AI judgement.",
+          severity: "uncertain",
+          urgency: "routine",
+          nextSteps: [
+            "Upload a close-up photograph of the skin of interest.",
+            "Avoid photos of objects, drawings, screenshots, or distant full-body shots.",
+            "Use good lighting and fill the frame with the skin area.",
+          ],
+          consultClinicianWhen: [],
+        },
+      };
+      console.log(`skin-ai screened out locally in ${Date.now() - skinAiStartedAt} ms (skinRatio=${rejected.skinRatio}); no provider call made`);
+      await logAudit(c, "prediction", "create", "success", "upload", upload.id.toString(), { reason: "screened_not_skin" });
+    } else {
+      try {
+        analyzed = await ai.provider.analyzeSkin(imageDataUrl);
+      } catch (error) {
+        console.log(`skin-ai analyze FAILED in ${Date.now() - skinAiStartedAt} ms (model=${(ai as { config?: { visionModel?: string; model?: string } }).config?.visionModel ?? (ai as { config?: { visionModel?: string; model?: string } }).config?.model ?? "unknown"} reason=${error instanceof AIProviderError ? error.code : "unknown"})`);
+        await logAudit(c, "prediction", "create", "error", "upload", upload.id.toString(), { reason: error instanceof AIProviderError ? error.code : "provider_unavailable" });
+        throw aiProviderFailure(error, "Skin analysis");
+      }
+      console.log(`skin-ai analyze ${analyzed.model} completed in ${Date.now() - skinAiStartedAt} ms`);
     }
-    console.log(`skin-ai analyze ${analyzed.model} completed in ${Date.now() - skinAiStartedAt} ms`);
     const preprocessingSteps = ["EXIF orientation applied", "Resized to fit within 1024×1024 without enlargement", "Re-encoded as JPEG at quality 85"];
+    if (screenedOutLocally?.verdict === "not_skin") {
+      preprocessingSteps.unshift("Local skin-pixel screening (YCbCr chroma rule) rejected the image before the AI vision call");
+    }
     const notSkin = analyzed.result.imageType === "not_skin";
     const healthySkin = analyzed.result.imageType === "real_skin" && !analyzed.result.visibleAbnormality;
     const conditions = [...(analyzed.result.possibleConditions ?? [])];
