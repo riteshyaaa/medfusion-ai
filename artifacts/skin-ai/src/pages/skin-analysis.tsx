@@ -6,7 +6,11 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
-import { deleteUpload, uploadFile, useGetSkinModelStatus } from "@workspace/api-client-react";
+import {
+  deleteUpload,
+  uploadFile,
+  useGetSkinModelStatus,
+} from "@workspace/api-client-react";
 
 export default function SkinAnalysis() {
   const { mutate: analyze, isPending, data: result, reset } = useAnalyzeSkin();
@@ -15,7 +19,9 @@ export default function SkinAnalysis() {
   const [isUploading, setIsUploading] = useState(false);
   const modelStatus = useGetSkinModelStatus();
   const status = modelStatus.data;
-  const researchAvailable = Boolean(status?.available && status.mode === "research_only");
+  const researchAvailable = Boolean(
+    status?.available && status.mode === "research_only",
+  );
   const [useExternalAI, setUseExternalAI] = useState(true);
 
   const handleUpload = async (uploadedFile: File) => {
@@ -35,20 +41,24 @@ export default function SkinAnalysis() {
         {
           onError: async (error) => {
             await deleteUpload(uploadId!).catch(() => undefined);
-            const message = (error as { data?: { message?: string } }).data?.message;
+            const message = (error as { data?: { message?: string } }).data
+              ?.message;
             toast({
               title: "Skin analysis did not complete",
-              description: message || "The analysis engine is temporarily unavailable. Please try again.",
+              description:
+                message ||
+                "The analysis engine is temporarily unavailable. Please try again.",
               variant: "destructive",
             });
             reset();
           },
-        }
+        },
       );
     } catch {
       toast({
         title: "Upload failed",
-        description: "The server could not validate or privately store this image. No prediction was created.",
+        description:
+          "The server could not validate or privately store this image. No prediction was created.",
         variant: "destructive",
       });
       reset();
@@ -87,16 +97,28 @@ export default function SkinAnalysis() {
               {researchAvailable
                 ? "Upload an image and get a detailed dermatology assessment: visible findings, the conditions that best fit them, and clear next steps."
                 : "Upload an image for server-side validation. No skin analysis model is currently available, so no result will be produced."}
-              {useExternalAI && <span className="block mt-2 text-indigo-700 font-medium" style={{ fontSize: "0.95rem" }}>DermVision mode: the image is assessed by the NVIDIA-hosted vision model for a detailed lesion analysis.</span>}
+              {useExternalAI && (
+                <span
+                  className="block mt-2 text-indigo-700 font-medium"
+                  style={{ fontSize: "0.95rem" }}
+                >
+                  DermVision mode
+                </span>
+              )}
             </p>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 p-2 md:p-6 border border-slate-100">
-            <UploadZone onUpload={handleUpload} isAnalyzing={isPending || isUploading} />
+            <UploadZone
+              onUpload={handleUpload}
+              isAnalyzing={isPending || isUploading}
+            />
           </div>
 
           <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Analysis mode</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+              Analysis mode
+            </p>
             <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -106,9 +128,13 @@ export default function SkinAnalysis() {
                 disabled={isPending || isUploading}
               />
               <span>
-                <span className="font-semibold">Advanced AI analysis (DermVision)</span>
+                <span className="font-semibold">
+                  Advanced AI analysis (DermVision)
+                </span>
                 <span className="block text-slate-500 text-xs mt-1">
-                  Assesses the image with the NVIDIA-hosted DermVision vision model for a detailed lesion analysis. Turn off to use the local MedScope CNN classifier instead.
+                  Assesses the image with the NVIDIA-hosted DermVision vision
+                  model for a detailed lesion analysis. Turn off to use the
+                  local MedScope CNN classifier instead.
                 </span>
               </span>
             </label>
@@ -116,26 +142,50 @@ export default function SkinAnalysis() {
 
           <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
-              <div className="text-4xl font-display font-bold text-primary mb-2">95%</div>
-              <div className="text-sm font-semibold text-slate-700">Pattern Recognition Accuracy</div>
-              <p className="text-sm text-slate-500 mt-1">Ranked latest-generation recognition model</p>
+              <div className="text-4xl font-display font-bold text-primary mb-2">
+                95%
+              </div>
+              <div className="text-sm font-semibold text-slate-700">
+                Pattern Recognition Accuracy
+              </div>
+              <p className="text-sm text-slate-500 mt-1">
+                Ranked latest-generation recognition model
+              </p>
             </div>
             <div>
-              <div className="text-4xl font-display font-bold text-primary mb-2">&lt;10s</div>
-              <div className="text-sm font-semibold text-slate-700">Average Processing Time</div>
-              <p className="text-sm text-slate-500 mt-1">Most analyses complete in seconds</p>
+              <div className="text-4xl font-display font-bold text-primary mb-2">
+                &lt;10s
+              </div>
+              <div className="text-sm font-semibold text-slate-700">
+                Average Processing Time
+              </div>
+              <p className="text-sm text-slate-500 mt-1">
+                Most analyses complete in seconds
+              </p>
             </div>
             <div>
-              <div className="text-4xl font-display font-bold text-primary mb-2">15+</div>
-              <div className="text-sm font-semibold text-slate-700">Conditions Detected</div>
-              <p className="text-sm text-slate-500 mt-1">Benign growths to serious damage</p>
+              <div className="text-4xl font-display font-bold text-primary mb-2">
+                15+
+              </div>
+              <div className="text-sm font-semibold text-slate-700">
+                Conditions Detected
+              </div>
+              <p className="text-sm text-slate-500 mt-1">
+                Benign growths to serious damage
+              </p>
             </div>
           </div>
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8 text-center px-4">
             <div>
-              <div className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-primary" : "text-slate-400"}`}>
-                {researchAvailable ? "Analysis Engine Ready" : modelStatus.isLoading ? "Checking status" : "Unavailable"}
+              <div
+                className={`text-3xl font-display font-bold mb-2 ${researchAvailable ? "text-primary" : "text-slate-400"}`}
+              >
+                {researchAvailable
+                  ? "Analysis Engine Ready"
+                  : modelStatus.isLoading
+                    ? "Checking status"
+                    : "Unavailable"}
               </div>
               <p className="text-sm text-slate-500">
                 {researchAvailable
@@ -146,18 +196,30 @@ export default function SkinAnalysis() {
               </p>
             </div>
             <div>
-                <div className="text-3xl font-display font-bold text-primary mb-2">Privacy First</div>
-                <p className="text-sm text-slate-500">Validated uploads use private server storage</p>
+              <div className="text-3xl font-display font-bold text-primary mb-2">
+                Privacy First
               </div>
-              <div>
-                <div className="text-3xl font-display font-bold text-primary mb-2">Clinical Style</div>
-                <p className="text-sm text-slate-500">Descriptions and recommendations for every result</p>
+              <p className="text-sm text-slate-500">
+                Validated uploads use private server storage
+              </p>
+            </div>
+            <div>
+              <div className="text-3xl font-display font-bold text-primary mb-2">
+                Clinical Style
               </div>
+              <p className="text-sm text-slate-500">
+                Descriptions and recommendations for every result
+              </p>
+            </div>
           </div>
 
           {/* Care Note */}
           <div className="mt-12 p-5 bg-slate-50 border border-slate-200 rounded-2xl text-center">
-            <p className="text-sm text-slate-600">Results are generated for the uploaded image only. Image quality, lighting, and skin tone affect the assessment — see a dermatologist for any spot that changes, bleeds, or does not heal.</p>
+            <p className="text-sm text-slate-600">
+              Results are generated for the uploaded image only. Image quality,
+              lighting, and skin tone affect the assessment — see a
+              dermatologist for any spot that changes, bleeds, or does not heal.
+            </p>
           </div>
         </div>
       ) : (
