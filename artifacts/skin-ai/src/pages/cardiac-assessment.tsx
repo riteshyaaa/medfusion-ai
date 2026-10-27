@@ -160,8 +160,14 @@ export default function CardiacAssessment() {
   } });
 
   const explainAssessment = useCreateCardiacAiExplanation({ mutation: {
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/cardiac/assessments"] });
+    onSuccess: async (data) => {
+      // Invalidate the explanations list for THIS record, otherwise the new
+      // summary only appears after navigation and the button looks broken,
+      // which invites a duplicate generation.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/cardiac/assessments"] }),
+        queryClient.invalidateQueries({ queryKey: [`/api/cardiac/assessments/${data.explanation.assessmentId}/ai-explanations`] }),
+      ]);
     },
   } });
 
