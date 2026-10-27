@@ -9,6 +9,7 @@ import {
   setTestOcrProvider,
 } from "../src/document-extraction";
 import {
+  createDocumentInterpreter,
   InterpretationValidationError,
   validateInterpretationSections,
   type InterpretationFindingInput,
@@ -342,4 +343,60 @@ test("findingMatchKey produces stable comparison keys for reprocess and trend ma
 
 after(() => {
   setTestOcrProvider(undefined);
+});
+
+function interpreterStub(payloads: unknown[]) {
+  let calls = 0;
+  const interpreter = createDocumentInterpreter({
+    provider: "nvidia",
+    model: "stub",
+    apiKey: "stub",
+    baseUrl: "https://stub.invalid/v1",
+    timeoutMs: 25,
+    maxRetries: 0,
+    maxConcurrency: 1,
+  }, {
+    fetchImpl: (async () => {
+      const payload = calls >= payloads.length ? payloads[payloads.length - 1] : payloads[calls];
+      calls += 1;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(payload) }, finish_reason: "stop" }],
+      }), { status: 200 });
+    }) as typeof fetch,
+  });
+  return { interpreter, count: () => calls };
+}
+
+const interpretInput = {
+  documentType: "lab_report",
+  pageCount: 1,
+  extractionMethod: "pdf_text" as const,
+  findings: interpreterFindings,
+};
+
+test("document interpretation retries once on validation rejection, then succeeds", async () => {
+  const { interpreter, count } = interpreterStub([
+    validSections({ summary: "Your cholesterol is 250 mg/dL." }),
+    validSections(),
+  ]);
+  const result = await interpreter.interpret(interpretInput);
+  assert.equal(result.sections.findingsExplained.length, 1);
+  assert.equal(count(), 2);
+});
+
+test("document interpretation still fails closed after two violating attempts", async () => {
+  const { interpreter, count } = interpreterStub([
+    validSections({ summary: "Your cholesterol is 250 mg/dL." }),
+    validSections({ summary: "Your cholesterol is 300 mg/dL." }),
+  ]);
+  await assert.rejects(interpreter.interpret(interpretInput), InterpretationValidationError);
+  assert.equal(count(), 2);
+});
+
+test("page-number references are not treated as invented numbers", async () => {
+  const sections = validateInterpretationSections(
+    validSections({ summary: "Hemoglobin 13.5 g/dL is shown on page 1 of the report." }),
+    interpreterFindings,
+  );
+  assert.equal(sections.summary.includes("page 1"), true);
 });

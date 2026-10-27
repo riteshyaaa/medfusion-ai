@@ -152,6 +152,8 @@ function assertNoInventedNumbers(sections: DocumentInterpretationSections, findi
     for (const value of [finding.label, finding.valueText, finding.unit, finding.referenceRange]) {
       if (value) allowedStrings.push(value);
     }
+    // Page numbers are extracted facts the model may legitimately cite.
+    if (finding.pageNumber !== null && finding.pageNumber !== undefined) allowedStrings.push(String(finding.pageNumber));
   }
   const allowedNormalized = allowedStrings.map((value) => value.toLowerCase());
   const allowedTokens = new Set<string>();
@@ -248,17 +250,32 @@ export function setTestDocumentInterpreter(interpreter: DocumentInterpreter | un
 
 export function createDocumentInterpreter(config: Parameters<typeof executeProviderStructuredRequest>[0], options: ProviderRequestOptions = {}): DocumentInterpreter {
   return {
+    // The endpoint is nondeterministic at temperature 0 (shared free tier), and
+    // both unreadable replies and anti-invention validation rejections can
+    // disappear on a fresh sample. One extra attempt, like the clinical
+    // provider's malformed-response retry; validation is still authoritative.
     async interpret(input) {
-      const responsePayload = await executeProviderStructuredRequest(config, {
-        system: systemPrompt,
-        user: userPrompt(input),
-        schemaName: "medscope_document_interpretation",
-        jsonSchema: documentInterpretationJsonSchema,
-        maxOutputTokens: 2_400,
-      }, options);
-      const decoded = decodeStructuredProviderText(config, responsePayload);
-      const sections = validateInterpretationSections(conformToSchema(interpretationSectionsSchema, decoded), input.findings, input.narrativeText);
-      return { provider: config.provider, model: config.model, sections };
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const responsePayload = await executeProviderStructuredRequest(config, {
+            system: systemPrompt,
+            user: userPrompt(input),
+            schemaName: "medscope_document_interpretation",
+            jsonSchema: documentInterpretationJsonSchema,
+            maxOutputTokens: 2_400,
+          }, options);
+          const decoded = decodeStructuredProviderText(config, responsePayload);
+          const sections = validateInterpretationSections(conformToSchema(interpretationSectionsSchema, decoded), input.findings, input.narrativeText);
+          return { provider: config.provider, model: config.model, sections };
+        } catch (error) {
+          lastError = error;
+          const retryable = (error instanceof AIProviderError && error.code === "provider_malformed_response")
+            || error instanceof InterpretationValidationError;
+          if (!retryable) throw error;
+        }
+      }
+      throw lastError;
     },
   };
 }
