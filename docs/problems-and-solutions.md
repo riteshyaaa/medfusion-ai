@@ -106,8 +106,15 @@ Every schema change is an additive Drizzle migration. Migration `0009` was verif
 2. `conformToSchema()` (schema-derived, in `ai-providers.ts`): before strict validation, model payloads are conformed using limits read from the zod schema itself — extra array items are dropped, overlong strings clamped, invented object keys pruned, numeric strings coerced. Genuinely unusable output still fails closed, and the clinical-safety text checks (no diagnoses, no invented percentages) run on the conformed result.
 3. This conformance is applied in the shared clinical provider **and** the document interpreter, fixing symptoms, cardiac, explanations, evaluations and report analysis uniformly.
 
+### Follow-up hardening (2026-10-27 evening)
+The user still saw occasional `HTTP 502` on cardiac explanations and report analysis. Live replays of the exact failing records showed the failures predated the fix — but two availability gaps remained:
+
+1. `AI_MAX_RETRIES=0` meant one transient NVIDIA 502 (free-tier gateway) failed the feature with no retry. Raised to `1` in `.env` — one automatic second attempt for transport errors (502/timeout/429).
+2. Report interpretation failed on anti-invention validation (e.g. the model citing "1" that isn't in the findings) with no retry, while the clinical provider already retried malformed replies. `interpret()` now earns one extra attempt for both unreadable replies and validation drift; page numbers are recognised as extracted facts. Validation remains authoritative — persistent violations still fail closed.
+
 ### Verification
-- `pnpm --filter @workspace/api-server test` — 110 tests pass, including new conformance tests (extra items dropped without a wasted retry, fail-closed behaviour kept, numeric coercion).
+- `pnpm --filter @workspace/api-server test` — 113 tests pass (interpreter retry: one violation then success succeeds after 2 calls; two violations fail closed; page-1 citation accepted)
+- `npx tsx test/feature-live-probe.mjs` — all six AI features OK, including the previously failing image and real failing cardiac assessment #152 and document #259 replayed from the database, including new conformance tests (extra items dropped without a wasted retry, fail-closed behaviour kept, numeric coercion).
 - Live probe of all six AI features: pre-existing knowledge — all succeeded (text features in 1.6–12 s, previously-failing image included).
 
 ### Key learning
