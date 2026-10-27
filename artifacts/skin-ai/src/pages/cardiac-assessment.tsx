@@ -144,12 +144,7 @@ export default function CardiacAssessment() {
   }, [searchParams]);
 
   const history = assessmentsQuery.data?.assessments ?? [];
-  const latest = history.find((item) => item.status === "research_only" && typeof item.riskScore === "number") ?? null;
   const detailQuery = useGetCardiacAssessment(openAssessmentId!, { query: { enabled: openAssessmentId !== null } });
-  // The AI summary always belongs to the record the user is actually looking
-  // at: an explicitly opened record wins over the newest one.
-  const explainTargetId = openAssessmentId ?? latest?.id ?? null;
-  const explanationsQuery = useListCardiacAiExplanations(explainTargetId!, { query: { enabled: explainTargetId !== null } });
 
   const createAssessment = useCreateCardiacAssessment({ mutation: {
     onSuccess: async (data) => {
@@ -158,6 +153,17 @@ export default function CardiacAssessment() {
       await queryClient.invalidateQueries({ queryKey: ["/api/cardiac/assessments"] });
     },
   } });
+
+  // The result dashboard is shown on demand only: for the assessment the user
+  // just performed in this visit, or the record they explicitly opened from
+  // history — not for the newest saved record just by visiting the page.
+  const sessionResult = createAssessment.data?.assessment ?? null;
+  const latest = sessionResult
+    ?? (openAssessmentId && detailQuery.data ? detailQuery.data.assessment : null);
+  // The AI summary always belongs to the record the user is actually looking
+  // at: an explicitly opened record wins over the newest one.
+  const explainTargetId = openAssessmentId ?? sessionResult?.id ?? null;
+  const explanationsQuery = useListCardiacAiExplanations(explainTargetId!, { query: { enabled: explainTargetId !== null } });
 
   const explainAssessment = useCreateCardiacAiExplanation({ mutation: {
     onSuccess: async (data) => {
