@@ -223,3 +223,12 @@ After Phase 7.5 shipped, the operator asked that records which already existed b
 
 - `pnpm --filter @workspace/api-server test` — passed: 99 tests, 0 failures (cutoff behavior covered).
 - `pnpm --filter @workspace/skin-ai typecheck && pnpm --filter @workspace/skin-ai build` — passed.
+
+### Phase 8.1: cardiac history records are clickable with full result detail
+
+The cardiac tab of Analysis History previously showed summary cards only. Each cardiac record now links to `/cardiac-assessment?record=<id>`:
+- the assessment page auto-opens that record (via a URL `record` parameter), showing the saved model inputs, urgent-symptom notice, `.pdf`/`.txt` export links, and the saved AI explanations for **that** record;
+- the AI summary is keyed to the opened record (`explainTargetId`), not the newest one — opening an older record no longer shows another record's explanation, and "Generate AI explanation" explains the opened record;
+- front-end build/typecheck pass.
+
+Note: the skin-ai `tsconfig.json` contained an invalid `"ignoreDeprecations": "6.0"` (introduced by a local UI commit); the key was removed — TypeScript 5.9 reports no deprecated-option warnings for this config, so nothing was silenced.
