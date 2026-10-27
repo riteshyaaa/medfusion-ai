@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AIProviderError,
+  conformToSchema,
   configuredProviderConfig,
   configuredVisionConfig,
   decodeStructuredProviderText,
@@ -229,7 +230,7 @@ const noDiagnosisPatterns = [
 ];
 
 function validateClinicalText<T>(schema: z.ZodType<T>, value: unknown): T {
-  const parsed = schema.safeParse(value);
+  const parsed = schema.safeParse(conformToSchema(schema, value));
   if (!parsed.success) throw new AIProviderError("provider_malformed_response");
   const texts = flattenStrings(parsed.data);
   for (const text of texts) {

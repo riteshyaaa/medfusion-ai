@@ -499,7 +499,7 @@ test("API foundation persists data, enforces owner access, and fails closed with
   const missingImage = await app.request(`/api/uploads/999999/file`, { headers: { Cookie: cookieA } });
   assert.equal(missingImage.status, 404);
   const predictionId = prediction.id;
-  await db.update(predictions).set({ createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000) }).where((await import("drizzle-orm")).eq(predictions.id, predictionId));
+  await db.update(predictions).set({ createdAt: new Date("2020-01-01T00:00:00Z") }).where((await import("drizzle-orm")).eq(predictions.id, predictionId));
   const preCutoff = await jsonRequest(`/predictions/${predictionId}`, "GET", undefined, cookieA);
   assert.equal(preCutoff.status, 200);
   assert.equal((await preCutoff.json() as { imageVisible: boolean }).imageVisible, false, "records that existed before the visibility cutoff keep their image hidden");

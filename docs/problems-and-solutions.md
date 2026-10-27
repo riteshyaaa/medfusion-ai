@@ -89,6 +89,33 @@ Every schema change is an additive Drizzle migration. Migration `0009` was verif
 
 ---
 
+## 6b. "All text AI features broke at once; some skin images throw provider_malformed_response"
+
+### Symptom
+- Symptom assessment, report interpretation, cardiac analysis and AI explanations all failed *instantly* with `provider_request_rejected`.
+- Occasionally a skin analysis failed after ~8 s with `provider_malformed_response` ("unusable response… try again") even though most images worked.
+
+### Diagnosis (measured, not guessed)
+- A live probe of every feature (`test/feature-live-probe.mjs`) showed the four text features failing in **0.0–0.1 s** — the request never reached a model — while the vision model worked. Two different root causes, not one.
+- Raw HTTP capture proved NVIDIA returns **HTTP 404 "Function … Not found for account"** when invoking `nvidia/nemotron-3-super-120b-a12b`: the model still appears in `/v1/models`, but this trial account can no longer execute it. NVIDIA account model access changed out-of-band; the app config was neither wrong nor stale.
+- For the skin flakiness, response capture (`test/skin-raw-capture.mjs`) showed the JSON *parses fine on both attempts* — the strict validator was rejecting it because the model emitted **5–6 items in `observations` / `consultClinicianWhen`** where the schema allows 4. A nearly-perfect answer was discarded wholesale, twice.
+- Report interpretation failed the same way with shape drift: `pageNumber` as string `"1"` instead of a number.
+
+### Fixes
+1. `.env`: `AI_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b` — verified live against the account (0.6–12 s per task). Zero code change; it was already allowlisted. No code change could ever fix a 404 — account access must be verified by invoking the model, not by listing it.
+2. `conformToSchema()` (schema-derived, in `ai-providers.ts`): before strict validation, model payloads are conformed using limits read from the zod schema itself — extra array items are dropped, overlong strings clamped, invented object keys pruned, numeric strings coerced. Genuinely unusable output still fails closed, and the clinical-safety text checks (no diagnoses, no invented percentages) run on the conformed result.
+3. This conformance is applied in the shared clinical provider **and** the document interpreter, fixing symptoms, cardiac, explanations, evaluations and report analysis uniformly.
+
+### Verification
+- `pnpm --filter @workspace/api-server test` — 110 tests pass, including new conformance tests (extra items dropped without a wasted retry, fail-closed behaviour kept, numeric coercion).
+- Live probe of all six AI features: pre-existing knowledge — all succeeded (text features in 1.6–12 s, previously-failing image included).
+
+### Key learning
+- "Listed in the catalog" ≠ "executable by this account" — provider platform drift is a first-class failure mode; validate by invocation.
+- A strict validator that discards a 95%-correct model response turns model drift into downtime. Conform what the schema permits, keep hard failures for what it doesn't.
+
+---
+
 ## 7. Earlier-phase defects that were found and fixed
 
 | Defect | How it was found | Fix |
@@ -114,7 +141,9 @@ Every schema change is an additive Drizzle migration. Migration `0009` was verif
 | Symptom | Check |
 |---|---|
 | Analysis slow | Server console line `skin-ai analyze <model> completed in N ms`; then `npx tsx test/vision-model-sweep.mjs` for current tok/s |
-| "Unreadable response" | Usually model/shape drift — the JSON template in `ai-providers.ts` should prevent it; if a new field was added, check `schemaToTemplate` output |
+| "Unreadable response" | Capture the raw model reply (`test/skin-raw-capture.mjs`, `test/interp-raw-capture.mjs`): it is either truncation, fences, or shape drift; `conformToSchema()` absorbs cap/shape drift, hard failure only for real garbage |
+| Instant `provider_request_rejected` on text features | Invoke the model directly (raw HTTP, status + body): NVIDIA returns 404 "Function not found" when account access lapsed even if `/v1/models` lists it; switch `AI_MODEL` to a model verified by *invocation* |
+| Every feature probe at once | `npx tsx test/feature-live-probe.mjs` exercises all six AI features live with the current config |
 | "Non-skin verdict wrong" | Deterministic YCbCr rule; test-lit skin photo; see `skin-screening.ts` thresholds |
 | Server ignores config | Restart it — env is read once at startup from the repo root |
 | Tests failing on `DATABASE_URL` | Export it from the root `.env` before running |

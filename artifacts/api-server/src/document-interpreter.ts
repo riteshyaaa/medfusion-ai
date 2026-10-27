@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AIProviderError,
+  conformToSchema,
   configuredProviderConfig,
   decodeStructuredProviderText,
   executeProviderStructuredRequest,
@@ -256,7 +257,7 @@ export function createDocumentInterpreter(config: Parameters<typeof executeProvi
         maxOutputTokens: 2_400,
       }, options);
       const decoded = decodeStructuredProviderText(config, responsePayload);
-      const sections = validateInterpretationSections(decoded, input.findings, input.narrativeText);
+      const sections = validateInterpretationSections(conformToSchema(interpretationSectionsSchema, decoded), input.findings, input.narrativeText);
       return { provider: config.provider, model: config.model, sections };
     },
   };

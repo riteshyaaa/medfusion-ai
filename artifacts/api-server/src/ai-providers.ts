@@ -168,6 +168,43 @@ export class AIProviderError extends Error {
   }
 }
 
+// Hosted models drift on response shape even with a template in the prompt
+// (verified live: 5-6 observations where the schema allows 4 wasted whole
+// analyses; document interpretation returned "1" where a number is required),
+// so a structurally usable reply is conformed to the zod schema instead of
+// failing the feature. Every limit is derived from the schema itself —
+// nothing is hardcoded — and downstream safety checks still run afterwards.
+export function conformToSchema(schema: z.ZodTypeAny, value: unknown): unknown {
+  if (schema instanceof z.ZodNumber) {
+    if (typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value.trim())) return Number(value.trim());
+    return value;
+  }
+  if (schema instanceof z.ZodString) {
+    if (typeof value !== "string") return value;
+    let text = schema._def.checks.some((check) => check.kind === "trim") ? value.trim() : value;
+    const maximum = schema._def.checks.find((check) => check.kind === "max")?.value;
+    if (typeof maximum === "number" && text.length > maximum) text = text.slice(0, maximum);
+    return text;
+  }
+  if (schema instanceof z.ZodArray) {
+    if (!Array.isArray(value)) return value;
+    const maximum = schema._def.maxLength?.value;
+    return (typeof maximum === "number" ? value.slice(0, maximum) : value).map((item) => conformToSchema(schema._def.type, item));
+  }
+  if (schema instanceof z.ZodObject) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const output: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(schema._def.shape() as Record<string, z.ZodTypeAny>)) {
+      if (key in (value as Record<string, unknown>)) output[key] = conformToSchema(child, (value as Record<string, unknown>)[key]);
+    }
+    return output;
+  }
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+    return conformToSchema(schema.unwrap(), value);
+  }
+  return value;
+}
+
 const explanationSchema = z.object({
   explanation: z.string().trim().min(1).max(1_200),
 }).strict();
