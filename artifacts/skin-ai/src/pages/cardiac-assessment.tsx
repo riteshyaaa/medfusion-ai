@@ -1,5 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Link } from "wouter";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BrainCircuit, Clock, Download, FileText,
@@ -120,6 +120,7 @@ export default function CardiacAssessment() {
   }, [contract]);
   const artifactAvailable = status?.available === true;
   const researchServingEnabled = artifactAvailable && status.researchServing?.enabled === true;
+  const searchParams = useSearch();
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [caseId, setCaseId] = useState("");
@@ -135,10 +136,20 @@ export default function CardiacAssessment() {
   const casesQuery = useListCases({ page: 1, limit: 100 });
   const assessmentsQuery = useListCardiacAssessments({ page: 1, limit: 50 });
 
+  // History cards link here with ?record=<id>: auto-open that saved record
+  // (result, inputs, exports, and saved AI explanations are rendered below it).
+  useEffect(() => {
+    const record = Number(new URLSearchParams(searchParams && searchParams.startsWith("?") ? searchParams.slice(1) : searchParams ?? "").get("record"));
+    if (Number.isSafeInteger(record) && record > 0) setOpenAssessmentId(record);
+  }, [searchParams]);
+
   const history = assessmentsQuery.data?.assessments ?? [];
   const latest = history.find((item) => item.status === "research_only" && typeof item.riskScore === "number") ?? null;
   const detailQuery = useGetCardiacAssessment(openAssessmentId!, { query: { enabled: openAssessmentId !== null } });
-  const explanationsQuery = useListCardiacAiExplanations((latest?.id ?? openAssessmentId)!, { query: { enabled: (latest?.id ?? openAssessmentId) !== null } });
+  // The AI summary always belongs to the record the user is actually looking
+  // at: an explicitly opened record wins over the newest one.
+  const explainTargetId = openAssessmentId ?? latest?.id ?? null;
+  const explanationsQuery = useListCardiacAiExplanations(explainTargetId!, { query: { enabled: explainTargetId !== null } });
 
   const createAssessment = useCreateCardiacAssessment({ mutation: {
     onSuccess: async (data) => {
@@ -475,8 +486,8 @@ export default function CardiacAssessment() {
               <Button
                 className="mt-3"
                 size="sm"
-                disabled={!consentGiven || explainAssessment.isPending || latest.status !== "research_only"}
-                onClick={() => explainAssessment.mutate({ id: latest.id, data: { consentToExternalProcessing: true } })}
+                disabled={!consentGiven || explainAssessment.isPending || explainTargetId === null || (openAssessmentId ? detailQuery.data?.assessment.status : latest?.status) !== "research_only"}
+                onClick={() => explainAssessment.mutate({ id: explainTargetId!, data: { consentToExternalProcessing: true } })}
               >
                 {explainAssessment.isPending ? "Generating explanation…" : "Generate AI explanation"}
               </Button>

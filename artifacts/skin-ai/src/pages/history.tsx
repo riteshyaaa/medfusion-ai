@@ -80,13 +80,15 @@ export default function History() {
           {cardiacQuery.isError && <div className="rounded-2xl border border-danger/20 bg-danger/5 p-8 text-center"><h2 className="font-bold text-lg mb-2">Cardiac records could not be loaded</h2><Button variant="outline" onClick={() => void cardiacQuery.refetch()} className="mt-4 gap-2"><RefreshCw className="h-4 w-4" />Retry</Button></div>}
           {!cardiacQuery.isLoading && !cardiacQuery.isError && (cardiacQuery.data?.assessments?.length ?? 0) === 0 && <div className="bg-white border border-slate-200 border-dashed rounded-3xl p-16 text-center shadow-sm"><h2 className="text-xl font-display font-bold text-slate-700 mb-2">No cardiac records</h2><p className="text-slate-500 max-w-md mx-auto mb-8">Saved cardiac risk records will appear here.</p><Link href="/cardiac-assessment" className="inline-flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-full font-semibold hover:bg-primary/90"><span>Open Cardiac Assessment</span><ChevronRight className="w-4 h-4" /></Link></div>}
           {(cardiacQuery.data?.assessments ?? []).map((item) => (
-            <article key={item.id} className="mb-4 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <article key={item.id} className="relative mb-4 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:border-primary/60 transition-colors">
+              <Link href={`/cardiac-assessment?record=${item.id}`} className="absolute inset-0 rounded-2xl" aria-label={`Open cardiac record #${item.id} with result and AI summary`} />
+              <div className="flex flex-wrap items-center justify-between gap-2 pointer-events-none">
                 <h2 className="font-semibold">{typeof item.riskScore === "number" ? `Score ${item.riskScore.toFixed(4)}` : "Not scored"}</h2>
                 <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">model score</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()} · {item.status.replace(/_/g, " ")}{item.caseId ? ` · case #${item.caseId}` : ""}</p>
-              <p className="mt-2 text-xs text-slate-500">{typeof item.aboveThreshold === "boolean" ? (item.aboveThreshold ? "Score above the risk threshold." : "Score below the risk threshold.") : "No score was produced for this record."}</p>
+              <p className="mt-1 text-xs text-slate-500 pointer-events-none">{new Date(item.createdAt).toLocaleString()} · {item.status.replace(/_/g, " ")}{item.caseId ? ` · case #${item.caseId}` : ""}</p>
+              <p className="mt-2 text-xs text-slate-500 pointer-events-none">{typeof item.aboveThreshold === "boolean" ? (item.aboveThreshold ? "Score above the risk threshold." : "Score below the risk threshold.") : "No score was produced for this record."}</p>
+              <p className="mt-3 text-right text-sm text-primary pointer-events-none">View record with AI summary <ChevronRight className="inline w-4 h-4" /></p>
             </article>
           ))}
         </section>}
